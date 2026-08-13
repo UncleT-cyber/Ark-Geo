@@ -58,6 +58,12 @@ class CascadeResult:
         self.trailing_bytes_count: int = 0
         self.exif_missing: bool = False
         self.file_format: Optional[str] = None
+        self.ela_heatmap: Optional[str] = None
+        self.gps_spoofing_detected: bool = False
+        self.anomaly_score: float = 0.0
+        self.sanity_mismatches: list = []
+        self.gps_climate_zone: Optional[str] = None
+        self.visual_climate_zone: Optional[str] = None
 
 
 class BrainPipeline:
@@ -78,12 +84,13 @@ class BrainPipeline:
 
     @property
     def ai_keys_configured(self) -> bool:
-        """True if any AI/vision API key is set in the environment."""
-        from app.core.config import settings
+        """True if any AI/vision API key is set (checks dynamic settings store)."""
         from app.brain.clue_extractors.base import llm_client
+        from app.services.settings_store import settings_store
         return bool(
-            settings.geospy_api_key
-            or settings.geoinfer_api_key
+            settings_store.get_key("geospy_api_key")
+            or settings_store.get_key("geoinfer_api_key")
+            or settings_store.get_key("llm_api_key")
             or llm_client.is_configured()
         )
 
@@ -113,7 +120,8 @@ class BrainPipeline:
         result.datetime_original = meta.get("datetime_original")
         metadata_coords = meta.get("gps")
 
-        # Steganography / EOF anomaly + EXIF-missing flags
+        # ELA heatmap + steganography + exif_missing flags
+        result.ela_heatmap = meta.get("ela_heatmap")
         stego = meta.get("steganography", {})
         result.steganography_detected = stego.get("steganography_detected", False)
         result.trailing_bytes_count = stego.get("trailing_bytes_count", 0)
@@ -206,12 +214,29 @@ class BrainPipeline:
             )
         else:
             # ---- Tier 5: Graceful low-context degradation ---------------
-            result.source = "NO_METADATA_NO_AI_KEY"
+            result.source = "EXIF_MISSING_NO_AI_KEY"
             result.status = "PARTIAL_SUCCESS"
+            result.coordinates = None
             result.message = (
                 "EXIF metadata missing or stripped. "
-                "AI keys not configured on server."
+                "No AI vision API keys configured on server. "
+                "Cannot determine geolocation."
             )
+
+        # ---- GPS Spoofing Sanity Matrix -------------------------------
+        # Cross-reference visual tags with GPS coordinates to detect
+        # context mismatches (e.g. tropical foliage tags vs Arctic GPS).
+        from app.brain.metadata_extractor import check_gps_spoofing
+        all_tags = (result.consensus.visual_evidence_tags if result.consensus else [])
+        spoof_result = check_gps_spoofing(result.coordinates, all_tags)
+        result.gps_spoofing_detected = spoof_result.get("gps_spoofing_detected", False)
+        result.anomaly_score = spoof_result.get("anomaly_score", 0.0)
+        result.sanity_mismatches = spoof_result.get("mismatches", [])
+        result.gps_climate_zone = spoof_result.get("gps_climate_zone")
+        result.visual_climate_zone = spoof_result.get("visual_climate_zone")
+        if result.gps_spoofing_detected:
+            result.tamper_flags = getattr(result, "tamper_flags", [])
+            result.tamper_flags.append("gps_spoofing_suspected")
 
         return result
 

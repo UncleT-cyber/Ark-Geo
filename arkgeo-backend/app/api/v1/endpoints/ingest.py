@@ -91,4 +91,10 @@ async def ingest(
         trailing_bytes_count=cascade.trailing_bytes_count,
         exif_missing=cascade.exif_missing,
         file_format=cascade.file_format or detected_format,
+        ela_heatmap=cascade.ela_heatmap,
+        gps_spoofing_detected=cascade.gps_spoofing_detected,
+        anomaly_score=cascade.anomaly_score,
+        sanity_mismatches=cascade.sanity_mismatches,
+        gps_climate_zone=cascade.gps_climate_zone,
+        visual_climate_zone=cascade.visual_climate_zone,
     )

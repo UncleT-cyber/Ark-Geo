@@ -131,6 +131,12 @@ class AnalyzeResponse(BaseModel):
     trailing_bytes_count: int = 0
     exif_missing: bool = False
     file_format: Optional[str] = None
+    ela_heatmap: Optional[str] = None
+    gps_spoofing_detected: bool = False
+    anomaly_score: float = Field(0.0, ge=0.0, le=1.0)
+    sanity_mismatches: List[str] = Field(default_factory=list)
+    gps_climate_zone: Optional[str] = None
+    visual_climate_zone: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -141,7 +147,6 @@ class EmergencyContact(BaseModel):
     name: str
     phone: str
     relationship: Optional[str] = None
-
 
 class SosRequest(BaseModel):
     user_id: str
@@ -188,3 +193,54 @@ class HealthResponse(BaseModel):
     version: str
     services: dict[str, str] = Field(default_factory=dict)
     uptime_seconds: float
+
+
+# --------------------------------------------------------------------------- #
+# Admin Settings (API key management + thresholds)
+# --------------------------------------------------------------------------- #
+class ApiKeysUpdate(BaseModel):
+    geospy_api_key: Optional[str] = None
+    geoinfer_api_key: Optional[str] = None
+    llm_api_key: Optional[str] = None
+    twilio_account_sid: Optional[str] = None
+    twilio_auth_token: Optional[str] = None
+    twilio_from_number: Optional[str] = None
+
+
+class ThresholdsUpdate(BaseModel):
+    min_confidence_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
+    default_uncertainty_radius: Optional[float] = Field(None, ge=100.0, le=50000.0)
+
+
+class SettingsUpdate(BaseModel):
+    api_keys: Optional[ApiKeysUpdate] = None
+    thresholds: Optional[ThresholdsUpdate] = None
+
+
+class SettingsResponse(BaseModel):
+    api_keys: dict[str, bool] = Field(
+        default_factory=dict,
+        description="Map of key name to configured (bool). Values are never returned.",
+    )
+    thresholds: dict[str, float] = Field(default_factory=dict)
+
+
+# --------------------------------------------------------------------------- #
+# Threat / Geofence Alert
+# --------------------------------------------------------------------------- #
+class ThreatAlertRequest(BaseModel):
+    alert_type: str = Field(..., description="geofence_violation | gps_spoofing")
+    user_id: Optional[str] = None
+    coordinates: Optional[Coordinates] = None
+    anomaly_score: Optional[float] = None
+    description: str = ""
+    contacts: List[EmergencyContact] = Field(default_factory=list)
+
+
+class ThreatAlertResponse(BaseModel):
+    alert_id: str
+    dispatched: bool
+    contacted: List[str] = Field(default_factory=list)
+    alert_type: str
+    message: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

@@ -66,5 +66,73 @@ class TwilioService:
         return contacted
 
 
+    def dispatch_threat_alert(
+        self,
+        contacts: List,
+        alert_type: str,
+        description: str,
+        coordinates=None,
+        anomaly_score: float | None = None,
+        user_id: str | None = None,
+    ) -> List[str]:
+        """Dispatch a standardized SOC threat alert via SMS.
+
+        Formats a JSON alert envelope and routes it through the configured
+        Twilio number.  When Twilio is not configured, the alert is logged
+        as a mock dispatch for testing.
+        """
+        # Build the standardized JSON alert envelope
+        alert_envelope = {
+            "alert_type": alert_type,
+            "severity": "HIGH" if (anomaly_score or 0) >= 0.7 else "MEDIUM",
+            "user_id": user_id or "unknown",
+            "coordinates": {
+                "lat": coordinates.lat,
+                "lon": coordinates.lon,
+            } if coordinates else None,
+            "anomaly_score": anomaly_score,
+            "description": description,
+            "map_link": f"https://maps.google.com/?q={coordinates.lat},{coordinates.lon}"
+                if coordinates else None,
+        }
+
+        body = (
+            f"⚠ ARKGEO THREAT ALERT ⚠\n"
+            f"Type: {alert_type.upper()}\n"
+            f"Severity: {alert_envelope['severity']}\n"
+        )
+        if anomaly_score is not None:
+            body += f"Anomaly Score: {anomaly_score:.2f}\n"
+        if coordinates:
+            body += f"Location: {coordinates.lat:.5f}, {coordinates.lon:.5f}\n"
+            body += f"Map: {alert_envelope['map_link']}\n"
+        body += f"Details: {description}"
+
+        contacted: List[str] = []
+        for contact in contacts:
+            if not self.is_configured:
+                logger.info(
+                    "[Twilio not configured] Mock SOC alert to %s (%s):\n%s\n"
+                    "Alert envelope: %s",
+                    getattr(contact, "name", "unknown"),
+                    getattr(contact, "phone", ""),
+                    body,
+                    alert_envelope,
+                )
+                contacted.append(getattr(contact, "phone", ""))
+                continue
+            try:
+                self._client.messages.create(  # type: ignore[union-attr]
+                    to=getattr(contact, "phone", ""),
+                    from_=settings.twilio_from_number,
+                    body=body,
+                )
+                contacted.append(getattr(contact, "phone", ""))
+                logger.info("Threat alert SMS sent to %s", getattr(contact, "phone", ""))
+            except Exception as exc:
+                logger.error("Failed to send threat alert to %s: %s", getattr(contact, "phone", ""), exc)
+        return contacted
+
+
 # Singleton
 twilio = TwilioService()

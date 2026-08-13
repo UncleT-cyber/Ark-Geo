@@ -23,6 +23,7 @@ from app.brain.clue_extractors.base import llm_client
 from app.brain.system_prompts import ENVIRONMENTAL_FORENSIC_PROMPT
 from app.core.config import settings
 from app.models import VisionResult, VisualEvidenceTag
+from app.services.settings_store import settings_store
 
 logger = logging.getLogger(__name__)
 
@@ -34,14 +35,23 @@ class VisionEnsemble:
         self._timeout = settings.vision_request_timeout
 
     async def locate(self, image_bytes: bytes) -> List[VisionResult]:
-        """Run all configured vision providers concurrently."""
+        """Run all configured vision providers concurrently.
+
+        Reads API keys dynamically from the settings store (updated via the
+        Admin Panel) so new keys take effect immediately without a restart.
+        """
+        # Read keys dynamically from settings store (falls back to config env)
+        geospy_key = settings_store.get_key("geospy_api_key")
+        geoinfer_key = settings_store.get_key("geoinfer_api_key")
+        llm_key = settings_store.get_key("llm_api_key")
+
         b64 = base64.b64encode(image_bytes).decode()
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             tasks = []
-            if settings.geospy_api_key:
-                tasks.append(self._query_geospy(client, b64))
-            if settings.geoinfer_api_key:
-                tasks.append(self._query_geoinfer(client, b64))
+            if geospy_key:
+                tasks.append(self._query_geospy(client, b64, geospy_key))
+            if geoinfer_key:
+                tasks.append(self._query_geoinfer(client, b64, geoinfer_key))
             results = await asyncio.gather(*tasks, return_exceptions=True) if tasks else []
 
         vision_results: List[VisionResult] = []
@@ -52,7 +62,9 @@ class VisionEnsemble:
                 vision_results.append(r)
 
         # LLM vision geolocator fallback / additional signal.
-        # Runs concurrently with (and independently of) the dedicated APIs.
+        # Update the shared LLM client key from the settings store at runtime.
+        if llm_key and llm_key != llm_client._key:
+            llm_client._key = llm_key
         if llm_client.is_configured():
             llm_result = await asyncio.to_thread(
                 self._query_llm_vision, image_bytes
@@ -65,11 +77,11 @@ class VisionEnsemble:
         return vision_results
 
     # ------------------------------------------------------------------ #
-    async def _query_geospy(self, client: httpx.AsyncClient, b64: str) -> VisionResult | None:
+    async def _query_geospy(self, client: httpx.AsyncClient, b64: str, api_key: str) -> VisionResult | None:
         try:
             resp = await client.post(
                 settings.geospy_api_url,
-                headers={"Authorization": f"Bearer {settings.geospy_api_key}"},
+                headers={"Authorization": f"Bearer {api_key}"},
                 json={"image": b64},
             )
             resp.raise_for_status()
@@ -88,11 +100,11 @@ class VisionEnsemble:
             logger.warning("GeoSpy query failed: %s", exc)
             return None
 
-    async def _query_geoinfer(self, client: httpx.AsyncClient, b64: str) -> VisionResult | None:
+    async def _query_geoinfer(self, client: httpx.AsyncClient, b64: str, api_key: str) -> VisionResult | None:
         try:
             resp = await client.post(
                 settings.geoinfer_api_url,
-                headers={"Authorization": f"Bearer {settings.geoinfer_api_key}"},
+                headers={"Authorization": f"Bearer {api_key}"},
                 json={"image_base64": b64},
             )
             resp.raise_for_status()

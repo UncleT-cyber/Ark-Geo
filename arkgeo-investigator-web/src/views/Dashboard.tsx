@@ -8,7 +8,7 @@
  */
 import React, { useState, useCallback, useRef } from 'react';
 import { api } from '../api';
-import type { AnalyzeResponse, Coordinates } from '../types';
+import type { AnalyzeResponse } from '../types';
 import { MapWorkspace } from '../components/MapWorkspace/MapWorkspace';
 import { FeatureInspector } from '../components/FeatureInspector/FeatureInspector';
 import { ExifViewer } from '../components/ExifViewer/ExifViewer';
@@ -18,12 +18,9 @@ import { CameraTelemetry } from '../components/FeatureInspector/CameraTelemetry'
 import { LocationCard } from '../components/FeatureInspector/LocationCard';
 import { TierCard } from '../components/FeatureInspector/TierCard';
 import { IngestionSweep } from '../components/IngestionSweep';
+import { AdminSettingsModal } from '../components/AdminSettingsModal';
 import { useToast, ToastContainer } from '../components/Toast';
-
-/** Default fallback coordinates for visual testing when the backend returns
- * no coordinates (no EXIF, no telemetry, no AI keys).  Uses a recognizable
- * world location so the flyTo animation, pin, and UI cards can be verified. */
-const FALLBACK_COORDS: Coordinates = { lat: 40.7589, lon: -73.9851 }; // Times Square, NYC
+import { exportCasePdf } from '../pdfExport';
 
 export function Dashboard() {
   const [analyzing, setAnalyzing] = useState(false);
@@ -34,6 +31,7 @@ export function Dashboard() {
   const [dragOver, setDragOver] = useState(false);
   const [history, setHistory] = useState<AnalyzeResponse[]>([]);
   const [thumbnailUrl, setThumbnailUrl] = useState<string | undefined>(undefined);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toasts, showToast, dismiss } = useToast();
 
@@ -69,12 +67,9 @@ export function Dashboard() {
   };
 
   const hasCoordinates = result?.coordinates != null;
-  // When backend returns no coordinates (degraded mode), use fallback coords
-  // so the map flyTo animation and UI cards can still be visually tested.
-  const effectiveCoords: Coordinates | null = result?.coordinates ?? (
-    result ? FALLBACK_COORDS : null
-  );
-  const mapSource = result?.source || 'FALLBACK_TEST';
+  // Use real coordinates from backend only — NO fake fallback pins.
+  const effectiveCoords = result?.coordinates ?? null;
+  const mapSource = result?.source || 'UNKNOWN';
   const mapPoints = result && effectiveCoords
     ? [{
         lat: effectiveCoords.lat,
@@ -82,22 +77,20 @@ export function Dashboard() {
         radius: result.consensus.search_radius_meters,
         confidence: result.consensus.confidence_score,
         source: mapSource,
-        label: `${result.address?.display_name || result.consensus.primary_country || 'Test Location'} · ${Math.round(result.consensus.confidence_score * 100)}%`,
+        label: `${result.address?.display_name || result.consensus.primary_country || 'Location'} · ${Math.round(result.consensus.confidence_score * 100)}%`,
         thumbnailUrl,
       }]
     : [];
 
   const historyPoints = history
-    .map((r) => {
-      const c = r.coordinates ?? FALLBACK_COORDS;
-      return {
-        lat: c.lat,
-        lon: c.lon,
-        radius: r.consensus.search_radius_meters,
-        confidence: r.consensus.confidence_score,
-        source: r.source,
-      };
-    });
+    .filter((r) => r.coordinates != null)
+    .map((r) => ({
+      lat: r.coordinates!.lat,
+      lon: r.coordinates!.lon,
+      radius: r.consensus.search_radius_meters,
+      confidence: r.consensus.confidence_score,
+      source: r.source,
+    }));
 
   const handleCopyCoords = useCallback(() => {
     if (!effectiveCoords) return;
@@ -108,6 +101,34 @@ export function Dashboard() {
     );
   }, [effectiveCoords, showToast]);
 
+  const handleGeofenceViolation = useCallback(async (point: { lat: number; lon: number }) => {
+    showToast('⚠ GEOFENCE VIOLATION — Target entered high-risk zone', 'error');
+    try {
+      await api.dispatchThreatAlert({
+        alert_type: 'geofence_violation',
+        coordinates: { lat: point.lat, lon: point.lon },
+        description: 'Target marker intersected a high-risk geofence polygon',
+        contacts: [{ name: 'SOC Team', phone: '+15551234567' }],
+      });
+      showToast('Threat alert dispatched to SOC', 'warning');
+    } catch {
+      // Non-blocking — alert is logged on backend
+    }
+  }, [showToast]);
+
+  const handleExportPdf = useCallback(() => {
+    if (!result) {
+      showToast('No analysis to export', 'warning');
+      return;
+    }
+    try {
+      exportCasePdf(result, thumbnailUrl);
+      showToast('Case evidence PDF exported', 'success');
+    } catch (err) {
+      showToast('PDF export failed', 'error');
+    }
+  }, [result, thumbnailUrl, showToast]);
+
   return (
     <div className="dashboard">
       {/* Top bar */}
@@ -115,6 +136,23 @@ export function Dashboard() {
         <div className="topbar-brand">
           <span className="topbar-logo">ARKGEO</span>
           <span className="topbar-subtitle">Investigator Portal</span>
+        </div>
+        <div className="topbar-actions">
+          <button
+            className="topbar-btn"
+            onClick={handleExportPdf}
+            disabled={!result}
+            title="Compile Case Evidence PDF"
+          >
+            📄 Export PDF
+          </button>
+          <button
+            className="topbar-btn"
+            onClick={() => setSettingsOpen(true)}
+            title="System Settings"
+          >
+            ⚙ Settings
+          </button>
         </div>
         <div className="topbar-status">
           {analyzing && <span className="status-analyzing">ANALYZING...</span>}
@@ -218,7 +256,12 @@ export function Dashboard() {
 
         {/* CENTER — Interactive Map */}
         <main className="main-panel">
-          <MapWorkspace points={mapPoints} history={historyPoints} onCopyCoords={handleCopyCoords} />
+          <MapWorkspace
+            points={mapPoints}
+            history={historyPoints}
+            onCopyCoords={handleCopyCoords}
+            onGeofenceViolation={handleGeofenceViolation}
+          />
           <IngestionSweep active={analyzing} />
           {result && (
             <div className="map-overlay-info">
@@ -290,7 +333,12 @@ export function Dashboard() {
               />
 
               {/* CARD 2: VISUAL EVIDENCE & CLUES */}
-              <FeatureInspector tags={result.consensus.visual_evidence_tags} source={result.source} />
+              <FeatureInspector
+                tags={result.consensus.visual_evidence_tags}
+                source={result.source}
+                response={result}
+                imageUrl={thumbnailUrl ?? null}
+              />
 
               <CameraTelemetry
                 camera={result.camera}
@@ -315,12 +363,18 @@ export function Dashboard() {
               <div className="empty-icon">🔍</div>
               <div className="empty-title">No Analysis Yet</div>
               <div className="empty-subtext">
-                Upload an image to begin forensic geolocation analysis
+                Upload an image to begin forensic geolocation analysis.
+                Results are unique to each image's actual bytes and metadata.
               </div>
             </div>
           )}
         </aside>
       </div>
+      <AdminSettingsModal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onToast={showToast}
+      />
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </div>
   );

@@ -57,5 +57,27 @@ export interface AnalyzeResponse {
   trailing_bytes_count?: number;
   exif_missing?: boolean;
   file_format?: string | null;
+  ela_heatmap?: string | null;
+  gps_spoofing_detected?: boolean;
+  anomaly_score?: number;
+  sanity_mismatches?: string[];
+  gps_climate_zone?: string | null;
+  visual_climate_zone?: string | null;
+  created_at: string;
+}
+
+/** Admin settings response. */
+export interface SettingsResponse {
+  api_keys: Record<string, boolean>;
+  thresholds: Record<string, number>;
+}
+
+/** Threat alert response from /threat-alert endpoint. */
+export interface ThreatAlertResponse {
+  alert_id: string;
+  dispatched: boolean;
+  contacted: string[];
+  alert_type: string;
+  message: string;
   created_at: string;
 }

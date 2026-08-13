@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import math
 from typing import Optional
 
 import piexif
@@ -91,6 +92,235 @@ def detect_format(image_bytes: bytes) -> str | None:
     if image_bytes.startswith(b"\x89\x50\x4e\x47"):
         return "png"
     return None
+
+
+# --------------------------------------------------------------------------- #
+# Error Level Analysis (ELA)
+# --------------------------------------------------------------------------- #
+def generate_ela_heatmap(image_bytes: bytes, quality: int = 95) -> str | None:
+    """Generate an Error Level Analysis heatmap as a Base64-encoded PNG.
+
+    ELA works by re-saving the image at a known JPEG compression quality,
+    then computing the absolute pixel-by-pixel difference between the
+    original and the re-saved version.  Regions that were previously
+    compressed (authentic camera output) show small differences, while
+    regions that were edited / spliced in show larger differences because
+    they lose more data on the second compression pass.
+
+    The result is rescaled to maximise visible contrast and returned as a
+    Base64-encoded PNG string suitable for an ``<img src="data:...">`` tag.
+
+    Returns ``None`` if the image cannot be processed (e.g. PNG with no
+    JPEG re-save path, or corrupt data).
+    """
+    try:
+        original = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception as exc:
+        logger.warning("ELA: could not open image: %s", exc)
+        return None
+
+    # Re-save at the target quality
+    resave_buf = io.BytesIO()
+    original.save(resave_buf, format="JPEG", quality=quality)
+    resave_buf.seek(0)
+    try:
+        resaved = Image.open(resave_buf).convert("RGB")
+    except Exception as exc:
+        logger.warning("ELA: could not re-open resaved image: %s", exc)
+        return None
+
+    # Ensure dimensions match (they should for JPEG, but guard anyway)
+    if resaved.size != original.size:
+        resaved = resaved.resize(original.size)
+
+    # Compute absolute pixel difference
+    import numpy as np
+    orig_arr = np.asarray(original, dtype=np.int16)
+    re_arr = np.asarray(resaved, dtype=np.int16)
+    diff = np.abs(orig_arr - re_arr)
+
+    # Rescale to 0-255 for maximum contrast
+    max_val = diff.max()
+    if max_val == 0:
+        # Identical — no compression artefacts at all (suspicious or lossless)
+        diff_scaled = np.zeros_like(diff, dtype=np.uint8)
+    else:
+        diff_scaled = (diff * (255.0 / max_val)).clip(0, 255).astype(np.uint8)
+
+    # Convert to a heatmap-style image: amplify with a cyan-magenta colormap
+    # so high-difference regions stand out visually.
+    ela_image = Image.fromarray(diff_scaled, mode="RGB")
+
+    # Apply a simple heatmap tint by boosting the red channel where diff is high
+    # and boosting blue where diff is low.
+    r = diff_scaled[:, :, 0].astype(np.uint8)
+    g = (diff_scaled[:, :, 1] * 0.2).astype(np.uint8)
+    b = (255 - diff_scaled[:, :, 2]).astype(np.uint8)
+    heatmap = np.stack([r, g, b], axis=-1).astype(np.uint8)
+    ela_image = Image.fromarray(heatmap, mode="RGB")
+
+    # Resize for frontend payload efficiency (max 400px wide)
+    max_width = 400
+    if ela_image.width > max_width:
+        ratio = max_width / ela_image.width
+        ela_image = ela_image.resize(
+            (max_width, int(ela_image.height * ratio)), Image.LANCZOS
+        )
+
+    out_buf = io.BytesIO()
+    ela_image.save(out_buf, format="PNG")
+    ela_b64 = base64.b64encode(out_buf.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{ela_b64}"
+
+
+# --------------------------------------------------------------------------- #
+# GPS Spoofing Sanity Matrix
+# --------------------------------------------------------------------------- #
+# Climate zone definitions approximated by latitude bands.
+# These are used to cross-reference botanical tags with GPS coordinates.
+
+_TROPICAL_LABELS = {
+    "palm", "coconut", "banana", "mango", "papaya", "hibiscus", "orchid",
+    "fern", "bamboo", "tropical", "jungle", "rainforest", "mangrove",
+    "bromeliad", "plumeria", "frangipani", "teak", "mahogany",
+}
+
+_ARCTIC_LABELS = {
+    "pine", "spruce", "fir", "birch", "willow", "lichen", "moss",
+    "tundra", "conifer", "evergreen", "snow", "ice", "glacier",
+    "arctic", "subarctic", "taiga",
+}
+
+_DESERT_LABELS = {
+    "cactus", "succulent", "aloe", "agave", "sage", "sand", "rock",
+    "desert", "arid", "drought", "mesquite", "ocotillo", "yucca",
+}
+
+# Infrastructure / electrical standards by region
+_INFRA_EU_LABELS = {"european", "europe", "eu license", "230v", "50hz", "type c", "type f"}
+_INFRA_US_LABELS = {"american", "us license", "120v", "60hz", "type a", "type b"}
+_INFRA_UK_LABELS = {"uk license", "230v uk", "type g", "british", "left-hand"}
+
+
+def _lat_to_climate(lat: float) -> str:
+    """Map a latitude to a rough climate zone label."""
+    abs_lat = abs(lat)
+    if abs_lat >= 66.5:
+        return "arctic"
+    if abs_lat >= 45:
+        return "temperate_cold"
+    if abs_lat >= 23.5:
+        return "temperate"
+    return "tropical"
+
+
+def _classify_botanical_tag(label: str) -> str:
+    """Classify a botanical tag label into a climate expectation."""
+    label_lower = label.lower().strip()
+    if any(t in label_lower for t in _TROPICAL_LABELS):
+        return "tropical"
+    if any(t in label_lower for t in _ARCTIC_LABELS):
+        return "arctic"
+    if any(t in label_lower for t in _DESERT_LABELS):
+        return "desert"
+    return "unknown"
+
+
+def check_gps_spoofing(
+    gps_coords: Optional[Coordinates],
+    visual_tags: list,
+) -> dict:
+    """Cross-reference visual environment tags with GPS coordinates.
+
+    Consumes the outputs of the botanical and infrastructure clue
+    extractors (``VisualEvidenceTag`` objects or dicts with
+    ``category``, ``label``, ``confidence``) and compares the implied
+    climate / region against the GPS-derived climate zone.
+
+    Returns a dict:
+        gps_spoofing_detected – bool
+        anomaly_score          – float (0.0 to 1.0)
+        mismatches            – list[str] (human-readable mismatch descriptions)
+        gps_climate_zone      – str | None
+        visual_climate_zone   – str | None
+    """
+    result = {
+        "gps_spoofing_detected": False,
+        "anomaly_score": 0.0,
+        "mismatches": [],
+        "gps_climate_zone": None,
+        "visual_climate_zone": None,
+    }
+
+    if not gps_coords:
+        return result
+
+    gps_climate = _lat_to_climate(gps_coords.lat)
+    result["gps_climate_zone"] = gps_climate
+
+    # Collect botanical and infrastructure tags
+    botanical_climates: list[tuple[str, float]] = []
+    infra_regions: list[str] = []
+    for tag in visual_tags:
+        category = getattr(tag, "category", "") or (tag.get("category", "") if isinstance(tag, dict) else "")
+        label = getattr(tag, "label", "") or (tag.get("label", "") if isinstance(tag, dict) else "")
+        confidence = getattr(tag, "confidence", 0.5)
+        if isinstance(tag, dict):
+            confidence = tag.get("confidence", 0.5)
+
+        if category == "botanical":
+            climate = _classify_botanical_tag(label)
+            if climate != "unknown":
+                botanical_climates.append((climate, float(confidence)))
+        elif category == "infrastructure":
+            label_lower = label.lower()
+            if any(r in label_lower for r in _INFRA_EU_LABELS):
+                infra_regions.append("EU")
+            elif any(r in label_lower for r in _INFRA_US_LABELS):
+                infra_regions.append("US")
+            elif any(r in label_lower for r in _INFRA_UK_LABELS):
+                infra_regions.append("UK")
+
+    # Determine dominant visual climate zone (weighted by confidence)
+    if botanical_climates:
+        climate_scores: dict[str, float] = {}
+        for climate, conf in botanical_climates:
+            climate_scores[climate] = climate_scores.get(climate, 0.0) + conf
+        dominant_visual = max(climate_scores, key=climate_scores.get)
+        result["visual_climate_zone"] = dominant_visual
+
+        # Check mismatch
+        if dominant_visual != gps_climate:
+            # Severity based on how extreme the mismatch is
+            mismatch_pairs = {
+                ("tropical", "arctic"), ("arctic", "tropical"),
+                ("tropical", "temperate_cold"), ("arctic", "tropical"),
+                ("desert", "arctic"), ("arctic", "desert"),
+            }
+            is_severe = (dominant_visual, gps_climate) in mismatch_pairs or \
+                        (gps_climate, dominant_visual) in mismatch_pairs
+            score = min(1.0, climate_scores[dominant_visual] * (1.5 if is_severe else 0.7))
+            result["anomaly_score"] = max(result["anomaly_score"], score)
+            result["mismatches"].append(
+                f"Botanical tags suggest '{dominant_visual}' climate but GPS "
+                f"coordinates resolve to '{gps_climate}' zone "
+                f"(lat={gps_coords.lat:.4f})"
+            )
+
+    # Check infrastructure vs GPS hemisphere
+    if infra_regions:
+        # Simple check: if GPS is in the southern hemisphere but infra says
+        # EU/US/UK (northern), flag as suspicious
+        for region in infra_regions:
+            if gps_coords.lat < -30 and region in ("EU", "US", "UK"):
+                result["anomaly_score"] = max(result["anomaly_score"], 0.8)
+                result["mismatches"].append(
+                    f"Infrastructure tags indicate '{region}' standards but "
+                    f"GPS is in southern hemisphere (lat={gps_coords.lat:.4f})"
+                )
+
+    result["gps_spoofing_detected"] = result["anomaly_score"] >= 0.5
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -195,6 +425,7 @@ class MetadataExtractor:
             },
             "exif_missing": False,
             "file_format": None,
+            "ela_heatmap": None,
         }
 
         # Steganography / EOF anomaly scan (runs before decode for early flag)
@@ -205,6 +436,9 @@ class MetadataExtractor:
             result["tamper_flags"].append(
                 f"trailing_bytes:{stego['trailing_bytes_count']}"
             )
+
+        # Error Level Analysis (ELA) — generates a base64 heatmap
+        result["ela_heatmap"] = generate_ela_heatmap(image_bytes)
 
         img = _decode_image(image_bytes)
 

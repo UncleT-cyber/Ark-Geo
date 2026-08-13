@@ -21,12 +21,57 @@ interface MapPoint {
   source?: string;
   label?: string;
   thumbnailUrl?: string;
+  isHighRisk?: boolean;
+}
+
+interface GeofencePolygon {
+  name: string;
+  coords: [number, number][]; // [lat, lon] pairs
+  severity: 'high' | 'medium';
 }
 
 interface Props {
   points: MapPoint[];
   history?: MapPoint[];
   onCopyCoords?: () => void;
+  onGeofenceViolation?: (point: MapPoint) => void;
+}
+
+// Default high-risk geofence polygons (example: restricted zones)
+const DEFAULT_GEOFENCES: GeofencePolygon[] = [
+  {
+    name: 'Restricted Zone Alpha',
+    coords: [
+      [38.8951, -77.0364],
+      [38.8951, -77.0264],
+      [38.8851, -77.0264],
+      [38.8851, -77.0364],
+    ],
+    severity: 'high',
+  },
+  {
+    name: 'Restricted Zone Beta',
+    coords: [
+      [40.7128, -74.0100],
+      [40.7128, -73.9900],
+      [40.7028, -73.9900],
+      [40.7028, -74.0100],
+    ],
+    severity: 'high',
+  },
+];
+
+/** Check if a point is inside a polygon (ray casting algorithm). */
+function pointInPolygon(lat: number, lon: number, polygon: [number, number][]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i][0], yi = polygon[i][1];
+    const xj = polygon[j][0], yj = polygon[j][1];
+    const intersect = ((yi > lat) !== (yj > lat))
+      && (lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
 }
 
 function zoomForSource(source?: string): number {
@@ -141,7 +186,23 @@ function createTacticalMarker(
   return marker;
 }
 
-export function MapWorkspace({ points, history, onCopyCoords }: Props) {
+// Animated threat beacon marker — used when a point is inside a high-risk geofence
+function createThreatBeaconMarker(lat: number, lon: number): L.Marker {
+  const icon = L.divIcon({
+    className: 'arkgeo-threat-beacon',
+    html: `<div class="threat-beacon-wrapper">
+      <div class="threat-beacon-pulse"></div>
+      <div class="threat-beacon-pulse threat-beacon-pulse-2"></div>
+      <div class="threat-beacon-core">⚠</div>
+    </div>`,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+    popupAnchor: [0, -20],
+  });
+  return L.marker([lat, lon], { icon });
+}
+
+export function MapWorkspace({ points, history, onCopyCoords, onGeofenceViolation }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
@@ -190,29 +251,66 @@ export function MapWorkspace({ points, history, onCopyCoords }: Props) {
     layer.clearLayers();
     if (points.length === 0) return;
 
+    // Draw geofence polygons
+    DEFAULT_GEOFENCES.forEach((fence) => {
+      L.polygon(fence.coords, {
+        color: fence.severity === 'high' ? '#EF4444' : '#F59E0B',
+        fillColor: fence.severity === 'high' ? '#EF4444' : '#F59E0B',
+        fillOpacity: 0.08,
+        weight: 2,
+        dashArray: '8, 4',
+      })
+        .bindTooltip(fence.name, { permanent: false, direction: 'center' })
+        .addTo(layer);
+    });
+
     const activePoint = points[points.length - 1];
     currentPointRef.current = activePoint;
+
+    // Check if active point is inside any high-risk geofence
+    const inHighRisk = DEFAULT_GEOFENCES.some(
+      (f) => f.severity === 'high' && pointInPolygon(activePoint.lat, activePoint.lon, f.coords),
+    );
 
     // Draw uncertainty circle (cyan, semi-transparent)
     L.circle([activePoint.lat, activePoint.lon], {
       radius: activePoint.radius,
-      color: '#38BDF8',
-      fillColor: '#38BDF8',
+      color: inHighRisk ? '#EF4444' : '#38BDF8',
+      fillColor: inHighRisk ? '#EF4444' : '#38BDF8',
       fillOpacity: 0.12,
       weight: 2,
       opacity: 0.7,
     }).addTo(layer);
 
-    // Drop custom tactical marker
-    const markerColor = confidenceColor(activePoint.confidence);
-    const marker = createTacticalMarker(
-      activePoint.lat,
-      activePoint.lon,
-      markerColor,
-      activePoint.thumbnailUrl,
-      onCopyCoords,
-    );
-    marker.addTo(layer);
+    // Drop marker — threat beacon if in high-risk geofence, otherwise tactical
+    if (inHighRisk) {
+      const beacon = createThreatBeaconMarker(activePoint.lat, activePoint.lon);
+      beacon.bindPopup(
+        `<div class="arkgeo-blueprint-popup" style="font-family:'JetBrains Mono',monospace;min-width:200px;background:#0B0F17;border:1px solid #EF4444;border-radius:6px;padding:10px;">
+          <div style="color:#EF4444;font-weight:700;font-size:12px;letter-spacing:1px;">⚠ GEOFENCE VIOLATION</div>
+          <div style="color:#F87171;font-size:11px;margin-top:6px;">Target is inside a HIGH-RISK restricted zone</div>
+          <div style="color:#7DD3FC;font-size:12px;margin-top:6px;font-family:monospace;">
+            ${activePoint.lat.toFixed(5)}°, ${activePoint.lon.toFixed(5)}°
+          </div>
+        </div>`,
+        { className: 'arkgeo-popup-wrapper', maxWidth: 300 },
+      );
+      beacon.addTo(layer);
+      // Dispatch geofence violation callback
+      if (onGeofenceViolation) {
+        onGeofenceViolation({ ...activePoint, isHighRisk: true });
+      }
+    } else {
+      const markerColor = confidenceColor(activePoint.confidence);
+      const marker = createTacticalMarker(
+        activePoint.lat,
+        activePoint.lon,
+        markerColor,
+        activePoint.thumbnailUrl,
+        onCopyCoords,
+      );
+      marker.addTo(layer);
+    }
 
     // Draw historical trajectory (dashed cyan)
     if (history && history.length > 1) {
@@ -243,7 +341,7 @@ export function MapWorkspace({ points, history, onCopyCoords }: Props) {
       duration: 2.5,
       easeLinearity: 0.25,
     });
-  }, [points, history, onCopyCoords]);
+  }, [points, history, onCopyCoords, onGeofenceViolation]);
 
   return (
     <div

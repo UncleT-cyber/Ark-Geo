@@ -62,7 +62,7 @@ class TestBrainPipeline:
         from app.brain.pipeline import brain
         img = _make_plain_image()
         result = await brain.analyze(img)
-        assert result.source == "NO_METADATA_NO_AI_KEY"
+        assert result.source == "EXIF_MISSING_NO_AI_KEY"
         assert result.status == "PARTIAL_SUCCESS"
         assert result.consensus.confidence_score <= 0.1
         assert result.consensus.tier_used == "consensus"

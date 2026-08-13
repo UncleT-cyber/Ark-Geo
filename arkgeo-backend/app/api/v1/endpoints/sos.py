@@ -7,7 +7,7 @@ import uuid
 from fastapi import APIRouter
 
 from app.core.security import sha256_hex
-from app.models import SosRequest, SosResponse
+from app.models import SosRequest, SosResponse, ThreatAlertRequest, ThreatAlertResponse
 from app.services.twilio_service import twilio
 
 router = APIRouter()
@@ -42,4 +42,37 @@ async def trigger_sos(request: SosRequest):
         dispatched=len(contacted) > 0,
         contacted=contacted,
         map_link=map_link,
+    )
+
+
+@router.post("/threat-alert", response_model=ThreatAlertResponse)
+async def trigger_threat_alert(request: ThreatAlertRequest):
+    """Threat Integration Hub — dispatch a standardized SOC alert.
+
+    Triggered when the frontend or ingestion engine records a critical
+    geofence violation or an active GPS spoofing threat.  Formats a JSON
+    alert envelope and routes it via Twilio.
+    """
+    alert_id = str(uuid.uuid4())
+
+    contacted = twilio.dispatch_threat_alert(
+        contacts=request.contacts,
+        alert_type=request.alert_type,
+        description=request.description,
+        coordinates=request.coordinates,
+        anomaly_score=request.anomaly_score,
+        user_id=request.user_id,
+    )
+
+    logger.warning(
+        "Threat alert %s dispatched: type=%s score=%s to %d contacts",
+        alert_id, request.alert_type, request.anomaly_score, len(contacted),
+    )
+
+    return ThreatAlertResponse(
+        alert_id=alert_id,
+        dispatched=len(contacted) > 0,
+        contacted=contacted,
+        alert_type=request.alert_type,
+        message=f"Threat alert ({request.alert_type}) dispatched to {len(contacted)} contact(s)",
     )

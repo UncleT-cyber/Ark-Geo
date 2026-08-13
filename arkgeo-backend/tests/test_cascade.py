@@ -258,7 +258,7 @@ class TestCascadePipeline:
         img = _make_plain_image()
         result = await brain.analyze(img)
 
-        assert result.source == "NO_METADATA_NO_AI_KEY"
+        assert result.source == "EXIF_MISSING_NO_AI_KEY"
         assert result.status == "PARTIAL_SUCCESS"
         assert result.coordinates is None
         assert result.message is not None

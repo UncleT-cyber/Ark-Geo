@@ -66,10 +66,29 @@ export interface AnalyzeResponse {
   created_at: string;
 }
 
-/** Admin settings response. */
-export interface SettingsResponse {
-  api_keys: Record<string, boolean>;
+/** Admin config key status — masked, never returns full key value. */
+export interface AdminConfigKeyStatus {
+  configured: boolean;
+  key_preview: string | null; // truncated, e.g. "sk-proj-...3f8a"
+}
+
+/** Admin config response from GET /admin/config (JWT-protected). */
+export interface AdminConfigResponse {
+  api_keys: Record<string, AdminConfigKeyStatus>;
   thresholds: Record<string, number>;
+}
+
+/** Admin login response from POST /admin/login. */
+export interface AdminLoginResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
+/** Token verification response from GET /admin/verify. */
+export interface AdminTokenStatus {
+  valid: boolean;
+  username: string | null;
 }
 
 /** Threat alert response from /threat-alert endpoint. */

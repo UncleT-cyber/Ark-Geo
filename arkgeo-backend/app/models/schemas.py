@@ -196,7 +196,7 @@ class HealthResponse(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
-# Admin Settings (API key management + thresholds)
+# Admin Console auth & config
 # --------------------------------------------------------------------------- #
 class ApiKeysUpdate(BaseModel):
     geospy_api_key: Optional[str] = None
@@ -212,17 +212,30 @@ class ThresholdsUpdate(BaseModel):
     default_uncertainty_radius: Optional[float] = Field(None, ge=100.0, le=50000.0)
 
 
-class SettingsUpdate(BaseModel):
+class AdminLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class AdminLoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class AdminConfigKeyStatus(BaseModel):
+    configured: bool
+    key_preview: Optional[str] = None  # truncated, e.g. "sk-proj-...3f8a"
+
+
+class AdminConfigResponse(BaseModel):
+    api_keys: dict[str, AdminConfigKeyStatus] = Field(default_factory=dict)
+    thresholds: dict[str, float] = Field(default_factory=dict)
+
+
+class AdminConfigUpdate(BaseModel):
     api_keys: Optional[ApiKeysUpdate] = None
     thresholds: Optional[ThresholdsUpdate] = None
-
-
-class SettingsResponse(BaseModel):
-    api_keys: dict[str, bool] = Field(
-        default_factory=dict,
-        description="Map of key name to configured (bool). Values are never returned.",
-    )
-    thresholds: dict[str, float] = Field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------- #

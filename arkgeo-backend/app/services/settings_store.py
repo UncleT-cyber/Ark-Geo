@@ -136,6 +136,25 @@ class SettingsStore:
         """Return a map of key name → configured (bool)."""
         return {name: bool(self._cache.get(name)) for name in _KEY_FIELDS}
 
+    def get_keys_masked(self) -> dict[str, dict]:
+        """Return a map of key name → {configured, key_preview}.
+
+        The preview is a truncated representation (first 8 chars + last 4 chars)
+        that NEVER exposes the full key value to the frontend.
+        """
+        result = {}
+        for name in _KEY_FIELDS:
+            value = self._cache.get(name)
+            if value:
+                if len(value) <= 12:
+                    preview = f"{value[:4]}...{value[-2:]}" if len(value) > 6 else "••••"
+                else:
+                    preview = f"{value[:8]}...{value[-4:]}"
+                result[name] = {"configured": True, "key_preview": preview}
+            else:
+                result[name] = {"configured": False, "key_preview": None}
+        return result
+
     def get_thresholds(self) -> dict[str, float]:
         return dict(self._thresholds)
 

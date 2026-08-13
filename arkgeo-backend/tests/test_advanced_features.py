@@ -168,53 +168,125 @@ class TestSettingsStore:
 
 
 # --------------------------------------------------------------------------- #
-# Settings API endpoint
+# Admin Console API (authenticated)
 # --------------------------------------------------------------------------- #
-class TestSettingsAPI:
+class TestAdminAPI:
     def setup_method(self):
         from main import app
         from fastapi.testclient import TestClient
         self.client = TestClient(app)
 
-    def test_get_settings(self):
-        resp = self.client.get("/api/v1/settings")
+    def _login(self):
+        """Authenticate as admin and return the bearer token."""
+        resp = self.client.post("/api/v1/admin/login", json={
+            "username": "admin",
+            "password": "arkgeo-admin",
+        })
+        assert resp.status_code == 200
+        return resp.json()["access_token"]
+
+    def _auth_headers(self, token: str | None = None):
+        return {"Authorization": f"Bearer {token or self._login()}"}
+
+    def test_login_bad_credentials_rejected(self):
+        resp = self.client.post("/api/v1/admin/login", json={
+            "username": "admin",
+            "password": "wrong-password",
+        })
+        assert resp.status_code == 401
+
+    def test_login_bad_username_rejected(self):
+        resp = self.client.post("/api/v1/admin/login", json={
+            "username": "notadmin",
+            "password": "arkgeo-admin",
+        })
+        assert resp.status_code == 401
+
+    def test_config_requires_auth(self):
+        """GET /admin/config without a token must return 401."""
+        resp = self.client.get("/api/v1/admin/config")
+        assert resp.status_code == 401
+
+    def test_config_post_requires_auth(self):
+        """POST /admin/config without a token must return 401."""
+        resp = self.client.post("/api/v1/admin/config", json={"thresholds": {}})
+        assert resp.status_code == 401
+
+    def test_get_config(self):
+        resp = self.client.get("/api/v1/admin/config", headers=self._auth_headers())
         assert resp.status_code == 200
         data = resp.json()
         assert "api_keys" in data
         assert "thresholds" in data
         assert "min_confidence_threshold" in data["thresholds"]
+        # Verify masked key status structure
+        for name, status in data["api_keys"].items():
+            assert "configured" in status
+            assert "key_preview" in status
 
     def test_update_thresholds(self):
-        resp = self.client.put("/api/v1/settings", json={
+        resp = self.client.post("/api/v1/admin/config", json={
             "thresholds": {
                 "min_confidence_threshold": 0.8,
                 "default_uncertainty_radius": 1000.0,
             }
-        })
+        }, headers=self._auth_headers())
         assert resp.status_code == 200
         data = resp.json()
         assert data["thresholds"]["min_confidence_threshold"] == 0.8
-        self.client.put("/api/v1/settings", json={
+        assert data["thresholds"]["default_uncertainty_radius"] == 1000.0
+        # Reset
+        self.client.post("/api/v1/admin/config", json={
             "thresholds": {
                 "min_confidence_threshold": 0.5,
                 "default_uncertainty_radius": 500.0,
             }
-        })
+        }, headers=self._auth_headers())
 
-    def test_update_api_keys(self):
-        resp = self.client.put("/api/v1/settings", json={
-            "api_keys": {"geospy_api_key": "test-secret-key"}
-        })
+    def test_update_api_keys_returns_masked_only(self):
+        """Submitted API keys must never be echoed back in the response."""
+        secret_value = "sk-test-secret-key-abc123xyz"
+        resp = self.client.post("/api/v1/admin/config", json={
+            "api_keys": {"geospy_api_key": secret_value}
+        }, headers=self._auth_headers())
         assert resp.status_code == 200
         data = resp.json()
-        assert data["api_keys"]["geospy_api_key"] is True
-        assert "test-secret-key" not in str(data)
-        self.client.put("/api/v1/settings", json={
+        # Configured flag must be True
+        assert data["api_keys"]["geospy_api_key"]["configured"] is True
+        # Preview must be truncated — never the full key
+        preview = data["api_keys"]["geospy_api_key"]["key_preview"]
+        assert preview is not None
+        assert secret_value not in str(data)
+        assert len(preview) < len(secret_value)
+        # Clean up
+        self.client.post("/api/v1/admin/config", json={
             "api_keys": {"geospy_api_key": None}
-        })
+        }, headers=self._auth_headers())
 
-    def test_test_connection(self):
-        resp = self.client.post("/api/v1/settings/test-connection?key_name=geospy_api_key")
+    def test_verify_token(self):
+        resp = self.client.get("/api/v1/admin/verify", headers=self._auth_headers())
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["valid"] is True
+        assert data["username"] == "admin"
+
+    def test_verify_rejects_bad_token(self):
+        resp = self.client.get("/api/v1/admin/verify", headers={
+            "Authorization": "Bearer invalid-token-string"
+        })
+        assert resp.status_code == 401
+
+    def test_test_connection_requires_auth(self):
+        resp = self.client.post(
+            "/api/v1/admin/config/test-connection?key_name=geospy_api_key"
+        )
+        assert resp.status_code == 401
+
+    def test_test_connection_authenticated(self):
+        resp = self.client.post(
+            "/api/v1/admin/config/test-connection?key_name=geospy_api_key",
+            headers=self._auth_headers(),
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["key_name"] == "geospy_api_key"

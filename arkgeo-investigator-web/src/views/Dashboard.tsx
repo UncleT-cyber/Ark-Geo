@@ -18,7 +18,6 @@ import { CameraTelemetry } from '../components/FeatureInspector/CameraTelemetry'
 import { LocationCard } from '../components/FeatureInspector/LocationCard';
 import { TierCard } from '../components/FeatureInspector/TierCard';
 import { IngestionSweep } from '../components/IngestionSweep';
-import { AdminSettingsModal } from '../components/AdminSettingsModal';
 import { useToast, ToastContainer } from '../components/Toast';
 import { exportCasePdf } from '../pdfExport';
 
@@ -31,7 +30,6 @@ export function Dashboard() {
   const [dragOver, setDragOver] = useState(false);
   const [history, setHistory] = useState<AnalyzeResponse[]>([]);
   const [thumbnailUrl, setThumbnailUrl] = useState<string | undefined>(undefined);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toasts, showToast, dismiss } = useToast();
 
@@ -145,13 +143,6 @@ export function Dashboard() {
             title="Compile Case Evidence PDF"
           >
             📄 Export PDF
-          </button>
-          <button
-            className="topbar-btn"
-            onClick={() => setSettingsOpen(true)}
-            title="System Settings"
-          >
-            ⚙ Settings
           </button>
         </div>
         <div className="topbar-status">
@@ -370,11 +361,6 @@ export function Dashboard() {
           )}
         </aside>
       </div>
-      <AdminSettingsModal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        onToast={showToast}
-      />
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </div>
   );

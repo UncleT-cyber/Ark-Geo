@@ -75,6 +75,18 @@ class Settings(BaseSettings):
     # --- Data retention ---------------------------------------------
     default_zero_retention: bool = False
 
+    # --- Admin Console auth -----------------------------------------
+    admin_username: str = Field(
+        default="admin",
+        description="Username for the authenticated Admin Console.",
+    )
+    admin_password_hash: str = Field(
+        default="",
+        description="Bcrypt hash of the admin password. If empty, a default "
+                    "password 'arkgeo-admin' is hashed at startup (CHANGE IN PRODUCTION).",
+    )
+    admin_jwt_expiry_minutes: int = 120
+
     @property
     def aes_key_bytes(self) -> bytes:
         """Return the AES key padded / truncated to exactly 32 bytes."""
@@ -85,6 +97,26 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def get_admin_password_hash() -> str:
+    """Return the admin password bcrypt hash.
+
+    If ``admin_password_hash`` is not set in the environment, a default
+    password ``arkgeo-admin`` is hashed lazily.  This MUST be overridden
+    in production via the ``ARKGEO_ADMIN_PASSWORD_HASH`` env var.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    if settings.admin_password_hash:
+        return settings.admin_password_hash
+    # Default password — only for development
+    from app.core.security import hash_password
+    logger.warning(
+        "ARKGEO_ADMIN_PASSWORD_HASH not set — using default password. "
+        "Set ARKGEO_ADMIN_PASSWORD_HASH in production."
+    )
+    return hash_password("arkgeo-admin")
 
 
 settings = get_settings()

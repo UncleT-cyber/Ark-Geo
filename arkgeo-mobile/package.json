@@ -1,0 +1,35 @@
+{
+  "name": "arkgeo-mobile",
+  "version": "0.1.0",
+  "main": "src/App.tsx",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "expo": "~51.0.0",
+    "expo-camera": "~15.0.0",
+    "expo-location": "~17.0.0",
+    "expo-av": "~14.0.0",
+    "expo-secure-store": "~13.0.0",
+    "expo-sqlite": "~14.0.0",
+    "expo-file-system": "~17.0.0",
+    "expo-haptics": "~13.0.0",
+    "expo-status-bar": "~1.12.0",
+    "@react-navigation/native": "^6.1.17",
+    "@react-navigation/bottom-tabs": "^6.6.0",
+    "react-native": "0.74.5",
+    "react": "18.2.0",
+    "react-native-maps": "1.14.0",
+    "axios": "^1.7.2",
+    "react-native-paper": "^5.12.3",
+    "react-native-vector-icons": "^10.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "~18.2.79",
+    "typescript": "~5.3.3"
+  },
+  "private": true
+}

@@ -1,0 +1,31 @@
+/* ArkGeo Investigator Portal — global styles */
+:root {
+  --bg-darkest: #0B0F17;
+  --bg-dark: #111827;
+  --bg-card: #1A2332;
+  --bg-elevated: #243044;
+  --bg-input: #0D1421;
+  --cyan: #38BDF8;
+  --cyan-dim: #0EA5E9;
+  --cyan-bright: #7DD3FC;
+  --emergency: #EF4444;
+  --success: #22C55E;
+  --warning: #F59E0B;
+  --text-primary: #F1F5F9;
+  --text-secondary: #94A3B8;
+  --text-muted: #64748B;
+  --border: #334155;
+  --border-dim: #1E293B;
+}
+
+* { box-sizing: border-box; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg-darkest); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--cyan-dim); }
+
+.mono {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  letter-spacing: 0.5px;
+}

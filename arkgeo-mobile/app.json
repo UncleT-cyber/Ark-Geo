@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "ArkGeo",
+    "slug": "arkgeo-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0B0F17",
+      "resizeMode": "contain"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "ArkGeo uses the camera for safety check-ins and forensic capture.",
+        "NSLocationWhenInUseUsageDescription": "ArkGeo uses your location for emergency dispatch.",
+        "NSLocationAlwaysUsageDescription": "ArkGeo uses your location for the Dead-Man's switch.",
+        "NSMicrophoneUsageDescription": "ArkGeo records 5-second ambient audio for safety context."
+      }
+    },
+    "android": {
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "RECORD_AUDIO",
+        "VIBRATE"
+      ]
+    },
+    "plugins": ["expo-camera", "expo-location", "expo-av"]
+  }
+}

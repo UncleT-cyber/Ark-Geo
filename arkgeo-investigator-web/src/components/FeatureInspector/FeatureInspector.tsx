@@ -41,15 +41,21 @@ export function FeatureInspector({ tags }: Props) {
   if (tags.length === 0) {
     return (
       <div className="panel-section">
-        <div className="panel-title">VISUAL EVIDENCE</div>
-        <div className="panel-empty">No evidence tags extracted</div>
+        <div className="panel-title">VISUAL EVIDENCE &amp; CLUES</div>
+        <div className="panel-empty">
+          No visual evidence tags for this target.
+          <div className="panel-empty-sub">
+            Hardware EXIF or telemetry sources do not generate visual clue tags —
+            these are produced by AI vision analysis only.
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="panel-section">
-      <div className="panel-title">VISUAL EVIDENCE INSPECTOR</div>
+      <div className="panel-title">VISUAL EVIDENCE &amp; CLUES</div>
       <div className="tag-groups">
         {Object.entries(grouped).map(([cat, catTags]) => (
           <div key={cat} className="tag-group">

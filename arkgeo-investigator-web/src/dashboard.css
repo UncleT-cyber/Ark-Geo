@@ -193,6 +193,64 @@
   padding: 3px 0; gap: 8px;
 }
 
+/* ---- Location Card ---- */
+.location-card { padding-bottom: 12px; }
+.coord-display {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 0; font-size: 16px; font-weight: 700;
+}
+.coord-value { font-size: 16px; font-weight: 700; }
+.coord-sep { color: var(--text-muted); font-size: 14px; }
+.location-address {
+  font-size: 13px; color: var(--text-secondary); line-height: 1.45;
+  padding: 6px 0 10px; border-bottom: 1px solid var(--border-dim);
+  margin-bottom: 10px;
+}
+.location-address-muted { color: var(--text-muted); font-style: italic; }
+
+/* ---- Confidence Bar ---- */
+.confidence-bar-container { display: flex; flex-direction: column; gap: 4px; }
+.confidence-bar-header {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.confidence-bar-label {
+  font-size: 10px; color: var(--text-muted); letter-spacing: 1px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.confidence-bar-pct { font-size: 14px; font-weight: 700; }
+.confidence-bar-track {
+  width: 100%; height: 8px; background: var(--bg-input);
+  border-radius: 4px; overflow: hidden; margin: 2px 0;
+}
+.confidence-bar-fill {
+  height: 100%; border-radius: 4px;
+  transition: width 0.5s ease, background-color 0.3s ease;
+}
+.confidence-bar-detail {
+  font-size: 11px; color: var(--text-muted);
+}
+
+/* ---- Tier Card ---- */
+.tier-card { padding-bottom: 12px; }
+.tier-badge {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px; background: var(--bg-input);
+  border-radius: 6px; border-left: 3px solid;
+}
+.tier-icon { font-size: 18px; line-height: 1; }
+.tier-text { display: flex; flex-direction: column; gap: 2px; }
+.tier-label {
+  font-size: 13px; font-weight: 700;
+}
+.tier-desc {
+  font-size: 11px; color: var(--text-muted); line-height: 1.4;
+}
+
+/* ---- Panel empty sub-text ---- */
+.panel-empty-sub {
+  font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.4;
+}
+
 /* ---- Feature Inspector ---- */
 .tag-groups { display: flex; flex-direction: column; gap: 6px; }
 .tag-group { background: var(--bg-input); border-radius: 6px; overflow: hidden; }

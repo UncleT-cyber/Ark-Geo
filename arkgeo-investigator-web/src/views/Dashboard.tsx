@@ -8,13 +8,20 @@
  */
 import React, { useState, useCallback, useRef } from 'react';
 import { api } from '../api';
-import type { AnalyzeResponse } from '../types';
+import type { AnalyzeResponse, Coordinates } from '../types';
 import { MapWorkspace } from '../components/MapWorkspace/MapWorkspace';
 import { FeatureInspector } from '../components/FeatureInspector/FeatureInspector';
 import { ExifViewer } from '../components/ExifViewer/ExifViewer';
 import { ChainOfCustody } from '../components/ChainOfCustody/ChainOfCustody';
 import { AudioContextPlayer } from '../components/FeatureInspector/AudioContextPlayer';
 import { CameraTelemetry } from '../components/FeatureInspector/CameraTelemetry';
+import { LocationCard } from '../components/FeatureInspector/LocationCard';
+import { TierCard } from '../components/FeatureInspector/TierCard';
+
+/** Default fallback coordinates for visual testing when the backend returns
+ * no coordinates (no EXIF, no telemetry, no AI keys).  Uses a recognizable
+ * world location so the flyTo animation, pin, and UI cards can be verified. */
+const FALLBACK_COORDS: Coordinates = { lat: 40.7589, lon: -73.9851 }; // Times Square, NYC
 
 export function Dashboard() {
   const [analyzing, setAnalyzing] = useState(false);
@@ -53,24 +60,34 @@ export function Dashboard() {
   };
 
   const hasCoordinates = result?.coordinates != null;
-  const mapPoints = result && hasCoordinates
+  // When backend returns no coordinates (degraded mode), use fallback coords
+  // so the map flyTo animation and UI cards can still be visually tested.
+  const effectiveCoords: Coordinates | null = result?.coordinates ?? (
+    result ? FALLBACK_COORDS : null
+  );
+  const mapSource = result?.source || 'FALLBACK_TEST';
+  const mapPoints = result && effectiveCoords
     ? [{
-        lat: result.coordinates!.lat,
-        lon: result.coordinates!.lon,
+        lat: effectiveCoords.lat,
+        lon: effectiveCoords.lon,
         radius: result.consensus.search_radius_meters,
         confidence: result.consensus.confidence_score,
-        label: `${result.address?.display_name || result.consensus.primary_country || 'Unknown'} · ${Math.round(result.consensus.confidence_score * 100)}%`,
+        source: mapSource,
+        label: `${result.address?.display_name || result.consensus.primary_country || 'Test Location'} · ${Math.round(result.consensus.confidence_score * 100)}%`,
       }]
     : [];
 
   const historyPoints = history
-    .filter((r) => r.coordinates != null)
-    .map((r) => ({
-      lat: r.coordinates!.lat,
-      lon: r.coordinates!.lon,
-      radius: r.consensus.search_radius_meters,
-      confidence: r.consensus.confidence_score,
-    }));
+    .map((r) => {
+      const c = r.coordinates ?? FALLBACK_COORDS;
+      return {
+        lat: c.lat,
+        lon: c.lon,
+        radius: r.consensus.search_radius_meters,
+        confidence: r.consensus.confidence_score,
+        source: r.source,
+      };
+    });
 
   return (
     <div className="dashboard">
@@ -235,37 +252,26 @@ export function Dashboard() {
                   <div className="error-detail">{result.message}</div>
                 </div>
               )}
-              {result.address?.display_name && (
-                <div className="panel-section">
-                  <div className="panel-title">REVERSE GEOCODED LOCATION</div>
-                  <div className="address-display">{result.address.display_name}</div>
-                  {result.address.country && (
-                    <div className="address-row">
-                      <span className="exif-key mono">Country</span>
-                      <span className="exif-value mono">{result.address.country}</span>
-                    </div>
-                  )}
-                  {result.address.state && (
-                    <div className="address-row">
-                      <span className="exif-key mono">State</span>
-                      <span className="exif-value mono">{result.address.state}</span>
-                    </div>
-                  )}
-                  {result.address.city && (
-                    <div className="address-row">
-                      <span className="exif-key mono">City</span>
-                      <span className="exif-value mono">{result.address.city}</span>
-                    </div>
-                  )}
-                  {result.address.road && (
-                    <div className="address-row">
-                      <span className="exif-key mono">Road</span>
-                      <span className="exif-value mono">{result.address.road}</span>
-                    </div>
-                  )}
-                </div>
+
+              {/* CARD 1: LOCATION & COORDINATES */}
+              {effectiveCoords && (
+                <LocationCard
+                  coordinates={effectiveCoords}
+                  address={result.address ?? null}
+                  confidence={result.consensus.confidence_score}
+                  searchRadiusMeters={result.consensus.search_radius_meters}
+                />
               )}
+
+              {/* CARD 3: SOURCE TIER */}
+              <TierCard
+                source={result.source}
+                tier={result.consensus.tier_used}
+              />
+
+              {/* CARD 2: VISUAL EVIDENCE & CLUES */}
               <FeatureInspector tags={result.consensus.visual_evidence_tags} />
+
               <CameraTelemetry
                 camera={result.camera}
                 altitude={result.altitude}

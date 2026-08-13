@@ -64,6 +64,125 @@ export interface AnalyzeResponse {
   gps_climate_zone?: string | null;
   visual_climate_zone?: string | null;
   created_at: string;
+  // Workbench forensic extensions
+  deep_metadata?: DeepMetadata | null;
+  consistency_findings?: ConsistencyFinding[];
+  provenance?: ProvenanceResult | null;
+  geolocation_fusion?: GeoFusionResult | null;
+  source_discovery?: SourceDiscoveryResult | null;
+  contradictions?: Contradiction[];
+  evidence_summary?: EvidenceSummary | null;
+  analysis_log?: string[];
+}
+
+/** ExifTool deep metadata tree. */
+export interface DeepMetadata {
+  available: boolean;
+  groups: Record<string, MetadataGroupEntry[]>;
+  raw: Record<string, unknown>[];
+  file_info: Record<string, unknown>;
+  error?: string | null;
+}
+
+export interface MetadataGroupEntry {
+  tag: string;
+  value: string;
+}
+
+/** Structured metadata consistency finding. */
+export interface ConsistencyFinding {
+  status: 'OK' | 'WARNING' | 'ERROR';
+  type: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH';
+  message: string;
+  evidence: string[];
+}
+
+/** C2PA / Content Credentials provenance result. */
+export interface ProvenanceResult {
+  state: 'VERIFIED' | 'UNAVAILABLE' | 'INVALID' | 'INCOMPLETE';
+  manifest_found: boolean;
+  issuer?: string | null;
+  signature_valid?: boolean | null;
+  claims: unknown[];
+  actions: string[];
+  modifications: string[];
+  warnings: string[];
+  detail: string;
+}
+
+/** Multi-layer geolocation fusion result with explainability. */
+export interface GeoFusionResult {
+  hypothesis: { lat: number; lon: number } | null;
+  primary_location: string;
+  confidence: number;
+  supporting: FusionEvidence[];
+  contradicting: FusionEvidence[];
+  independent_evidence_classes: number;
+  detail: {
+    question: string;
+    supporting: string[];
+    against: string[];
+    independent_evidence_classes: number;
+    confidence_pct: number;
+    note: string;
+  };
+}
+
+export interface FusionEvidence {
+  layer: string;
+  label: string;
+  direction: 'supporting' | 'contradicting' | 'neutral';
+  confidence: number;
+  evidence_class: string;
+  value?: string;
+}
+
+/** Source discovery result (provider-agnostic). */
+export interface SourceDiscoveryResult {
+  state: 'AVAILABLE' | 'UNAVAILABLE';
+  phash: string;
+  embedded_urls: string[];
+  exact_matches: unknown[];
+  similar_matches: unknown[];
+  timeline: unknown[];
+  provider: string;
+  detail: string;
+}
+
+/** Structured contradiction across evidence layers. */
+export interface Contradiction {
+  what_conflicts: string;
+  evidence_sources: string[];
+  reliability: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH';
+  affects_assessment: boolean;
+  type: string;
+}
+
+/** Investigation overview — what we know / don't know / suspicious. */
+export interface EvidenceSummary {
+  location: string;
+  confidence: number;
+  integrity: string;
+  provenance: string;
+  contradictions: number;
+  evidence_count: number;
+  sources_discovered: number;
+  analysis_status: string;
+  known: string[];
+  unknown: string[];
+  suspicious: string[];
+  next_steps: string[];
+}
+
+/** Analyst override. */
+export interface AnalystOverride {
+  finding_key: string;
+  decision: 'confirm' | 'reject' | 'needs_review';
+  note: string;
+  analyst_id: string;
+  created_at_ms: number;
 }
 
 /** Admin config key status — masked, never returns full key value. */

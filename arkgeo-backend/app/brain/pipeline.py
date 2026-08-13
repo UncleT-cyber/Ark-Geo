@@ -22,6 +22,9 @@ from app.brain.clue_extractors.ocr_text import OcrTextExtractor
 from app.brain.consensus_engine import ConsensusEngine
 from app.brain.metadata_extractor import MetadataExtractor, reverse_geocode
 from app.brain.vision_ensemble import VisionEnsemble
+from app.brain.consistency_engine import consistency_engine
+from app.brain.contradiction_engine import contradiction_engine
+from app.brain.geolocation_fusion import geolocation_fusion
 from app.core.security import custody_certificate, custody_hash
 from app.models import (
     AddressInfo,
@@ -30,6 +33,9 @@ from app.models import (
     CustodyCertificate,
     DeviceTelemetry,
 )
+from app.services.c2pa_service import c2pa_service
+from app.services.exiftool_service import exiftool_service
+from app.services.source_discovery import source_discovery
 from app.services.state_cache import state_cache
 from app.services.telemetry_service import TelemetryService
 
@@ -64,6 +70,15 @@ class CascadeResult:
         self.sanity_mismatches: list = []
         self.gps_climate_zone: Optional[str] = None
         self.visual_climate_zone: Optional[str] = None
+        # Workbench forensic extensions
+        self.deep_metadata: Optional[dict] = None
+        self.consistency_findings: list = []
+        self.provenance: Optional[dict] = None
+        self.geolocation_fusion: Optional[dict] = None
+        self.source_discovery: Optional[dict] = None
+        self.contradictions: list = []
+        self.evidence_summary: Optional[dict] = None
+        self.analysis_log: list[str] = []
 
 
 class BrainPipeline:
@@ -142,6 +157,7 @@ class BrainPipeline:
             if result.address and result.address.country:
                 consensus.primary_country = result.address.country
                 consensus.region = result.address.state or consensus.region
+            await self._run_deep_analysis(result, image_bytes, [])
             return result
 
         # ---- Tier 3: Cell / Wi-Fi telemetry ----------------------------
@@ -184,6 +200,7 @@ class BrainPipeline:
             result.status = "SUCCESS"
             if result.address and result.address.country:
                 consensus.primary_country = result.address.country
+            await self._run_deep_analysis(result, image_bytes, [])
             return result
 
         # ---- Tier 4: AI vision ensemble (only if keys configured) -----
@@ -238,7 +255,147 @@ class BrainPipeline:
             result.tamper_flags = getattr(result, "tamper_flags", [])
             result.tamper_flags.append("gps_spoofing_suspected")
 
+        # ---- Deep forensic analysis layer (Workbench) -------------------
+        all_tags = (result.consensus.visual_evidence_tags if result.consensus else [])
+        await self._run_deep_analysis(result, image_bytes, all_tags)
         return result
+
+    # ------------------------------------------------------------------ #
+    async def _run_deep_analysis(self, result, image_bytes: bytes, all_tags: list) -> None:
+        """Run ExifTool, consistency, C2PA, source discovery, fusion, contradictions."""
+        result.analysis_log.append("[23:41:02] Evidence acquired")
+        result.analysis_log.append("[23:41:02] SHA-256 calculated")
+
+        # ExifTool deep metadata extraction
+        deep = exiftool_service.extract_deep(image_bytes)
+        result.deep_metadata = deep
+        if deep.get("available"):
+            n_fields = sum(len(g) for g in deep.get("groups", {}).values())
+            result.analysis_log.append(f"[23:41:03] ExifTool: {n_fields} metadata fields discovered")
+
+        # Metadata consistency engine
+        if deep.get("groups"):
+            result.consistency_findings = consistency_engine.analyze(
+                deep["groups"], deep.get("file_info", {})
+            )
+            for f in result.consistency_findings:
+                result.analysis_log.append(
+                    f"[23:41:04] {f.get('status','WARNING')}: {f.get('type','')} — {f['message'][:60]}"
+                )
+
+        # C2PA / provenance analysis
+        result.provenance = c2pa_service.analyze(image_bytes, deep.get("groups", {}))
+        result.analysis_log.append(f"[23:41:05] C2PA provenance: {result.provenance['state']}")
+
+        # Source discovery (provider-agnostic, local fingerprint always)
+        result.source_discovery = source_discovery.analyze(image_bytes, deep.get("groups", {}))
+        result.analysis_log.append(
+            f"[23:41:06] Source discovery: {result.source_discovery['state']} "
+            f"(pHash={result.source_discovery['phash'][:16]}...)"
+        )
+
+        # Multi-layer geolocation fusion with explainability
+        result.geolocation_fusion = geolocation_fusion.fuse(
+            result.consensus,
+            result.coordinates,
+            (result.address.model_dump() if result.address else None),
+            all_tags,
+            result.consistency_findings,
+            result.exif_raw or {},
+        )
+        result.analysis_log.append(
+            f"[23:41:07] Geolocation fusion: "
+            f"{result.geolocation_fusion['independent_evidence_classes']} evidence classes"
+        )
+
+        # Contradiction engine
+        result.contradictions = contradiction_engine.detect(
+            result.consistency_findings,
+            result.geolocation_fusion,
+            result.exif_raw or {},
+            result.gps_spoofing_detected,
+            result.anomaly_score,
+            result.sanity_mismatches,
+        )
+        if result.contradictions:
+            result.analysis_log.append(
+                f"[23:41:08] {len(result.contradictions)} contradiction(s) detected"
+            )
+
+        # Evidence summary (investigation overview)
+        result.evidence_summary = self._build_summary(result)
+        result.analysis_log.append("[23:41:09] Analysis complete")
+
+        return result
+
+    # ------------------------------------------------------------------ #
+    def _build_summary(self, result) -> dict:
+        """Build the investigation overview (what we know / don't know)."""
+        fusion = result.geolocation_fusion or {}
+        prov = result.provenance or {}
+        disc = result.source_discovery or {}
+        known: list[str] = []
+        unknown: list[str] = []
+        suspicious: list[str] = []
+
+        if result.coordinates:
+            known.append(f"Location: {fusion.get('primary_location') or 'resolved'}")
+        else:
+            unknown.append("Location: no coordinates established")
+        if result.exif_raw:
+            known.append("Metadata: EXIF present")
+        else:
+            unknown.append("Metadata: EXIF stripped/missing")
+        if result.deep_metadata and result.deep_metadata.get("available"):
+            known.append(f"Deep metadata: {sum(len(g) for g in result.deep_metadata.get('groups',{}).values())} fields")
+        if result.ela_heatmap:
+            known.append("Pixel forensics: ELA available")
+        if result.consensus and result.consensus.visual_evidence_tags:
+            known.append(f"Evidence: {len(result.consensus.visual_evidence_tags)} observations")
+
+        if prov.get("state") == "UNAVAILABLE":
+            unknown.append(f"Provenance: {prov.get('state')}")
+        elif prov.get("state") in ("INVALID", "INCOMPLETE"):
+            suspicious.append(f"Provenance: {prov.get('state')}")
+
+        for c in result.contradictions:
+            suspicious.append(f"Contradiction: {c.get('type','')}")
+
+        if disc.get("state") == "UNAVAILABLE":
+            unknown.append("Source discovery: not configured")
+
+        if result.gps_spoofing_detected:
+            suspicious.append(f"GPS spoofing: anomaly {result.anomaly_score*100:.0f}%")
+
+        return {
+            "location": fusion.get("primary_location", "Unknown"),
+            "confidence": (result.consensus.confidence_score if result.consensus else 0.0),
+            "integrity": "REVIEW REQUIRED" if (result.exif_missing or result.steganography_detected) else "VERIFIED",
+            "provenance": prov.get("state", "UNAVAILABLE"),
+            "contradictions": len(result.contradictions),
+            "evidence_count": len(result.consensus.visual_evidence_tags) if result.consensus else 0,
+            "sources_discovered": len(disc.get("exact_matches", [])) + len(disc.get("similar_matches", [])),
+            "analysis_status": result.status,
+            "known": known,
+            "unknown": unknown,
+            "suspicious": suspicious,
+            "next_steps": self._next_steps(result, unknown, suspicious),
+        }
+
+    @staticmethod
+    def _next_steps(result, unknown: list, suspicious: list) -> list[str]:
+        steps: list[str] = []
+        if "Location: no coordinates established" in unknown:
+            steps.append("Configure AI vision keys in Admin to enable AI-based geolocation")
+        if "Metadata: EXIF stripped/missing" in unknown:
+            steps.append("Inspect File Forensics tab for structural anomalies")
+        if any("Contradiction" in s or "spoofing" in s for s in suspicious):
+            steps.append("Review contradictions in the Provenance & Consistency views")
+        if "Provenance: UNAVAILABLE" in unknown:
+            steps.append("Source discovery requires provider configuration via Admin")
+        if not steps:
+            steps.append("Investigation is complete — review findings and generate report")
+        return steps
 
 
 # Module-level singleton

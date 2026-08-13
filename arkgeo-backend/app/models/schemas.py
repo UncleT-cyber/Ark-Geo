@@ -139,6 +139,42 @@ class AnalyzeResponse(BaseModel):
     visual_climate_zone: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+    # ------------------------------------------------------------------ #
+    # Workbench forensic extensions (deep analysis layer)
+    # ------------------------------------------------------------------ #
+    deep_metadata: Optional[dict[str, Any]] = Field(
+        None,
+        description="ExifTool deep metadata tree (groups + file_info).",
+    )
+    consistency_findings: List[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Structured metadata consistency findings.",
+    )
+    provenance: Optional[dict[str, Any]] = Field(
+        None,
+        description="C2PA / Content Credentials provenance result.",
+    )
+    geolocation_fusion: Optional[dict[str, Any]] = Field(
+        None,
+        description="Multi-layer geolocation evidence model with explainability.",
+    )
+    source_discovery: Optional[dict[str, Any]] = Field(
+        None,
+        description="Reverse image search / source footprint result.",
+    )
+    contradictions: List[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Structured contradictions detected across evidence layers.",
+    )
+    evidence_summary: Optional[dict[str, Any]] = Field(
+        None,
+        description="Investigation overview (what we know / don't know / suspicious).",
+    )
+    analysis_log: List[str] = Field(
+        default_factory=list,
+        description="Live analysis stream of forensic processing events.",
+    )
+
 
 # --------------------------------------------------------------------------- #
 # SOS
@@ -257,3 +293,27 @@ class ThreatAlertResponse(BaseModel):
     alert_type: str
     message: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# --------------------------------------------------------------------------- #
+# Analyst overrides
+# --------------------------------------------------------------------------- #
+class AnalystOverrideRequest(BaseModel):
+    image_sha256: str
+    finding_key: str = Field(..., description="e.g. 'location', 'integrity', 'provenance'")
+    decision: str = Field(..., description="confirm | reject | needs_review")
+    note: str = ""
+    analyst_id: str = "analyst"
+
+
+class AnalystOverrideResponse(BaseModel):
+    image_sha256: str
+    finding_key: str
+    decision: str
+    note: str = ""
+    analyst_id: str
+    logged_at_ms: int
+
+
+class AnalystOverrideListResponse(BaseModel):
+    overrides: List[dict[str, Any]] = Field(default_factory=list)

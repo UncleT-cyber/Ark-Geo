@@ -38,6 +38,10 @@ _KEY_FIELDS = (
     "twilio_account_sid",
     "twilio_auth_token",
     "twilio_from_number",
+    "reverse_search_api_key",
+    "ocr_api_key",
+    "c2pa_api_key",
+    "satellite_api_key",
 )
 
 

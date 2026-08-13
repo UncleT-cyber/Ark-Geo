@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { Dashboard } from './views/Dashboard';
+import { Workbench } from './components/workbench/Workbench';
 import { AdminLoginForm } from './components/AdminLoginForm';
 import { AdminConsole } from './components/AdminConsole';
 import { NotFoundPage } from './components/NotFoundPage';
@@ -46,12 +46,17 @@ export default function App() {
   const ADMIN_CONSOLE_PATH = `/${ADMIN_ROUTE_SLUG}/console`;
 
   // Global hotkey: Cmd+Shift+P (Mac) / Ctrl+Shift+P (others) → admin login
+  // Only fires on non-root routes (admin/login pages). On the workbench (root),
+  // the Workbench component handles Cmd+Shift+P to open its command palette.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const modKey = e.metaKey || e.ctrlKey;
       if (modKey && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
-        e.preventDefault();
-        window.location.href = ADMIN_LOGIN_PATH;
+        // Only intercept on admin routes — let Workbench handle it on /
+        if (window.location.pathname !== '/') {
+          e.preventDefault();
+          window.location.href = ADMIN_LOGIN_PATH;
+        }
       }
     };
     window.addEventListener('keydown', handler);
@@ -61,8 +66,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Public investigator portal */}
-        <Route path="/" element={<Dashboard />} />
+        {/* Public investigator portal — Forensic Workbench */}
+        <Route path="/" element={<Workbench />} />
 
         {/* Obfuscated admin route — login gate */}
         <Route path={ADMIN_LOGIN_PATH} element={<AdminRoute mode="login" />} />

@@ -1,6 +1,6 @@
 /** API client for the ArkGeo Investigator Web Portal. */
 import axios from 'axios';
-import type { AnalyzeResponse, AdminConfigResponse, AdminLoginResponse, AdminTokenStatus, ThreatAlertResponse } from './types';
+import type { AnalyzeResponse, AdminConfigResponse, AdminLoginResponse, AdminTokenStatus, ThreatAlertResponse, AnalystOverride } from './types';
 
 const BASE_URL = (import.meta as any).env?.VITE_ARKGEO_API_URL || '/api/v1';
 
@@ -114,6 +114,24 @@ export const api = {
   }): Promise<ThreatAlertResponse> {
     const { data } = await client.post<ThreatAlertResponse>('/threat-alert', payload);
     return data;
+  },
+
+  /** Record an analyst override (confirm / reject / needs_review). */
+  async recordAnalystOverride(payload: {
+    image_sha256: string;
+    finding_key: string;
+    decision: string;
+    note?: string;
+    analyst_id?: string;
+  }): Promise<{ image_sha256: string; finding_key: string; decision: string; note: string; analyst_id: string; logged_at_ms: number }> {
+    const { data } = await client.post('/analyst-override', payload);
+    return data;
+  },
+
+  /** List analyst overrides for an image (by SHA-256). */
+  async listAnalystOverrides(imageSha256: string): Promise<AnalystOverride[]> {
+    const { data } = await client.get(`/analyst-overrides/${imageSha256}`);
+    return data.overrides ?? [];
   },
 
   /** Internal: build Authorization header for admin requests. */

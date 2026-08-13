@@ -88,6 +88,14 @@ async def _run_cascade(
         sanity_mismatches=cascade.sanity_mismatches,
         gps_climate_zone=cascade.gps_climate_zone,
         visual_climate_zone=cascade.visual_climate_zone,
+        deep_metadata=getattr(cascade, "deep_metadata", None),
+        consistency_findings=getattr(cascade, "consistency_findings", []),
+        provenance=getattr(cascade, "provenance", None),
+        geolocation_fusion=getattr(cascade, "geolocation_fusion", None),
+        source_discovery=getattr(cascade, "source_discovery", None),
+        contradictions=getattr(cascade, "contradictions", []),
+        evidence_summary=getattr(cascade, "evidence_summary", None),
+        analysis_log=getattr(cascade, "analysis_log", []),
     )
 
 

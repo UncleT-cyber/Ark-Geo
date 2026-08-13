@@ -66,3 +66,23 @@ npx expo start                          # Expo dev server
 - Git: user.name=openhands, user.email=openhands@all-hands.dev
 - Commits include `Co-authored-by: openhands <openhands@all-hands.dev>`
 - No node_modules, .env, __pycache__, dist/ in version control
+
+## Workbench Architecture (Forensic IDE Refactor)
+The investigator UI is being transformed into a VS Code-style workbench.
+Backend remains the source of truth for all forensic objects.
+
+### Backend evidence model extensions (new)
+- `exiftool_service.py`: deep metadata via ExifTool (`exiftool -j -G0:1 -struct`), grouped tree (EXIF/XMP/IPTC/ICC/MakerNotes)
+- `consistency_engine.py`: structured metadata consistency findings (TIMELINE_ANOMALY, etc.) with status/type/severity
+- `contradiction_engine.py`: cross-reference evidence layers for structured contradictions
+- `c2pa_service.py`: provenance analysis (verified/unavailable/invalid/incomplete states)
+- `geolocation_fusion.py`: multi-layer evidence model with explainability
+- `source_discovery.py`: provider-agnostic reverse image search (pHash + extensible provider registry)
+- `analyst_overrides.py`: confirm/reject/needs-review with audit logging
+
+### Frontend workbench shell
+- `Workbench.tsx`: ActivityBar + TabBar + Explorer + MainViewport + BottomPanel + StatusBar
+- `tools/`: SpatialTool, FileForensicsTool, DiscoveryTool, ProvenanceTool, VisionTool, ReportTool
+- `CommandPalette.tsx`: Cmd/Ctrl+Shift+P (coexists with admin hotkey)
+- `investigation/`: InvestigationOverview, EvidenceExplorer tree
+- Existing admin routing at `/console-auth` preserved unchanged

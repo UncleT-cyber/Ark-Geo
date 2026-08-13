@@ -235,7 +235,15 @@ export function MapWorkspace({ points, history, onCopyCoords, onGeofenceViolatio
     mapRef.current = map;
     layerRef.current = L.layerGroup().addTo(map);
 
+    // ResizeObserver — keep the Leaflet canvas in sync with panel width changes
+    // (triggered by the resizable sidebars) to prevent black borders / distortion.
+    const ro = new ResizeObserver(() => {
+      mapRef.current?.invalidateSize({ animate: false });
+    });
+    ro.observe(containerRef.current);
+
     return () => {
+      ro.disconnect();
       map.remove();
       mapRef.current = null;
       layerRef.current = null;

@@ -34,19 +34,64 @@
 .status-error { color: var(--emergency); font-size: 12px; font-weight: 600; }
 .status-ready { color: var(--success); font-size: 12px; font-weight: 600; }
 
-/* ---- Workspace 3-column ---- */
+/* ---- Workspace 3-column (resizable) ---- */
 .workspace {
   display: flex;
   flex: 1;
   overflow: hidden;
 }
 
+/* react-resizable-panels: Group/Panel/Separator structure */
+.workspace-group {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+.sidebar-panel,
+.main-panel-wrap {
+  height: 100%;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* Vertical drag handle between panels (Separator) */
+.resize-handle {
+  width: 6px;
+  background: #1E293B;
+  cursor: col-resize;
+  flex-shrink: 0;
+  position: relative;
+  transition: background 0.15s;
+}
+.resize-handle:hover,
+.resize-handle[data-active] {
+  background: #38BDF8;
+}
+.resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 24px;
+  background: #334155;
+  border-radius: 1px;
+}
+.resize-handle:hover::before,
+.resize-handle[data-active]::before {
+  background: #7DD3FC;
+}
+
 .sidebar {
-  width: 320px;
+  width: 100%;
+  height: 100%;
   background: var(--bg-dark);
   border-right: 1px solid var(--border-dim);
   overflow-y: auto;
   padding: 12px;
+  padding-right: 0.75rem;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -58,6 +103,8 @@
 }
 
 .main-panel {
+  width: 100%;
+  height: 100%;
   flex: 1;
   position: relative;
   background: var(--bg-darkest);
@@ -70,6 +117,9 @@
   border: 1px solid var(--border-dim);
   border-radius: 10px;
   padding: 12px;
+  padding-right: 0.75rem;
+  box-sizing: border-box;
+  min-width: 0; /* allow children to shrink within flex */
 }
 .panel-title {
   font-size: 11px; font-weight: 700; color: var(--cyan);
@@ -452,19 +502,27 @@
 /* FORENSIC OVERLAY TABS (FeatureInspector) */
 .forensic-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   margin-bottom: 10px;
   border-bottom: 1px solid #1E293B;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.forensic-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .forensic-tab {
-  flex: 1;
-  padding: 6px 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  padding: 6px 6px;
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
   color: #64748B;
-  font-size: 11px;
+  font-size: 10px;
   font-family: 'JetBrains Mono', monospace;
   cursor: pointer;
   transition: all 0.2s;
@@ -555,19 +613,22 @@
 }
 
 .sanity-comparison {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 8px;
 }
 
 .sanity-card {
-  flex: 1;
   background: rgba(13, 20, 33, 0.5);
   border: 1px solid #1E293B;
   border-radius: 4px;
   padding: 8px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .sanity-card-title {
@@ -585,16 +646,26 @@
 .sanity-card-row {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
+  align-items: baseline;
+  font-size: 10px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .sanity-card-key {
   color: #64748B;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .sanity-card-val {
   color: #94A3B8;
   font-weight: 600;
+  text-align: right;
+  word-break: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .val-red { color: #EF4444 !important; }

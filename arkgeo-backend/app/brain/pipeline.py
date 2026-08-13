@@ -1,10 +1,13 @@
-"""Brain orchestrator – runs the full 4-tier pipeline on an image.
+"""Brain orchestrator – runs the full failover-cascade pipeline on an image.
 
-This is the single entry point the API endpoints call.  It wires together:
-  Tier 1  metadata_extractor
-  Tier 2  vision_ensemble
-  Tier 3  clue_extractors
-  Tier 4  consensus_engine
+This is the single entry point the API endpoints call.  It follows a strict
+deterministic-first cascade:
+
+  Tier 1  Cryptographic hash + EXIF metadata extraction
+  Tier 2  Reverse geocode (if GPS found) → direct pin
+  Tier 3  Cell / Wi-Fi telemetry fallback
+  Tier 4  AI vision ensemble (only if API keys are configured)
+  Tier 5  Graceful low-context degradation
 """
 from __future__ import annotations
 
@@ -17,17 +20,44 @@ from app.brain.clue_extractors.indoor import IndoorExtractor
 from app.brain.clue_extractors.infrastructure import InfrastructureExtractor
 from app.brain.clue_extractors.ocr_text import OcrTextExtractor
 from app.brain.consensus_engine import ConsensusEngine
-from app.brain.metadata_extractor import MetadataExtractor
+from app.brain.metadata_extractor import MetadataExtractor, reverse_geocode
 from app.brain.vision_ensemble import VisionEnsemble
-from app.models import ConsensusResult, Coordinates, DeviceTelemetry
+from app.core.security import custody_certificate, custody_hash
+from app.models import (
+    AddressInfo,
+    ConsensusResult,
+    Coordinates,
+    CustodyCertificate,
+    DeviceTelemetry,
+)
 from app.services.state_cache import state_cache
 from app.services.telemetry_service import TelemetryService
 
 logger = logging.getLogger(__name__)
 
 
+class CascadeResult:
+    """Enriched result from the cascade — carries everything the API needs."""
+
+    def __init__(self) -> None:
+        self.status: str = "SUCCESS"
+        self.source: str = "NATIVE_EXIF_HARDWARE"
+        self.custody_certificate: Optional[dict] = None
+        self.custody_hash: str = ""
+        self.image_sha256: str = ""
+        self.consensus: Optional[ConsensusResult] = None
+        self.coordinates: Optional[Coordinates] = None
+        self.address: Optional[AddressInfo] = None
+        self.camera: dict = {}
+        self.altitude: Optional[float] = None
+        self.datetime_original: Optional[str] = None
+        self.exif_raw: dict = {}
+        self.telemetry_resolve: Optional[Coordinates] = None
+        self.message: Optional[str] = None
+
+
 class BrainPipeline:
-    """Orchestrates the 4-tier geolocation pipeline."""
+    """Orchestrates the multi-tier geolocation pipeline."""
 
     def __init__(self) -> None:
         self.metadata = MetadataExtractor()
@@ -42,71 +72,137 @@ class BrainPipeline:
         ]
         self.indoor_extractor = IndoorExtractor()
 
+    @property
+    def ai_keys_configured(self) -> bool:
+        """True if any AI/vision API key is set in the environment."""
+        from app.core.config import settings
+        from app.brain.clue_extractors.base import llm_client
+        return bool(
+            settings.geospy_api_key
+            or settings.geoinfer_api_key
+            or llm_client.is_configured()
+        )
+
     async def analyze(
         self,
         image_bytes: bytes,
         device_telemetry: Optional[DeviceTelemetry] = None,
         user_id: Optional[str] = None,
         run_indoor: bool = True,
-    ) -> tuple[ConsensusResult, dict]:
-        """Run the pipeline. Returns (consensus, raw_metadata_dict)."""
+        request_id: Optional[str] = None,
+    ) -> CascadeResult:
+        """Run the full failover cascade.  Returns a :class:`CascadeResult`."""
+        result = CascadeResult()
 
-        # ---- Tier 1: EXIF metadata -----------------------------------
+        # ---- Tier 1: Cryptographic hashes (always runs) ----------------
+        result.custody_certificate = custody_certificate(image_bytes)
+        result.custody_hash = custody_hash(
+            image_bytes, {"request_id": request_id} if request_id else {}
+        )
+        result.image_sha256 = result.custody_certificate["sha256"]
+
+        # ---- Tier 1b: EXIF metadata extraction -------------------------
         meta = self.metadata.extract(image_bytes)
+        result.exif_raw = meta.get("raw", {})
+        result.camera = meta.get("camera", {})
+        result.altitude = meta.get("altitude")
+        result.datetime_original = meta.get("datetime_original")
         metadata_coords = meta.get("gps")
 
-        # ---- Telemetry fallback (cell / Wi-Fi / last-known) ----------
+        # ---- Tier 2: Direct GPS pin + reverse geocode ------------------
+        if metadata_coords:
+            result.coordinates = metadata_coords
+            result.address = reverse_geocode(metadata_coords.lat, metadata_coords.lon)
+            consensus = self.consensus.aggregate(
+                metadata_coords, None, [], []
+            )
+            result.consensus = consensus
+            result.source = "NATIVE_EXIF_HARDWARE"
+            result.status = "SUCCESS"
+            # Enrich consensus with country from reverse geocode
+            if result.address and result.address.country:
+                consensus.primary_country = result.address.country
+                consensus.region = result.address.state or consensus.region
+            return result
+
+        # ---- Tier 3: Cell / Wi-Fi telemetry ----------------------------
         telemetry_coords: Optional[Coordinates] = None
-        if not metadata_coords and device_telemetry:
+        if device_telemetry:
             last_known = device_telemetry.last_known_outdoor_gps
             if not last_known and user_id:
-                last_known_coord = state_cache.get_outdoor_gps(user_id)
-                if last_known_coord:
-                    last_known = type("G", (), {
-                        "lat": last_known_coord.lat,
-                        "lon": last_known_coord.lon,
-                        "timestamp": None,
-                    })()
+                cached = state_cache.get_outdoor_gps(user_id)
+                if cached:
+                    from app.models import GpsFix
+                    import time as _time
+                    last_known = GpsFix(
+                        lat=cached.lat, lon=cached.lon, timestamp=int(_time.time())
+                    )
             telemetry_coords = self.telemetry.resolve(
                 last_known_gps=last_known if last_known else None,
                 cell_tower=device_telemetry.connected_cell_tower,
                 wifi_bssids=device_telemetry.nearby_wifi_bssids,
             )
-            # Cache a good outdoor GPS for future use.
             if telemetry_coords and user_id:
                 from app.models import GpsFix
-                import time
+                import time as _time
                 state_cache.set_outdoor_gps(
                     user_id,
-                    GpsFix(lat=telemetry_coords.lat, lon=telemetry_coords.lon, timestamp=int(time.time())),
+                    GpsFix(lat=telemetry_coords.lat, lon=telemetry_coords.lon,
+                           timestamp=int(_time.time())),
                 )
+            result.telemetry_resolve = telemetry_coords
 
-        # Early exit if we have high-confidence deterministic data.
-        if metadata_coords:
-            consensus = self.consensus.aggregate(
-                metadata_coords, telemetry_coords, [], []
+        if telemetry_coords:
+            result.coordinates = telemetry_coords
+            result.address = reverse_geocode(
+                telemetry_coords.lat, telemetry_coords.lon
             )
-            return consensus, meta["raw"]
+            consensus = self.consensus.aggregate(
+                None, telemetry_coords, [], []
+            )
+            result.consensus = consensus
+            result.source = "TELEMETRY"
+            result.status = "SUCCESS"
+            if result.address and result.address.country:
+                consensus.primary_country = result.address.country
+            return result
 
-        # ---- Tier 2: Vision ensemble ---------------------------------
+        # ---- Tier 4: AI vision ensemble (only if keys configured) -----
         vision_results = await self.vision.locate(image_bytes)
 
-        # ---- Tier 3: Clue extractors ---------------------------------
         extractor_results = []
         for ext in self.extractors:
-            result = ext.extract(image_bytes)
-            if result:
-                extractor_results.append(result)
+            ext_result = ext.extract(image_bytes)
+            if ext_result:
+                extractor_results.append(ext_result)
         if run_indoor:
             indoor = self.indoor_extractor.extract(image_bytes)
             if indoor:
                 extractor_results.append(indoor)
 
-        # ---- Tier 4: Consensus ---------------------------------------
         consensus = self.consensus.aggregate(
             metadata_coords, telemetry_coords, vision_results, extractor_results
         )
-        return consensus, meta["raw"]
+        result.consensus = consensus
+
+        if vision_results or any(
+            r.estimated_latitude is not None for r in extractor_results
+        ):
+            result.source = "AI_VISION"
+            result.status = "SUCCESS"
+            result.coordinates = Coordinates(
+                lat=consensus.estimated_latitude, lon=consensus.estimated_longitude
+            )
+        else:
+            # ---- Tier 5: Graceful low-context degradation ---------------
+            result.source = "NO_METADATA_NO_AI_KEY"
+            result.status = "PARTIAL_SUCCESS"
+            result.message = (
+                "EXIF metadata missing or stripped. "
+                "AI keys not configured on server."
+            )
+
+        return result
 
 
 # Module-level singleton

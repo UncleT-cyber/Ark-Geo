@@ -8,6 +8,21 @@ export interface VisualEvidenceTag {
   confidence: number;
 }
 
+export interface AddressInfo {
+  country?: string | null;
+  state?: string | null;
+  city?: string | null;
+  road?: string | null;
+  postcode?: string | null;
+  display_name?: string | null;
+}
+
+export interface CustodyCertificate {
+  sha256: string;
+  md5: string;
+  ingested_at_ms: number;
+}
+
 export interface ConsensusResult {
   estimated_latitude: number;
   estimated_longitude: number;
@@ -23,10 +38,19 @@ export interface ConsensusResult {
 
 export interface AnalyzeResponse {
   request_id: string;
+  status: string;
+  source: string;
+  custody_certificate?: CustodyCertificate | null;
   custody_hash: string;
   image_sha256: string;
   consensus: ConsensusResult;
+  coordinates?: Coordinates | null;
+  address?: AddressInfo | null;
+  camera?: Record<string, unknown>;
+  altitude?: number | null;
+  datetime_original?: string | null;
   exif_raw?: Record<string, unknown> | null;
   telemetry_resolve?: Coordinates | null;
+  message?: string | null;
   created_at: string;
 }

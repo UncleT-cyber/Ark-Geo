@@ -44,18 +44,30 @@ class TestBrainPipeline:
     async def test_metadata_tier_short_circuit(self):
         from app.brain.pipeline import brain
         img = _make_image_with_gps()
-        consensus, raw = await brain.analyze(img)
-        assert consensus.tier_used == "metadata"
-        assert consensus.confidence_score == 0.99
+        result = await brain.analyze(img)
+        assert result.source == "NATIVE_EXIF_HARDWARE"
+        assert result.status == "SUCCESS"
+        assert result.consensus.tier_used == "metadata"
+        assert result.consensus.confidence_score == 0.99
+        assert result.coordinates is not None
+        assert result.custody_certificate is not None
+        assert "sha256" in result.custody_certificate
+        assert "md5" in result.custody_certificate
+        assert "ingested_at_ms" in result.custody_certificate
+        assert result.image_sha256 == result.custody_certificate["sha256"]
 
     @pytest.mark.asyncio
     async def test_no_metadata_no_keys_returns_low_confidence(self):
         """Without API keys, vision & extractors are skipped → low confidence."""
         from app.brain.pipeline import brain
         img = _make_plain_image()
-        consensus, raw = await brain.analyze(img)
-        assert consensus.confidence_score <= 0.1
-        assert consensus.tier_used == "consensus"
+        result = await brain.analyze(img)
+        assert result.source == "NO_METADATA_NO_AI_KEY"
+        assert result.status == "PARTIAL_SUCCESS"
+        assert result.consensus.confidence_score <= 0.1
+        assert result.consensus.tier_used == "consensus"
+        assert result.message is not None
+        assert result.coordinates is None
 
 
 class TestAPI:
@@ -80,6 +92,13 @@ class TestAPI:
         assert data["consensus"]["tier_used"] == "metadata"
         assert data["image_sha256"]
         assert data["custody_hash"]
+        assert data["status"] == "SUCCESS"
+        assert data["source"] == "NATIVE_EXIF_HARDWARE"
+        assert data["coordinates"] is not None
+        assert data["custody_certificate"] is not None
+        assert "sha256" in data["custody_certificate"]
+        assert "md5" in data["custody_certificate"]
+        assert "ingested_at_ms" in data["custody_certificate"]
 
     def test_analyze_base64(self):
         img = _make_image_with_gps()

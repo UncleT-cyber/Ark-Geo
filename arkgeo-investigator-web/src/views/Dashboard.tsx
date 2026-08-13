@@ -14,6 +14,7 @@ import { FeatureInspector } from '../components/FeatureInspector/FeatureInspecto
 import { ExifViewer } from '../components/ExifViewer/ExifViewer';
 import { ChainOfCustody } from '../components/ChainOfCustody/ChainOfCustody';
 import { AudioContextPlayer } from '../components/FeatureInspector/AudioContextPlayer';
+import { CameraTelemetry } from '../components/FeatureInspector/CameraTelemetry';
 
 export function Dashboard() {
   const [analyzing, setAnalyzing] = useState(false);
@@ -51,22 +52,25 @@ export function Dashboard() {
     if (file) analyzeFile(file);
   };
 
-  const mapPoints = result
+  const hasCoordinates = result?.coordinates != null;
+  const mapPoints = result && hasCoordinates
     ? [{
-        lat: result.consensus.estimated_latitude,
-        lon: result.consensus.estimated_longitude,
+        lat: result.coordinates!.lat,
+        lon: result.coordinates!.lon,
         radius: result.consensus.search_radius_meters,
         confidence: result.consensus.confidence_score,
-        label: `${result.consensus.primary_country || 'Unknown'} · ${Math.round(result.consensus.confidence_score * 100)}%`,
+        label: `${result.address?.display_name || result.consensus.primary_country || 'Unknown'} · ${Math.round(result.consensus.confidence_score * 100)}%`,
       }]
     : [];
 
-  const historyPoints = history.map((r) => ({
-    lat: r.consensus.estimated_latitude,
-    lon: r.consensus.estimated_longitude,
-    radius: r.consensus.search_radius_meters,
-    confidence: r.consensus.confidence_score,
-  }));
+  const historyPoints = history
+    .filter((r) => r.coordinates != null)
+    .map((r) => ({
+      lat: r.coordinates!.lat,
+      lon: r.coordinates!.lon,
+      radius: r.consensus.search_radius_meters,
+      confidence: r.consensus.confidence_score,
+    }));
 
   return (
     <div className="dashboard">
@@ -182,6 +186,10 @@ export function Dashboard() {
           {result && (
             <div className="map-overlay-info">
               <div className="map-info-row">
+                <span className="map-info-label">SOURCE</span>
+                <span className="map-info-value">{result.source}</span>
+              </div>
+              <div className="map-info-row">
                 <span className="map-info-label">TIER</span>
                 <span className="map-info-value">{result.consensus.tier_used}</span>
               </div>
@@ -197,10 +205,20 @@ export function Dashboard() {
                   {Math.round(result.consensus.search_radius_meters)}m
                 </span>
               </div>
-              {result.consensus.primary_country && (
+              {result.address?.display_name && (
                 <div className="map-info-row">
-                  <span className="map-info-label">COUNTRY</span>
-                  <span className="map-info-value">{result.consensus.primary_country}</span>
+                  <span className="map-info-label">ADDRESS</span>
+                  <span className="map-info-value map-info-address">
+                    {result.address.display_name}
+                  </span>
+                </div>
+              )}
+              {result.coordinates && (
+                <div className="map-info-row">
+                  <span className="map-info-label">LAT/LON</span>
+                  <span className="map-info-value mono">
+                    {result.coordinates.lat.toFixed(5)}, {result.coordinates.lon.toFixed(5)}
+                  </span>
                 </div>
               )}
             </div>
@@ -211,7 +229,48 @@ export function Dashboard() {
         <aside className="sidebar sidebar-right">
           {result ? (
             <>
+              {result.message && (
+                <div className="error-box">
+                  <div className="error-title">DEGRADATION NOTICE</div>
+                  <div className="error-detail">{result.message}</div>
+                </div>
+              )}
+              {result.address?.display_name && (
+                <div className="panel-section">
+                  <div className="panel-title">REVERSE GEOCODED LOCATION</div>
+                  <div className="address-display">{result.address.display_name}</div>
+                  {result.address.country && (
+                    <div className="address-row">
+                      <span className="exif-key mono">Country</span>
+                      <span className="exif-value mono">{result.address.country}</span>
+                    </div>
+                  )}
+                  {result.address.state && (
+                    <div className="address-row">
+                      <span className="exif-key mono">State</span>
+                      <span className="exif-value mono">{result.address.state}</span>
+                    </div>
+                  )}
+                  {result.address.city && (
+                    <div className="address-row">
+                      <span className="exif-key mono">City</span>
+                      <span className="exif-value mono">{result.address.city}</span>
+                    </div>
+                  )}
+                  {result.address.road && (
+                    <div className="address-row">
+                      <span className="exif-key mono">Road</span>
+                      <span className="exif-value mono">{result.address.road}</span>
+                    </div>
+                  )}
+                </div>
+              )}
               <FeatureInspector tags={result.consensus.visual_evidence_tags} />
+              <CameraTelemetry
+                camera={result.camera}
+                altitude={result.altitude}
+                datetimeOriginal={result.datetime_original}
+              />
               <ExifViewer exifRaw={result.exif_raw ?? null} imageSha256={result.image_sha256} />
               <AudioContextPlayer audioBase64={null} />
               <ChainOfCustody response={result} />

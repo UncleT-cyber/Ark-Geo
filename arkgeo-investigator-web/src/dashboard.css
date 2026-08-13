@@ -175,6 +175,23 @@
   font-size: 12px; color: var(--cyan-bright); font-weight: 600;
   font-family: 'JetBrains Mono', monospace;
 }
+.map-info-address {
+  font-family: 'Inter', sans-serif; font-size: 11px;
+  color: var(--text-secondary); font-weight: 400;
+  max-width: 200px; text-align: right;
+}
+
+/* ---- Reverse Geocoded Location ---- */
+.address-display {
+  font-size: 12px; color: var(--cyan-bright); font-weight: 600;
+  padding: 8px 0; line-height: 1.4;
+  border-bottom: 1px solid var(--border-dim);
+  margin-bottom: 4px;
+}
+.address-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 3px 0; gap: 8px;
+}
 
 /* ---- Feature Inspector ---- */
 .tag-groups { display: flex; flex-direction: column; gap: 6px; }

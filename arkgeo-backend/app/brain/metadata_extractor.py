@@ -3,6 +3,9 @@
 Uses Pillow + piexif to pull embedded GPS coordinates and other forensic
 metadata from an image.  Includes tamper / sanity checks so zeroed or
 impossible coordinates are rejected rather than trusted blindly.
+
+A free OpenStreetMap Nominatim reverse-geocoder (via ``geopy``) converts
+parsed decimal coordinates into a human-readable address.
 """
 from __future__ import annotations
 
@@ -13,10 +16,16 @@ from typing import Optional
 
 import piexif
 from PIL import Image, UnidentifiedImageError
+from geopy.exc import GeocoderServiceError, GeocoderTimedOut
+from geopy.geocoders import Nominatim
 
-from app.models import Coordinates
+from app.models import Coordinates, AddressInfo
 
 logger = logging.getLogger(__name__)
+
+# Single shared geocoder instance (Nominatim usage policy requires a
+# persistent User-Agent and 1 req/s max).
+_geolocator = Nominatim(user_agent="arkgeo-forensic/1.0", timeout=5)
 
 
 class MetadataExtractionError(Exception):
@@ -60,23 +69,73 @@ def _is_plausible_gps(lat: float, lon: float) -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# Reverse geocoding
+# --------------------------------------------------------------------------- #
+def reverse_geocode(lat: float, lon: float) -> Optional[AddressInfo]:
+    """Turn decimal coordinates into a human-readable address via OSM Nominatim.
+
+    Returns ``None`` if the network lookup fails or times out — the pipeline
+    continues with coordinates-only in that case.
+    """
+    try:
+        location = _geolocator.reverse(f"{lat}, {lon}", language="en", exactly_one=True)
+    except (GeocoderTimedOut, GeocoderServiceError, Exception) as exc:
+        logger.warning("Reverse geocode failed for %s,%s: %s", lat, lon, exc)
+        return None
+    if not location or not location.raw:
+        return None
+    addr = location.raw.get("address", {})
+    country = addr.get("country")
+    state = addr.get("state") or addr.get("region") or addr.get("state_district")
+    city = addr.get("city") or addr.get("town") or addr.get("village") or addr.get("hamlet") or addr.get("county")
+    road = addr.get("road") or addr.get("pedestrian") or addr.get("footway") or addr.get("suburb")
+    postcode = addr.get("postcode")
+    return AddressInfo(
+        country=country,
+        state=state,
+        city=city,
+        road=road,
+        postcode=postcode,
+        display_name=location.address,
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Public API
 # --------------------------------------------------------------------------- #
 class MetadataExtractor:
     """Extract and validate GPS metadata from image bytes."""
 
     def extract(self, image_bytes: bytes) -> dict:
-        """Return a dict with ``gps`` (Optional[Coordinates]) and ``raw`` metadata."""
-        result: dict = {"gps": None, "raw": {}, "tamper_flags": []}
+        """Return a dict with gps, camera, raw metadata and tamper flags.
+
+        Keys:
+            gps           – Optional[Coordinates]  (decimal degrees)
+            altitude      – Optional[float]       (metres)
+            gps_timestamp – Optional[str]         (ISO-ish from GPSTimeStamp)
+            camera        – dict with make/model/lens/software/exposure
+            datetime_original – Optional[str]
+            raw           – flat dict of all EXIF name→value
+            tamper_flags  – list[str]
+        """
+        result: dict = {
+            "gps": None,
+            "altitude": None,
+            "gps_timestamp": None,
+            "camera": {},
+            "datetime_original": None,
+            "raw": {},
+            "tamper_flags": [],
+        }
         img = _decode_image(image_bytes)
 
-        # Basic EXIF via Pillow
+        # Basic EXIF via Pillow (0th IFD)
         exif_data = img.getexif()
         if exif_data:
             result["raw"].update({piexif.TAGS.get(k, {}).get("name", str(k)): str(v)
                                   for k, v in exif_data.items()})
 
-        # Full EXIF (including GPS) via piexif
+        # Full EXIF (including GPS, EXIF, MakerNote IFDs) via piexif
         exif_raw = img.info.get("exif", b"")
         exif_dict = {}
         if exif_raw:
@@ -85,7 +144,73 @@ class MetadataExtractor:
             except (ValueError, piexif.InvalidImageDataError):
                 exif_dict = {}
 
+        # Camera parameters from 0th + EXIF IFDs
+        self._extract_camera(exif_dict, result)
+
+        # GPS data
         gps_ifd = exif_dict.get("GPS") or {}
+        self._extract_gps_full(gps_ifd, result)
+
+        # XMP / software tamper hints
+        software = str(result["raw"].get("Software", "")).lower()
+        if software and any(t in software for t in ("photoshop", "gimp", "snapseed", "lightroom")):
+            result["tamper_flags"].append(f"editing_software:{software}")
+
+        return result
+
+    # ------------------------------------------------------------------ #
+    def _extract_camera(self, exif_dict: dict, result: dict) -> None:
+        """Populate result["camera"] with make / model / lens / software / exposure."""
+        zeroth = exif_dict.get("0th") or {}
+        exif = exif_dict.get("Exif") or {}
+
+        def _get(ifd, tag):
+            val = ifd.get(tag)
+            if val is None:
+                return None
+            if isinstance(val, bytes):
+                try:
+                    return val.decode("utf-8", errors="replace").rstrip("\x00").strip()
+                except Exception:
+                    return str(val)
+            return str(val)
+
+        camera = {
+            "make": _get(zeroth, piexif.ImageIFD.Make),
+            "model": _get(zeroth, piexif.ImageIFD.Model),
+            "lens_model": _get(exif, piexif.ExifIFD.LensModel),
+            "software": _get(zeroth, piexif.ImageIFD.Software),
+            "f_number": self._rational(exif.get(piexif.ExifIFD.FNumber)),
+            "exposure_time": self._rational(exif.get(piexif.ExifIFD.ExposureTime)),
+            "iso": int(self._rational(exif.get(piexif.ExifIFD.ISOSpeedRatings)) or 0) or None,
+            "focal_length": self._rational(exif.get(piexif.ExifIFD.FocalLength)),
+        }
+        # Only keep non-None values
+        result["camera"] = {k: v for k, v in camera.items() if v is not None}
+
+        # DateTimeOriginal
+        dto = _get(exif, piexif.ExifIFD.DateTimeOriginal)
+        if dto:
+            result["datetime_original"] = dto
+
+    @staticmethod
+    def _rational(val) -> Optional[float]:
+        """Convert an EXIF rational ((num, den)) to a float, or None."""
+        if val is None:
+            return None
+        try:
+            if isinstance(val, tuple) and len(val) == 2:
+                num, den = val
+                return float(num) / float(den) if float(den) != 0 else None
+            return float(val)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return None
+
+    # ------------------------------------------------------------------ #
+    def _extract_gps_full(self, gps_ifd: dict, result: dict) -> None:
+        """Extract lat, lon, altitude, and GPS timestamp from the GPS IFD."""
+        if not gps_ifd:
+            return
         coords = self._extract_gps(gps_ifd)
         if coords:
             if _is_plausible_gps(coords.lat, coords.lon):
@@ -96,14 +221,26 @@ class MetadataExtractor:
                 )
                 logger.warning("Rejected implausible GPS: %s,%s", coords.lat, coords.lon)
 
-        # XMP / software tamper hints
-        software = str(result["raw"].get("Software", "")).lower()
-        if software and any(t in software for t in ("photoshop", "gimp", "snapseed", "lightroom")):
-            result["tamper_flags"].append(f"editing_software:{software}")
+        # Altitude (metres)
+        alt = self._rational(gps_ifd.get(piexif.GPSIFD.GPSAltitude))
+        if alt is not None:
+            alt_ref = gps_ifd.get(piexif.GPSIFD.GPSAltitudeRef, b"\x00")
+            if isinstance(alt_ref, bytes) and alt_ref == b"\x01":
+                alt = -alt  # below sea level
+            result["altitude"] = alt
 
-        return result
+        # GPS timestamp (HH:MM:SS from rationals)
+        ts = gps_ifd.get(piexif.GPSIFD.GPSTimeStamp)
+        if ts:
+            try:
+                parts = [self._rational(p) for p in ts]
+                if all(p is not None for p in parts):
+                    result["gps_timestamp"] = (
+                        f"{int(parts[0]):02d}:{int(parts[1]):02d}:{int(parts[2]):02d}"
+                    )
+            except (TypeError, ValueError, IndexError):
+                pass
 
-    # ------------------------------------------------------------------ #
     def _extract_gps(self, gps_ifd: dict) -> Optional[Coordinates]:
         if not gps_ifd:
             return None

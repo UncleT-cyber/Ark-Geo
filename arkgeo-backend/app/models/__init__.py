@@ -1,9 +1,11 @@
 from app.models.schemas import (
+    AddressInfo,
     AnalyzeRequest,
     AnalyzeResponse,
     CellTowerInfo,
     ConsensusResult,
     Coordinates,
+    CustodyCertificate,
     DeadManConfig,
     DeadManStatus,
     DeviceTelemetry,
@@ -18,11 +20,13 @@ from app.models.schemas import (
 )
 
 __all__ = [
+    "AddressInfo",
     "AnalyzeRequest",
     "AnalyzeResponse",
     "CellTowerInfo",
     "ConsensusResult",
     "Coordinates",
+    "CustodyCertificate",
     "DeadManConfig",
     "DeadManStatus",
     "DeviceTelemetry",

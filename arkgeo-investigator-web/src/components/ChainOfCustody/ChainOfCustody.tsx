@@ -1,8 +1,8 @@
 /**
  * ChainOfCustody — cryptographic audit log viewer.
  *
- * Displays SHA-256 hashes, timestamps, and API response logs to maintain
- * evidentiary standards.
+ * Displays SHA-256 + MD5 hashes, millisecond timestamps, and API response
+ * logs to maintain evidentiary standards.
  */
 import React from 'react';
 import type { AnalyzeResponse } from '../../types';
@@ -11,6 +11,7 @@ interface CustodyEntry {
   timestamp: string;
   action: string;
   hash: string;
+  hashLabel?: string;
   detail?: string;
 }
 
@@ -23,21 +24,40 @@ export function ChainOfCustody({ response }: Props) {
     ? [
         {
           timestamp: response.created_at,
-          action: 'IMAGE UPLOADED',
-          hash: response.image_sha256,
-          detail: 'Image received and hashed for custody',
+          action: 'IMAGE INGESTED',
+          hash: response.custody_certificate?.sha256 || response.image_sha256,
+          hashLabel: 'SHA-256',
+          detail: 'Raw image bytes received and cryptographically hashed',
         },
+        ...(response.custody_certificate?.md5
+          ? [{
+              timestamp: response.created_at,
+              action: 'MD5 FINGERPRINT',
+              hash: response.custody_certificate.md5,
+              hashLabel: 'MD5',
+              detail: 'Secondary hash for cross-validation',
+            }]
+          : []),
         {
           timestamp: response.created_at,
           action: 'CUSTODY SEAL',
           hash: response.custody_hash,
+          hashLabel: 'SHA-256',
           detail: `Chain-of-custody digest · Request ${response.request_id}`,
         },
+        ...(response.custody_certificate?.ingested_at_ms
+          ? [{
+              timestamp: response.created_at,
+              action: 'INGEST TIMESTAMP',
+              hash: '',
+              detail: `UTC: ${new Date(response.custody_certificate.ingested_at_ms).toISOString()} (${response.custody_certificate.ingested_at_ms} ms)`,
+            }]
+          : []),
         {
           timestamp: response.created_at,
-          action: 'AI ANALYSIS COMPLETE',
+          action: 'CASCADE COMPLETE',
           hash: '',
-          detail: `Tier: ${response.consensus.tier_used} · Confidence: ${Math.round(response.consensus.confidence_score * 100)}%`,
+          detail: `Source: ${response.source} · Tier: ${response.consensus.tier_used} · Confidence: ${Math.round(response.consensus.confidence_score * 100)}%`,
         },
       ]
     : [];
@@ -62,7 +82,7 @@ export function ChainOfCustody({ response }: Props) {
                 </div>
                 {entry.hash && (
                   <div className="custody-hash mono">
-                    <span className="custody-hash-label">SHA-256:</span>
+                    <span className="custody-hash-label">{entry.hashLabel || 'SHA-256'}:</span>
                     <span className="custody-hash-value">{entry.hash}</span>
                   </div>
                 )}

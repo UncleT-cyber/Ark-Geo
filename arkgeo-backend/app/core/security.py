@@ -93,6 +93,26 @@ def sha256_hex(data: bytes | str) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def md5_hex(data: bytes | str) -> str:
+    """Return the MD5 hex digest of *data*."""
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    return hashlib.md5(data).hexdigest()
+
+
+def custody_certificate(image_bytes: bytes) -> dict:
+    """Produce a cryptographic custody certificate for raw image bytes.
+
+    Returns a dict with ``sha256``, ``md5`` and ``ingested_at_ms`` (UTC epoch
+    milliseconds) — the three pillars of a forensic chain-of-custody block.
+    """
+    return {
+        "sha256": sha256_hex(image_bytes),
+        "md5": md5_hex(image_bytes),
+        "ingested_at_ms": int(time.time() * 1000),
+    }
+
+
 def custody_hash(image_bytes: bytes, metadata: Optional[dict] = None) -> str:
     """Produce a forensic chain-of-custody digest for an uploaded image.
 

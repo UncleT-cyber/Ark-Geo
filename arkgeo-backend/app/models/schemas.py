@@ -20,6 +20,22 @@ class GpsFix(Coordinates):
     timestamp: Optional[int] = None
 
 
+class AddressInfo(BaseModel):
+    country: Optional[str] = None
+    state: Optional[str] = None
+    city: Optional[str] = None
+    road: Optional[str] = None
+    postcode: Optional[str] = None
+    display_name: Optional[str] = None
+
+
+class CustodyCertificate(BaseModel):
+    """Cryptographic chain-of-custody block computed at ingestion time."""
+    sha256: str
+    md5: str
+    ingested_at_ms: int = Field(..., description="UTC epoch milliseconds")
+
+
 # --------------------------------------------------------------------------- #
 # Ingest payload (mobile client → /ingest)
 # --------------------------------------------------------------------------- #
@@ -93,11 +109,23 @@ class ConsensusResult(BaseModel):
 # --------------------------------------------------------------------------- #
 class AnalyzeResponse(BaseModel):
     request_id: str
+    status: str = Field("SUCCESS", description="SUCCESS | PARTIAL_SUCCESS")
+    source: str = Field(
+        "NATIVE_EXIF_HARDWARE",
+        description="NATIVE_EXIF_HARDWARE | TELEMETRY | AI_VISION | NO_METADATA_NO_AI_KEY",
+    )
+    custody_certificate: Optional[CustodyCertificate] = None
     custody_hash: str
     image_sha256: str
     consensus: ConsensusResult
+    coordinates: Optional[Coordinates] = None
+    address: Optional[AddressInfo] = None
+    camera: dict[str, Any] = Field(default_factory=dict)
+    altitude: Optional[float] = None
+    datetime_original: Optional[str] = None
     exif_raw: Optional[dict[str, Any]] = None
     telemetry_resolve: Optional[Coordinates] = None
+    message: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

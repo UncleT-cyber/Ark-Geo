@@ -20,11 +20,13 @@ interface MapPoint {
   confidence: number;
   source?: string;
   label?: string;
+  thumbnailUrl?: string;
 }
 
 interface Props {
   points: MapPoint[];
   history?: MapPoint[];
+  onCopyCoords?: () => void;
 }
 
 function zoomForSource(source?: string): number {
@@ -47,7 +49,53 @@ function confidenceColor(conf: number): string {
 }
 
 // Custom ARKGEO tactical marker — cyan diamond with dark border
-function createTacticalMarker(lat: number, lon: number, color: string): L.Marker {
+function createTacticalMarker(
+  lat: number,
+  lon: number,
+  color: string,
+  thumbnailUrl?: string,
+  onCopyCoords?: () => void,
+): L.Marker {
+  const thumbHtml = thumbnailUrl
+    ? `<img src="${thumbnailUrl}" style="width:60px;height:60px;object-fit:cover;border-radius:4px;border:1px solid #38BDF8;" />`
+    : `<div style="width:60px;height:60px;background:#0D1421;border-radius:4px;border:1px solid #334155;display:flex;align-items:center;justify-content:center;color:#64748B;font-size:24px;">📷</div>`;
+
+  const popupHtml = `
+    <div class="arkgeo-blueprint-popup" style="
+      font-family: 'JetBrains Mono', monospace;
+      min-width: 200px; padding: 0; overflow: hidden;
+      background: #0B0F17; border: 1px solid #38BDF8; border-radius: 6px;
+    ">
+      <div style="
+        background: #0D1421; padding: 6px 10px; border-bottom: 1px solid #1E293B;
+        display: flex; align-items: center; gap: 8px;
+      ">
+        <div style="width:8px;height:8px;background:#38BDF8;border-radius:50%;box-shadow:0 0 6px #38BDF8;"></div>
+        <span style="color:#38BDF8;font-size:11px;font-weight:700;letter-spacing:1px;">ARKGEO TARGET</span>
+      </div>
+      <div style="padding:10px;display:flex;gap:10px;align-items:flex-start;">
+        ${thumbHtml}
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <div style="font-size:10px;color:#64748B;letter-spacing:1px;">COORDINATES</div>
+          <div style="font-size:12px;color:#7DD3FC;font-weight:600;">
+            ${lat.toFixed(5)}°, ${lon.toFixed(5)}°
+          </div>
+        </div>
+      </div>
+      <div style="padding:0 10px 10px;display:flex;flex-direction:column;gap:6px;">
+        <button id="arkgeo-copy-coords" style="
+          background:#0D1421;color:#38BDF8;border:1px solid #38BDF8;border-radius:4px;
+          padding:6px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;
+          cursor:pointer;font-weight:600;transition:background 0.2s;
+        ">⎘ COPY TARGET LAT/LONG</button>
+        <a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" rel="noopener noreferrer" style="
+          display:block;text-align:center;background:#0D1421;color:#F59E0B;
+          border:1px solid #F59E0B;border-radius:4px;padding:6px 10px;font-size:11px;
+          font-family:'JetBrains Mono',monospace;text-decoration:none;font-weight:600;
+        ">🛰 OPEN IN SATELLITE →</a>
+      </div>
+    </div>`;
+
   const icon = L.divIcon({
     className: 'arkgeo-tactical-marker',
     html: `<div style="
@@ -74,10 +122,26 @@ function createTacticalMarker(lat: number, lon: number, color: string): L.Marker
     iconAnchor: [14, 28],
     popupAnchor: [0, -28],
   });
-  return L.marker([lat, lon], { icon });
+  const marker = L.marker([lat, lon], { icon });
+  marker.bindPopup(popupHtml, { className: 'arkgeo-popup-wrapper', maxWidth: 300 });
+
+  // Wire up the copy button after popup opens
+  if (onCopyCoords) {
+    marker.on('popupopen', () => {
+      const btn = document.getElementById('arkgeo-copy-coords');
+      if (btn) {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          onCopyCoords();
+        });
+      }
+    });
+  }
+
+  return marker;
 }
 
-export function MapWorkspace({ points, history }: Props) {
+export function MapWorkspace({ points, history, onCopyCoords }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
@@ -141,18 +205,14 @@ export function MapWorkspace({ points, history }: Props) {
 
     // Drop custom tactical marker
     const markerColor = confidenceColor(activePoint.confidence);
-    const marker = createTacticalMarker(activePoint.lat, activePoint.lon, markerColor);
-    marker
-      .bindPopup(
-        `<div style="font-family: 'JetBrains Mono', monospace; font-size: 12px;">
-          <strong style="color:#38BDF8;">ARKGEO TARGET</strong><br/>
-          ${activePoint.lat.toFixed(5)}, ${activePoint.lon.toFixed(5)}<br/>
-          Confidence: ${Math.round(activePoint.confidence * 100)}%<br/>
-          Radius: ${Math.round(activePoint.radius)}m<br/>
-          Source: ${activePoint.source || 'unknown'}
-        </div>`,
-      )
-      .addTo(layer);
+    const marker = createTacticalMarker(
+      activePoint.lat,
+      activePoint.lon,
+      markerColor,
+      activePoint.thumbnailUrl,
+      onCopyCoords,
+    );
+    marker.addTo(layer);
 
     // Draw historical trajectory (dashed cyan)
     if (history && history.length > 1) {
@@ -179,10 +239,11 @@ export function MapWorkspace({ points, history }: Props) {
     // Animated camera transition
     const targetZoom = zoomForSource(activePoint.source);
     map.flyTo([activePoint.lat, activePoint.lon], targetZoom, {
-      duration: 2.0,
+      animate: true,
+      duration: 2.5,
       easeLinearity: 0.25,
     });
-  }, [points, history]);
+  }, [points, history, onCopyCoords]);
 
   return (
     <div

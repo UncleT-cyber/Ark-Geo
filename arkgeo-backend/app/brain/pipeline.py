@@ -54,6 +54,10 @@ class CascadeResult:
         self.exif_raw: dict = {}
         self.telemetry_resolve: Optional[Coordinates] = None
         self.message: Optional[str] = None
+        self.steganography_detected: bool = False
+        self.trailing_bytes_count: int = 0
+        self.exif_missing: bool = False
+        self.file_format: Optional[str] = None
 
 
 class BrainPipeline:
@@ -108,6 +112,13 @@ class BrainPipeline:
         result.altitude = meta.get("altitude")
         result.datetime_original = meta.get("datetime_original")
         metadata_coords = meta.get("gps")
+
+        # Steganography / EOF anomaly + EXIF-missing flags
+        stego = meta.get("steganography", {})
+        result.steganography_detected = stego.get("steganography_detected", False)
+        result.trailing_bytes_count = stego.get("trailing_bytes_count", 0)
+        result.exif_missing = meta.get("exif_missing", False)
+        result.file_format = meta.get("file_format")
 
         # ---- Tier 2: Direct GPS pin + reverse geocode ------------------
         if metadata_coords:

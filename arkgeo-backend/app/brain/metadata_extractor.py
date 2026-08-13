@@ -33,6 +33,67 @@ class MetadataExtractionError(Exception):
 
 
 # --------------------------------------------------------------------------- #
+# Steganography / EOF anomaly detection
+# --------------------------------------------------------------------------- #
+def detect_eof_anomaly(image_bytes: bytes, fmt: str | None = None) -> dict:
+    """Scan for trailing bytes appended after the legitimate End-of-File marker.
+
+    JPEG images end with ``0xFFD9``; PNG images end with the IEND chunk
+    (``\\x49\\x45\\x4e\\x44\\xae\\x42\\x60\\x82``).  Any data beyond these
+    markers may indicate steganographic payload, appended malware, or
+    container smuggling.
+
+    Returns a dict with:
+        steganography_detected – bool
+        trailing_bytes_count    – int (number of anomalous bytes after EOF)
+        eof_offset              – int | None (absolute byte offset of EOF marker)
+        file_format             – str | None
+    """
+    result = {
+        "steganography_detected": False,
+        "trailing_bytes_count": 0,
+        "eof_offset": None,
+        "file_format": fmt,
+    }
+
+    detected_fmt = fmt or detect_format(image_bytes)
+    if detected_fmt is None:
+        return result
+    result["file_format"] = detected_fmt
+
+    eof_offset = None
+    if detected_fmt == "jpeg":
+        # JPEG EOI marker: 0xFFD9.  Search from the end for the *last* EOI.
+        # Some cameras embed thumbnails with their own EOI, so we look for
+        # the final one.
+        idx = image_bytes.rfind(b"\xff\xd9")
+        if idx != -1:
+            eof_offset = idx + 2  # marker is 2 bytes
+    elif detected_fmt == "png":
+        # PNG IEND chunk: 8-byte sequence (length=0 + "IEND" + CRC)
+        idx = image_bytes.rfind(b"IEND\xae\x42\x60\x82")
+        if idx != -1:
+            eof_offset = idx + 8
+
+    if eof_offset is not None and eof_offset < len(image_bytes):
+        trailing = len(image_bytes) - eof_offset
+        result["eof_offset"] = eof_offset
+        result["trailing_bytes_count"] = trailing
+        result["steganography_detected"] = trailing > 0
+
+    return result
+
+
+def detect_format(image_bytes: bytes) -> str | None:
+    """Return ``"jpeg"`` or ``"png"`` based on magic bytes, or ``None``."""
+    if image_bytes.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    if image_bytes.startswith(b"\x89\x50\x4e\x47"):
+        return "png"
+    return None
+
+
+# --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
 def _decode_image(image_bytes: bytes) -> Image.Image:
@@ -126,7 +187,25 @@ class MetadataExtractor:
             "datetime_original": None,
             "raw": {},
             "tamper_flags": [],
+            "steganography": {
+                "steganography_detected": False,
+                "trailing_bytes_count": 0,
+                "eof_offset": None,
+                "file_format": None,
+            },
+            "exif_missing": False,
+            "file_format": None,
         }
+
+        # Steganography / EOF anomaly scan (runs before decode for early flag)
+        stego = detect_eof_anomaly(image_bytes)
+        result["steganography"] = stego
+        result["file_format"] = stego.get("file_format")
+        if stego.get("steganography_detected"):
+            result["tamper_flags"].append(
+                f"trailing_bytes:{stego['trailing_bytes_count']}"
+            )
+
         img = _decode_image(image_bytes)
 
         # Basic EXIF via Pillow (0th IFD)
@@ -143,6 +222,11 @@ class MetadataExtractor:
                 exif_dict = piexif.load(exif_raw)
             except (ValueError, piexif.InvalidImageDataError):
                 exif_dict = {}
+
+        # Flag EXIF as missing/stripped if no raw EXIF bytes and no Pillow exif
+        if not exif_raw and not exif_data:
+            result["exif_missing"] = True
+            result["tamper_flags"].append("exif_stripped")
 
         # Camera parameters from 0th + EXIF IFDs
         self._extract_camera(exif_dict, result)

@@ -21,6 +21,54 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from app.core.config import settings
 
 # --------------------------------------------------------------------------- #
+# Magic-byte validation (anti-spoofing)
+# --------------------------------------------------------------------------- #
+JPEG_MAGIC = b"\xff\xd8\xff"
+PNG_MAGIC = b"\x89\x50\x4e\x47"
+
+_MAGIC_BYTES = {
+    "jpeg": JPEG_MAGIC,
+    "jpg": JPEG_MAGIC,
+    "png": PNG_MAGIC,
+}
+
+_MIME_TO_FORMAT = {
+    "image/jpeg": "jpeg",
+    "image/jpg": "jpeg",
+    "image/png": "png",
+}
+
+
+def detect_format(image_bytes: bytes) -> str | None:
+    """Return ``"jpeg"`` or ``"png"`` based on the first bytes, or ``None``."""
+    if image_bytes.startswith(JPEG_MAGIC):
+        return "jpeg"
+    if image_bytes.startswith(PNG_MAGIC):
+        return "png"
+    return None
+
+
+def validate_magic_bytes(image_bytes: bytes, declared_type: str | None = None) -> str:
+    """Validate that the file's magic bytes match its declared MIME type.
+
+    Returns the detected format (``"jpeg"`` or ``"png"``).
+    Raises ``ValueError`` if the magic bytes don't match the declared type
+    or if the format is unrecognized.
+    """
+    detected = detect_format(image_bytes)
+    if detected is None:
+        raise ValueError("Unrecognized file format — not a valid JPEG or PNG")
+
+    if declared_type:
+        expected = _MIME_TO_FORMAT.get(declared_type.lower().strip())
+        if expected and expected != detected:
+            raise ValueError(
+                f"Magic-byte spoofing detected: declared '{declared_type}' "
+                f"but bytes indicate '{detected}'"
+            )
+    return detected
+
+# --------------------------------------------------------------------------- #
 # Password hashing (bcrypt directly — avoids passlib/bcrypt version conflicts)
 # --------------------------------------------------------------------------- #
 
@@ -100,14 +148,22 @@ def md5_hex(data: bytes | str) -> str:
     return hashlib.md5(data).hexdigest()
 
 
+def sha1_hex(data: bytes | str) -> str:
+    """Return the SHA-1 hex digest of *data*."""
+    if isinstance(data, str):
+        data = data.encode("utf-8")
+    return hashlib.sha1(data).hexdigest()
+
+
 def custody_certificate(image_bytes: bytes) -> dict:
     """Produce a cryptographic custody certificate for raw image bytes.
 
-    Returns a dict with ``sha256``, ``md5`` and ``ingested_at_ms`` (UTC epoch
-    milliseconds) — the three pillars of a forensic chain-of-custody block.
+    Returns a dict with ``sha256``, ``sha1``, ``md5`` and ``ingested_at_ms``
+    (UTC epoch milliseconds) — the forensic triple-hash chain-of-custody block.
     """
     return {
         "sha256": sha256_hex(image_bytes),
+        "sha1": sha1_hex(image_bytes),
         "md5": md5_hex(image_bytes),
         "ingested_at_ms": int(time.time() * 1000),
     }

@@ -7,6 +7,7 @@ import type { VisualEvidenceTag } from '../../types';
 
 interface Props {
   tags: VisualEvidenceTag[];
+  source?: string;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -23,7 +24,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   infrastructure: '#0EA5E9',
 };
 
-export function FeatureInspector({ tags }: Props) {
+export function FeatureInspector({ tags, source }: Props) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   // Group tags by category

@@ -19,6 +19,7 @@ export interface AddressInfo {
 
 export interface CustodyCertificate {
   sha256: string;
+  sha1: string;
   md5: string;
   ingested_at_ms: number;
 }
@@ -52,5 +53,9 @@ export interface AnalyzeResponse {
   exif_raw?: Record<string, unknown> | null;
   telemetry_resolve?: Coordinates | null;
   message?: string | null;
+  steganography_detected?: boolean;
+  trailing_bytes_count?: number;
+  exif_missing?: boolean;
+  file_format?: string | null;
   created_at: string;
 }

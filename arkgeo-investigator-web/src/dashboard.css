@@ -332,3 +332,118 @@
 .custody-hash-label { font-size: 10px; color: var(--text-muted); }
 .custody-hash-value { font-size: 10px; color: var(--cyan-bright); word-break: break-all; }
 .custody-detail { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+
+
+/* INGESTION SWEEP OVERLAY */
+.ingestion-sweep-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(11, 15, 23, 0.92);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.sweep-laser-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #38BDF8, #7DD3FC, #38BDF8, transparent);
+  box-shadow: 0 0 20px #38BDF8, 0 0 40px #38BDF8;
+  animation: sweep-laser-move 2s ease-in-out infinite;
+  z-index: 1001;
+}
+
+@keyframes sweep-laser-move {
+  0% { top: 0; opacity: 0.4; }
+  50% { top: 100%; opacity: 1; }
+  100% { top: 0; opacity: 0.4; }
+}
+
+.sweep-content { width: 90%; max-width: 520px; display: flex; flex-direction: column; gap: 20px; padding: 30px; }
+.sweep-header { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.sweep-radar { position: relative; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; }
+.sweep-radar-ring { position: absolute; width: 64px; height: 64px; border: 2px solid #38BDF8; border-radius: 50%; opacity: 0.3; animation: sweep-radar-pulse 1.5s ease-out infinite; }
+.sweep-radar-ring-2 { animation-delay: 0.5s; }
+
+@keyframes sweep-radar-pulse {
+  0% { transform: scale(0.5); opacity: 0.8; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+
+.sweep-radar-dot { width: 10px; height: 10px; background: #38BDF8; border-radius: 50%; box-shadow: 0 0 12px #38BDF8; z-index: 2; }
+.sweep-title { font-size: 18px; font-weight: 700; color: #38BDF8; letter-spacing: 3px; text-transform: uppercase; }
+.sweep-subtitle { font-size: 12px; color: #94A3B8; letter-spacing: 1px; }
+.sweep-progress-container { display: flex; align-items: center; gap: 12px; }
+.sweep-progress-track { flex: 1; height: 6px; background: #1E293B; border-radius: 3px; overflow: hidden; border: 1px solid #334155; }
+.sweep-progress-fill { height: 100%; background: linear-gradient(90deg, #0EA5E9, #38BDF8, #7DD3FC); box-shadow: 0 0 10px #38BDF8; transition: width 0.3s ease; border-radius: 3px; }
+.sweep-progress-pct { font-size: 13px; color: #38BDF8; min-width: 40px; text-align: right; }
+.sweep-terminal { background: #050810; border: 1px solid #1E293B; border-radius: 6px; overflow: hidden; }
+.sweep-terminal-header { background: #0D1421; padding: 8px 12px; display: flex; align-items: center; gap: 6px; border-bottom: 1px solid #1E293B; }
+.sweep-terminal-dot { width: 10px; height: 10px; border-radius: 50%; }
+.sweep-terminal-dot-red { background: #EF4444; }
+.sweep-terminal-dot-yellow { background: #F59E0B; }
+.sweep-terminal-dot-green { background: #22C55E; }
+.sweep-terminal-title { margin-left: 8px; font-size: 11px; color: #64748B; }
+.sweep-terminal-body { padding: 12px; max-height: 200px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.sweep-terminal-body::-webkit-scrollbar { width: 4px; }
+.sweep-terminal-body::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+.sweep-terminal-line { display: flex; gap: 8px; animation: sweep-line-in 0.3s ease; }
+
+@keyframes sweep-line-in {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.sweep-terminal-prompt { color: #38BDF8; font-size: 12px; }
+.sweep-terminal-text { font-size: 12px; line-height: 1.5; }
+
+/* TOAST NOTIFICATIONS */
+.toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 8px; }
+.toast { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; animation: toast-in 0.3s ease; backdrop-filter: blur(10px); min-width: 250px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5); }
+
+@keyframes toast-in {
+  from { transform: translateX(100px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.toast-success { background: rgba(15, 23, 42, 0.95); border: 1px solid #22C55E; color: #22C55E; }
+.toast-warning { background: rgba(15, 23, 42, 0.95); border: 1px solid #F59E0B; color: #F59E0B; }
+.toast-error { background: rgba(15, 23, 42, 0.95); border: 1px solid #EF4444; color: #EF4444; }
+.toast-icon { font-size: 16px; font-weight: 700; }
+.toast-message { flex: 1; }
+
+/* DEGRADATION STYLES */
+.panel-degraded-amber { border-color: #F59E0B !important; animation: pulse-amber 2s ease-in-out infinite; }
+
+@keyframes pulse-amber {
+  0%, 100% { border-color: #F59E0B; box-shadow: 0 0 0 rgba(245, 158, 11, 0); }
+  50% { border-color: #FBBF24; box-shadow: 0 0 12px rgba(245, 158, 11, 0.3); }
+}
+
+.panel-degraded-red { border-color: #EF4444 !important; animation: pulse-red 1.5s ease-in-out infinite; }
+
+@keyframes pulse-red {
+  0%, 100% { border-color: #EF4444; box-shadow: 0 0 0 rgba(239, 68, 68, 0); }
+  50% { border-color: #F87171; box-shadow: 0 0 14px rgba(239, 68, 68, 0.4); }
+}
+
+/* ALERT BOXES */
+.alert-box { padding: 10px 12px; border-radius: 4px; margin: 10px 0; font-size: 12px; }
+.alert-amber { background: rgba(245, 158, 11, 0.1); border: 1px solid #F59E0B; color: #FBBF24; }
+.alert-red { background: rgba(239, 68, 68, 0.1); border: 1px solid #EF4444; color: #F87171; }
+.alert-title { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; margin-bottom: 4px; text-transform: uppercase; }
+.alert-detail { font-size: 11px; opacity: 0.9; line-height: 1.4; }
+
+/* LEAFLET BLUEPRINT POPUP */
+.arkgeo-popup-wrapper { background: transparent !important; border: none !important; padding: 0 !important; }
+.arkgeo-popup-wrapper .leaflet-popup-content-wrapper { background: #0B0F17 !important; border: 1px solid #38BDF8 !important; border-radius: 6px !important; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), 0 0 10px rgba(56, 189, 248, 0.2) !important; padding: 0 !important; }
+.arkgeo-popup-wrapper .leaflet-popup-content { margin: 0 !important; padding: 0 !important; width: auto !important; }
+.arkgeo-popup-wrapper .leaflet-popup-tip { background: #0B0F17 !important; border: 1px solid #38BDF8 !important; }
+.arkgeo-blueprint-popup #arkgeo-copy-coords:hover { background: #38BDF8 !important; color: #0B0F17 !important; }
+.leaflet-container a.leaflet-popup-close-button { color: #38BDF8 !important; padding: 6px 6px 0 0 !important; }

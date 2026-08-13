@@ -17,6 +17,8 @@ import { AudioContextPlayer } from '../components/FeatureInspector/AudioContextP
 import { CameraTelemetry } from '../components/FeatureInspector/CameraTelemetry';
 import { LocationCard } from '../components/FeatureInspector/LocationCard';
 import { TierCard } from '../components/FeatureInspector/TierCard';
+import { IngestionSweep } from '../components/IngestionSweep';
+import { useToast, ToastContainer } from '../components/Toast';
 
 /** Default fallback coordinates for visual testing when the backend returns
  * no coordinates (no EXIF, no telemetry, no AI keys).  Uses a recognizable
@@ -31,11 +33,18 @@ export function Dashboard() {
   const [showHex, setShowHex] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [history, setHistory] = useState<AnalyzeResponse[]>([]);
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toasts, showToast, dismiss } = useToast();
 
   const analyzeFile = useCallback(async (file: File) => {
     setAnalyzing(true);
     setError(null);
+
+    // Create a local object URL for the thumbnail (used in map popup)
+    const thumbUrl = URL.createObjectURL(file);
+    setThumbnailUrl(thumbUrl);
+
     try {
       const resp = await api.analyzeFile(file, zeroRetention);
       setResult(resp);
@@ -45,7 +54,7 @@ export function Dashboard() {
     } finally {
       setAnalyzing(false);
     }
-  }, [zeroRetention]);
+  }, [zeroRetention, showToast]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -74,6 +83,7 @@ export function Dashboard() {
         confidence: result.consensus.confidence_score,
         source: mapSource,
         label: `${result.address?.display_name || result.consensus.primary_country || 'Test Location'} · ${Math.round(result.consensus.confidence_score * 100)}%`,
+        thumbnailUrl,
       }]
     : [];
 
@@ -88,6 +98,15 @@ export function Dashboard() {
         source: r.source,
       };
     });
+
+  const handleCopyCoords = useCallback(() => {
+    if (!effectiveCoords) return;
+    const coordsStr = `${effectiveCoords.lat.toFixed(5)}, ${effectiveCoords.lon.toFixed(5)}`;
+    navigator.clipboard?.writeText(coordsStr).then(
+      () => showToast(`Coordinates copied: ${coordsStr}`, 'success'),
+      () => showToast('Copy failed — clipboard not available', 'error'),
+    );
+  }, [effectiveCoords, showToast]);
 
   return (
     <div className="dashboard">
@@ -199,7 +218,8 @@ export function Dashboard() {
 
         {/* CENTER — Interactive Map */}
         <main className="main-panel">
-          <MapWorkspace points={mapPoints} history={historyPoints} />
+          <MapWorkspace points={mapPoints} history={historyPoints} onCopyCoords={handleCopyCoords} />
+          <IngestionSweep active={analyzing} />
           {result && (
             <div className="map-overlay-info">
               <div className="map-info-row">
@@ -270,16 +290,25 @@ export function Dashboard() {
               />
 
               {/* CARD 2: VISUAL EVIDENCE & CLUES */}
-              <FeatureInspector tags={result.consensus.visual_evidence_tags} />
+              <FeatureInspector tags={result.consensus.visual_evidence_tags} source={result.source} />
 
               <CameraTelemetry
                 camera={result.camera}
                 altitude={result.altitude}
                 datetimeOriginal={result.datetime_original}
               />
-              <ExifViewer exifRaw={result.exif_raw ?? null} imageSha256={result.image_sha256} />
+              <ExifViewer
+                exifRaw={result.exif_raw ?? null}
+                imageSha256={result.image_sha256}
+                exifMissing={result.exif_missing}
+                steganographyDetected={result.steganography_detected}
+              />
               <AudioContextPlayer audioBase64={null} />
-              <ChainOfCustody response={result} />
+              <ChainOfCustody
+                response={result}
+                exifMissing={result.exif_missing}
+                steganographyDetected={result.steganography_detected}
+              />
             </>
           ) : (
             <div className="panel-empty-large">
@@ -292,6 +321,7 @@ export function Dashboard() {
           )}
         </aside>
       </div>
+      <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 }

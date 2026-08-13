@@ -32,6 +32,7 @@ class AddressInfo(BaseModel):
 class CustodyCertificate(BaseModel):
     """Cryptographic chain-of-custody block computed at ingestion time."""
     sha256: str
+    sha1: str
     md5: str
     ingested_at_ms: int = Field(..., description="UTC epoch milliseconds")
 
@@ -126,6 +127,10 @@ class AnalyzeResponse(BaseModel):
     exif_raw: Optional[dict[str, Any]] = None
     telemetry_resolve: Optional[Coordinates] = None
     message: Optional[str] = None
+    steganography_detected: bool = False
+    trailing_bytes_count: int = 0
+    exif_missing: bool = False
+    file_format: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 

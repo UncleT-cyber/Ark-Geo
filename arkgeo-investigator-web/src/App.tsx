@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Dashboard } from './views/Dashboard';
 import { AdminLoginForm } from './components/AdminLoginForm';
@@ -40,6 +40,24 @@ function AdminRoute({ mode }: { mode: 'login' | 'console' }) {
 }
 
 export default function App() {
+  const ADMIN_ROUTE_SLUG =
+    (import.meta as any).env?.VITE_ADMIN_ROUTE_SLUG || 'console-auth';
+  const ADMIN_LOGIN_PATH = `/${ADMIN_ROUTE_SLUG}`;
+  const ADMIN_CONSOLE_PATH = `/${ADMIN_ROUTE_SLUG}/console`;
+
+  // Global hotkey: Cmd+Shift+P (Mac) / Ctrl+Shift+P (others) → admin login
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const modKey = e.metaKey || e.ctrlKey;
+      if (modKey && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
+        e.preventDefault();
+        window.location.href = ADMIN_LOGIN_PATH;
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [ADMIN_LOGIN_PATH]);
+
   return (
     <BrowserRouter>
       <Routes>

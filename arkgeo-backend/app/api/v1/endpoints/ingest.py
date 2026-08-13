@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from app.brain.metadata_extractor import MetadataExtractor
 from app.brain.pipeline import brain
 from app.core.security import custody_hash
-from app.models import AnalyzeResponse, IngestRequest
+from app.models import AnalyzeResponse, Coordinates, IngestRequest
 from app.services.storage_service import storage
 
 router = APIRouter()
@@ -39,10 +39,10 @@ async def ingest(request: IngestRequest):
     # Telemetry resolve for the response (may differ from consensus tier)
     telemetry_resolve = None
     if consensus.tier_used == "telemetry":
-        telemetry_resolve = type("C", (), {
-            "lat": consensus.estimated_latitude,
-            "lon": consensus.estimated_longitude,
-        })()
+        telemetry_resolve = Coordinates(
+            lat=consensus.estimated_latitude,
+            lon=consensus.estimated_longitude,
+        )
 
     # Zero-retention cleanup
     if request.zero_retention:

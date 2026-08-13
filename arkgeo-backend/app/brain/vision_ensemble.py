@@ -3,6 +3,12 @@
 Queries external geo-vision APIs (GeoSpy, GeoInfer) concurrently and
 normalises their responses into :class:`VisionResult` objects.  Each provider
 is optional — if a key is missing the provider is simply skipped.
+
+In addition to dedicated geo-vision APIs, the ensemble can fall back to a
+generic vision-capable LLM (e.g. GPT-4o) using the environmental forensic
+prompt.  This makes Tier 2 functional with just a single LLM API key, which
+is the most common deployment, rather than requiring GeoSpy/GeoInfer
+credentials specifically.
 """
 from __future__ import annotations
 
@@ -13,6 +19,8 @@ from typing import List
 
 import httpx
 
+from app.brain.clue_extractors.base import llm_client
+from app.brain.system_prompts import ENVIRONMENTAL_FORENSIC_PROMPT
 from app.core.config import settings
 from app.models import VisionResult, VisualEvidenceTag
 
@@ -34,10 +42,7 @@ class VisionEnsemble:
                 tasks.append(self._query_geospy(client, b64))
             if settings.geoinfer_api_key:
                 tasks.append(self._query_geoinfer(client, b64))
-            if not tasks:
-                logger.info("No vision API keys configured; skipping ensemble")
-                return []
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            results = await asyncio.gather(*tasks, return_exceptions=True) if tasks else []
 
         vision_results: List[VisionResult] = []
         for r in results:
@@ -45,6 +50,18 @@ class VisionEnsemble:
                 logger.warning("Vision provider error: %s", r)
             elif r is not None:
                 vision_results.append(r)
+
+        # LLM vision geolocator fallback / additional signal.
+        # Runs concurrently with (and independently of) the dedicated APIs.
+        if llm_client.is_configured():
+            llm_result = await asyncio.to_thread(
+                self._query_llm_vision, image_bytes
+            )
+            if llm_result is not None:
+                vision_results.append(llm_result)
+
+        if not vision_results:
+            logger.info("No vision providers configured; skipping ensemble")
         return vision_results
 
     # ------------------------------------------------------------------ #
@@ -93,3 +110,38 @@ class VisionEnsemble:
         except Exception as exc:
             logger.warning("GeoInfer query failed: %s", exc)
             return None
+
+    # ------------------------------------------------------------------ #
+    def _query_llm_vision(self, image_bytes: bytes) -> VisionResult | None:
+        """Use a generic vision-capable LLM as a geo-locator.
+
+        Sends the environmental forensic prompt alongside the image and
+        normalises the JSON response into a :class:`VisionResult`.  The
+        confidence is capped below the dedicated geo-vision APIs so the
+        consensus engine weights them appropriately.
+        """
+        data = llm_client.vision_query(image_bytes, ENVIRONMENTAL_FORENSIC_PROMPT)
+        if not data:
+            return None
+        tags = [
+            VisualEvidenceTag(
+                category=t.get("category", "architecture"),
+                label=t.get("label", ""),
+                confidence=float(t.get("confidence", 0.5)),
+            )
+            for t in (data.get("visual_evidence_tags") or [])
+            if isinstance(t, dict)
+        ]
+        lat = data.get("estimated_latitude")
+        lon = data.get("estimated_longitude")
+        return VisionResult(
+            source="llm_vision",
+            estimated_latitude=float(lat) if lat is not None else None,
+            estimated_longitude=float(lon) if lon is not None else None,
+            search_radius_meters=data.get("search_radius_meters"),
+            confidence_score=min(0.75, float(data.get("confidence_score", 0.0))),
+            primary_country=data.get("primary_country"),
+            region=data.get("region"),
+            evidence_tags=tags,
+            raw=data,
+        )

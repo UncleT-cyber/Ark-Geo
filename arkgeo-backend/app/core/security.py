@@ -9,6 +9,7 @@ Provides:
 from __future__ import annotations
 
 import hashlib
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -44,7 +45,7 @@ def encrypt_field(plaintext: str, aad: Optional[bytes] = None) -> str:
     Returns a hex string ``nonce:ciphertext``.
     """
     aesgcm = AESGCM(settings.aes_key_bytes)
-    nonce = AESGCM.generate_nonce(bit_length=96)
+    nonce = os.urandom(12)
     ct = aesgcm.encrypt(nonce, plaintext.encode("utf-8"), aad)
     return f"{nonce.hex()}:{ct.hex()}"
 

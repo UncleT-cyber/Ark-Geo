@@ -6,7 +6,7 @@
  * payloads the moment signal is restored.
  */
 import * as SQLite from 'expo-sqlite';
-import { NetInfo } from 'react-native'; // fallback if expo-network unavailable
+import * as Network from 'expo-network';
 import { ARKGEOIngestPayload, QueuedPayload } from '../../types';
 import { api } from '../api/client';
 
@@ -119,12 +119,12 @@ class OfflineQueueManager {
   private async startSyncWorker(): Promise<void> {
     const tick = async () => {
       try {
-        const netState = await NetInfo.fetch();
+        const netState = await Network.getNetworkStateAsync();
         if (netState.isConnected) {
           await this.syncNow();
         }
       } catch {
-        // NetInfo not available — try sync anyway
+        // expo-network not available — try sync anyway
         try {
           await this.syncNow();
         } catch {

@@ -29,7 +29,7 @@ class DeadManSwitch:
         self._armed: Dict[str, DeadManConfig] = {}
         self._expires: Dict[str, datetime] = {}
         self._fired: set[str] = set()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
 

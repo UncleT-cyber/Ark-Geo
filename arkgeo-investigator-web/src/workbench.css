@@ -26,19 +26,17 @@
   user-select: none;
 }
 .topbar-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.topbar-brand-icon { color: var(--cyan); font-size: 16px; display: inline-flex; align-items: center; }
-.topbar-brand-title {
-  font-size: 12px; font-weight: 700; letter-spacing: 1px; color: var(--text-primary);
-  font-family: 'JetBrains Mono', monospace;
+/* Single subtle ARK identity — no duplicate logos elsewhere. */
+.topbar-ark {
+  font-size: 13px; font-weight: 800; letter-spacing: 0.2em;
+  color: var(--text-muted); font-family: 'JetBrains Mono', monospace;
+  user-select: none;
+}
+.topbar-case {
+  font-size: 11px; color: var(--cyan-bright); letter-spacing: 0.5px;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .topbar-sep { width: 1px; height: 18px; background: var(--border-dim); }
-.topbar-workspace {
-  display: flex; align-items: center; gap: 4px;
-  background: transparent; border: none; color: var(--text-secondary);
-  font-size: 12px; cursor: pointer; padding: 2px 6px; border-radius: 4px;
-}
-.topbar-workspace:hover { background: var(--bg-elevated); color: var(--text-primary); }
-.topbar-chevron { font-size: 9px; opacity: 0.7; display: inline-flex; align-items: center; }
 
 .topbar-center { flex: 1; display: flex; justify-content: center; min-width: 0; }
 .topbar-search {
@@ -62,18 +60,6 @@
 }
 
 .topbar-right { display: flex; align-items: center; gap: 6px; }
-.topbar-badges { display: flex; align-items: center; gap: 6px; }
-.topbar-badge {
-  display: flex; align-items: center; gap: 4px;
-  font-size: 11px; padding: 2px 8px; border-radius: 10px;
-  font-family: 'JetBrains Mono', monospace; white-space: nowrap;
-}
-.topbar-badge-red { background: rgba(241,76,76,0.12); color: var(--emergency); }
-.topbar-badge-amber { background: rgba(204,167,0,0.12); color: var(--warning); }
-.topbar-badge-dot {
-  width: 6px; height: 6px; border-radius: 50%; background: var(--emergency);
-}
-.topbar-badge-dot-amber { background: var(--warning); }
 
 .topbar-api-status { display: flex; align-items: center; gap: 4px; }
 .topbar-api-dot {
@@ -188,14 +174,19 @@
   align-items: center;
   padding: 8px 0;
 }
-.activity-brand {
-  font-size: 22px;
-  color: var(--cyan);
-  margin-bottom: 12px;
-  opacity: 0.8;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* Single subtle ARK wordmark at the very bottom of the activity bar —
+   muted slate, big & bold. No duplicate logos anywhere else. */
+.activity-wordmark {
+  color: #333846;
+  font-weight: 800;
+  letter-spacing: 0.15em;
+  font-size: 1.5rem;
+  font-family: 'JetBrains Mono', monospace;
+  margin-top: 8px;
+  margin-bottom: 4px;
+  user-select: none;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
 }
 .activity-items {
   display: flex;
@@ -1498,8 +1489,216 @@
   .tool-side-panel { width: 100%; max-width: none; }
   .provenance-grid { grid-template-columns: 1fr; }
   .overview-tiles { grid-template-columns: 1fr 1fr; }
-  .topbar-brand-title { display: none; }
-  .topbar-workspace { display: none; }
-  .topbar-badges { display: none; }
+  .topbar-case { display: none; }
+  .topbar-api-status { display: none; }
   .dashboard { padding: 12px; }
 }
+
+/* ---- Smooth sidebar collapse animation (never overlaps topbar) ---- */
+.workbench-sidebar {
+  transition: width 0.2s ease, min-width 0.2s ease;
+  overflow: hidden;
+}
+.workbench-body { transition: none; }
+.activity-bar { flex-shrink: 0; }
+
+/* ---- Bottom console: tab icons + terminal ---- */
+.bottom-tab { display: inline-flex; align-items: center; gap: 5px; }
+.bottom-tab-icon { display: inline-flex; align-items: center; opacity: 0.8; }
+.bottom-tab-active .bottom-tab-icon { opacity: 1; color: var(--cyan-bright); }
+.bottom-row-sev {
+  width: 14px; text-align: center; font-size: 10px; flex-shrink: 0;
+  color: var(--text-muted);
+}
+.bottom-row-error .bottom-row-sev { color: var(--emergency); }
+.bottom-row-warning .bottom-row-sev { color: var(--warning); }
+.bottom-terminal {
+  display: flex; flex-direction: column; height: 100%; min-height: 140px;
+  background: var(--bg-darkest); cursor: text;
+}
+.bottom-terminal-body {
+  flex: 1; overflow-y: auto; padding: 8px 12px; font-size: 12px; line-height: 1.6;
+}
+.bottom-terminal-line { white-space: pre-wrap; word-break: break-word; }
+.bottom-terminal-in { color: var(--cyan-bright); }
+.bottom-terminal-out { color: var(--text-secondary); }
+.bottom-terminal-sys { color: var(--text-muted); font-style: italic; }
+.bottom-terminal-err { color: var(--emergency); }
+.bottom-terminal-input-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border-top: 1px solid var(--border-dim);
+}
+.bottom-terminal-prompt { color: var(--cyan); font-weight: 700; }
+.bottom-terminal-input {
+  flex: 1; background: transparent; border: none; outline: none;
+  color: var(--text-primary); font-size: 12px;
+}
+.bottom-terminal-input::placeholder { color: var(--text-muted); }
+
+/* ---- Investigator Profile Modal ---- */
+.profile-modal-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(11, 12, 16, 0.7); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+}
+.profile-modal {
+  width: 560px; max-width: 92vw; max-height: 88vh;
+  background: var(--bg-dark); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.profile-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid var(--border-dim);
+  background: var(--bg-card);
+}
+.profile-modal-title {
+  font-size: 13px; font-weight: 700; letter-spacing: 1.5px;
+  color: var(--text-primary); font-family: 'JetBrains Mono', monospace;
+}
+.profile-modal-close {
+  background: transparent; border: none; color: var(--text-muted);
+  cursor: pointer; padding: 4px; border-radius: 4px; display: inline-flex;
+}
+.profile-modal-close:hover { color: var(--emergency); background: var(--bg-elevated); }
+.profile-modal-body { padding: 18px; overflow-y: auto; }
+.profile-section { margin-bottom: 22px; }
+.profile-section:last-child { margin-bottom: 0; }
+.profile-section-title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: 1.2px;
+  color: var(--text-muted); text-transform: uppercase;
+  margin-bottom: 10px; font-family: 'JetBrains Mono', monospace;
+}
+.profile-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px;
+}
+.profile-field { display: flex; flex-direction: column; gap: 2px; }
+.profile-field-label { font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px; }
+.profile-field-value { font-size: 13px; color: var(--text-primary); }
+.profile-clearance { color: var(--cyan-bright); font-weight: 600; }
+.profile-active-case {
+  background: var(--bg-card); border: 1px solid var(--border-dim);
+  border-radius: 8px; padding: 12px;
+}
+.profile-active-case-id {
+  font-size: 14px; font-weight: 700; color: var(--cyan-bright);
+  margin-bottom: 10px; letter-spacing: 0.5px;
+}
+.profile-active-case-row {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 4px 0; font-size: 12px;
+}
+.profile-status-open { color: var(--success); font-weight: 600; }
+.profile-empty-session {
+  font-size: 12px; color: var(--text-muted); padding: 12px;
+  background: var(--bg-card); border-radius: 6px; text-align: center;
+}
+.profile-history-list { display: flex; flex-direction: column; gap: 4px; }
+.profile-history-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; background: var(--bg-card);
+  border: 1px solid var(--border-dim); border-radius: 6px;
+  cursor: pointer; text-align: left; transition: all 0.15s; width: 100%;
+}
+.profile-history-item:hover { border-color: var(--cyan-dim); background: var(--bg-elevated); }
+.profile-history-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.profile-history-id { font-size: 11px; color: var(--cyan-bright); font-weight: 600; }
+.profile-history-filename { font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-history-meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.profile-history-source { font-size: 10px; color: var(--text-muted); }
+.profile-history-conf { font-size: 11px; color: var(--cyan-bright); font-family: 'JetBrains Mono', monospace; }
+.profile-history-risk { font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+.profile-api-list { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.profile-api-row { display: flex; justify-content: space-between; font-size: 12px; }
+.profile-api-label { color: var(--text-secondary); }
+.profile-api-state { font-size: 11px; font-weight: 600; }
+.profile-api-on { color: var(--success); }
+.profile-api-off { color: var(--text-muted); }
+.profile-modal-footer {
+  padding: 10px 18px; border-top: 1px solid var(--border-dim);
+  background: var(--bg-card);
+}
+.profile-modal-hint {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10px; color: var(--text-muted); letter-spacing: 0.5px;
+}
+
+/* ---- Case Explorer (CASES domain) ---- */
+.case-explorer { height: 100%; overflow-y: auto; padding: 20px 24px; }
+.case-explorer-header { margin-bottom: 20px; }
+.case-explorer-title-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.case-explorer-title-icon { color: var(--cyan-bright); }
+.case-explorer-title {
+  font-size: 16px; font-weight: 700; letter-spacing: 1.5px;
+  color: var(--text-primary); font-family: 'JetBrains Mono', monospace;
+}
+.case-explorer-count {
+  font-size: 11px; color: var(--text-muted); margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+}
+.case-explorer-search {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-card); border: 1px solid var(--border-dim);
+  border-radius: 6px; padding: 8px 12px; max-width: 480px;
+}
+.case-explorer-search-icon { color: var(--text-muted); }
+.case-explorer-search-input {
+  flex: 1; background: transparent; border: none; outline: none;
+  color: var(--text-primary); font-size: 13px;
+}
+.case-explorer-search-input::placeholder { color: var(--text-muted); }
+.case-explorer-active {
+  background: var(--bg-card); border: 1px solid var(--cyan-dim);
+  border-radius: 8px; padding: 14px 16px; margin-bottom: 20px;
+}
+.case-explorer-active-label {
+  font-size: 10px; letter-spacing: 1.2px; color: var(--text-muted);
+  text-transform: uppercase; margin-bottom: 6px; font-family: 'JetBrains Mono', monospace;
+}
+.case-explorer-active-id { font-size: 14px; color: var(--cyan-bright); font-weight: 700; margin-bottom: 8px; }
+.case-explorer-active-meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; }
+.case-explorer-active-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.case-explorer-active-conf { color: var(--cyan-bright); font-family: 'JetBrains Mono', monospace; }
+.case-explorer-audit { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-dim); }
+.case-explorer-audit-title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10px; letter-spacing: 1.2px; color: var(--text-muted);
+  text-transform: uppercase; margin-bottom: 8px; font-family: 'JetBrains Mono', monospace;
+}
+.case-explorer-audit-row { display: flex; gap: 10px; padding: 3px 0; font-size: 11px; align-items: baseline; }
+.case-explorer-audit-ts { color: var(--text-muted); flex-shrink: 0; }
+.case-explorer-audit-action { color: var(--text-secondary); font-weight: 600; flex-shrink: 0; }
+.case-explorer-audit-detail { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.case-explorer-section-label {
+  font-size: 10px; letter-spacing: 1.5px; color: var(--text-muted);
+  text-transform: uppercase; margin-bottom: 12px; font-family: 'JetBrains Mono', monospace;
+}
+.case-explorer-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 48px 24px; text-align: center;
+}
+.case-explorer-empty-icon { color: var(--text-muted); opacity: 0.3; margin-bottom: 14px; }
+.case-explorer-empty-title { font-size: 15px; color: var(--text-secondary); margin-bottom: 6px; }
+.case-explorer-empty-text { font-size: 13px; color: var(--text-muted); max-width: 380px; line-height: 1.5; }
+.case-explorer-list { display: flex; flex-direction: column; gap: 8px; }
+.case-explorer-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 14px 16px; background: var(--bg-card);
+  border: 1px solid var(--border-dim); border-radius: 8px;
+  cursor: pointer; text-align: left; transition: all 0.15s; width: 100%;
+}
+.case-explorer-card:hover { border-color: var(--cyan-dim); background: var(--bg-elevated); }
+.case-explorer-card-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.case-explorer-card-id { font-size: 12px; color: var(--cyan-bright); font-weight: 600; }
+.case-explorer-card-filename { font-size: 13px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.case-explorer-card-tags { display: flex; gap: 6px; margin-top: 2px; }
+.case-explorer-tag {
+  font-size: 9px; letter-spacing: 0.8px; padding: 2px 7px; border-radius: 3px;
+  background: rgba(56, 189, 248, 0.08); color: var(--cyan-bright);
+  border: 1px solid var(--border-dim); font-family: 'JetBrains Mono', monospace;
+}
+.case-explorer-card-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.case-explorer-card-conf { font-size: 16px; font-weight: 700; color: var(--cyan-bright); font-family: 'JetBrains Mono', monospace; }
+.case-explorer-card-ts { display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-muted); }
+.case-explorer-card-arrow { color: var(--text-muted); }

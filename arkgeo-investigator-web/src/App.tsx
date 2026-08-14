@@ -43,20 +43,16 @@ export default function App() {
   const ADMIN_ROUTE_SLUG =
     (import.meta as any).env?.VITE_ADMIN_ROUTE_SLUG || 'console-auth';
   const ADMIN_LOGIN_PATH = `/${ADMIN_ROUTE_SLUG}`;
-  const ADMIN_CONSOLE_PATH = `/${ADMIN_ROUTE_SLUG}/console`;
 
-  // Global hotkey: Cmd+Shift+P (Mac) / Ctrl+Shift+P (others) → admin login
-  // Only fires on non-root routes (admin/login pages). On the workbench (root),
-  // the Workbench component handles Cmd+Shift+P to open its command palette.
+  // Global stealth hotkey: Cmd+Shift+P (Mac) / Ctrl+Shift+P (others) → admin
+  // login. This is the ONLY way to reach Admin from the workbench — the profile
+  // icon and activity bar never link to it. Fires on ALL routes.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const modKey = e.metaKey || e.ctrlKey;
       if (modKey && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
-        // Only intercept on admin routes — let Workbench handle it on /
-        if (window.location.pathname !== '/') {
-          e.preventDefault();
-          window.location.href = ADMIN_LOGIN_PATH;
-        }
+        e.preventDefault();
+        window.location.href = ADMIN_LOGIN_PATH;
       }
     };
     window.addEventListener('keydown', handler);

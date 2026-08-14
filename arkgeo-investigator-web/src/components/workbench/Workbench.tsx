@@ -1,30 +1,30 @@
 /**
- * Workbench — the main THE ARK forensic investigation workstation.
+ * Workbench — the main THE ARK investigation workstation.
  *
- * THE ARK is organized by INVESTIGATION DOMAINS, not individual tools.
- * Each domain contains every tool required to complete that investigation.
- *
+ * Information architecture is organized by INVESTIGATION DOMAINS:
  *   THE ARK
- *   ├── IMAGE   — full image intelligence & forensic investigation domain
+ *   ├── IMAGE   — complete image-intelligence lifecycle (primary)
  *   │     Upload → Scan → Investigation (map-first) → Forensics → OCR/Vision
  *   │     → Source Discovery → Provenance → Evidence/Audit/Output → Report
- *   ├── NETWORK — reserved for future network-security tools (placeholder)
- *   └── ADMIN   — admin control plane
+ *   ├── NETWORK — network telemetry (structural placeholder)
+ *   └── CASES   — cross-domain case layer (saved sessions & audit vault)
  *
- * IMAGE is ONE continuous investigation. Every image-intelligence function
- * (Spatial, File Forensics, OCR, Source Discovery, Provenance, Report) is a
- * sub-view of the IMAGE domain, sharing the same case/evidence context.
- * The sidebar is the primary navigator; the [+] launcher only re-opens
- * additional analysis views and is never required for the core workflow.
+ * The PROFILE icon (TopBar + ActivityBar footer) opens the Investigator
+ * Profile Modal — it NEVER links to Admin. Admin is a protected control
+ * plane reachable only via the stealth hotkey Cmd/Ctrl+Shift+P (handled in
+ * App.tsx) plus server-side authorization at /console-auth.
  *
- * The backend remains the source of truth — the workbench displays and
- * interacts.
+ * Every important entity has a stable ID and relationships
+ * (Tenant → Workspace → Case → Evidence → AnalysisRun → Finding → Report →
+ * AuditEvent). The shared investigation context (useInvestigation) holds these
+ * and feeds the universal contextual bottom console, which works for IMAGE now
+ * and NETWORK later without being rewritten.
  */
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { api } from '../../api';
 import type { AnalyzeResponse } from '../../types';
 import { TopBar, type ApiKeyStatus } from './TopBar';
-import { ActivityBar, type ActivityView } from './ActivityBar';
+import { ActivityBar } from './ActivityBar';
 import type { ToolTabId } from './TabBar';
 import { EvidenceExplorer } from './investigation/EvidenceExplorer';
 import { InvestigationOverview } from './investigation/InvestigationOverview';
@@ -39,11 +39,15 @@ import { ProvenanceTool } from './tools/ProvenanceTool';
 import { VisionTool } from './tools/VisionTool';
 import { ReportTool } from './tools/ReportTool';
 import { NetworkPlaceholder } from './NetworkPlaceholder';
+import { CaseExplorer } from './CaseExplorer';
+import { InvestigatorProfileModal } from './InvestigatorProfileModal';
 import { IngestionSweep } from '../IngestionSweep';
 import { useToast, ToastContainer } from '../Toast';
 import { exportCasePdf } from '../../pdfExport';
+import { InvestigationProvider, useInvestigation, type SavedCase } from './useInvestigation';
 import { SUBVIEW_ICONS, SIDEBAR_ICONS, type LucideIcon } from './icons';
-import { Upload, ChevronDown, ChevronRight } from 'lucide-react';
+import type { DomainId } from './entities';
+import { Upload, ChevronDown, ChevronRight, PanelLeft } from 'lucide-react';
 
 /** Ordered IMAGE investigation sub-views — one continuous workflow. */
 const IMAGE_SUBVIEWS: { id: ToolTabId; title: string; icon: LucideIcon; hint: string }[] = [
@@ -60,10 +64,9 @@ const IMAGE_SUBVIEWS: { id: ToolTabId; title: string; icon: LucideIcon; hint: st
 const ADMIN_ROUTE_SLUG = (import.meta as any).env?.VITE_ADMIN_ROUTE_SLUG || 'console-auth';
 const ADMIN_LOGIN_PATH = `/${ADMIN_ROUTE_SLUG}`;
 
-export function Workbench() {
-  const [activityView, setActivityView] = useState<ActivityView>('image');
+function WorkbenchInner() {
+  const inv = useInvestigation();
   const [activeSubview, setActiveSubview] = useState<ToolTabId>('overview');
-  const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [zeroRetention, setZeroRetention] = useState(false);
@@ -72,6 +75,7 @@ export function Workbench() {
   const [connected, setConnected] = useState(true);
   const [bottomCollapsed, setBottomCollapsed] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [explorerExpanded, setExplorerExpanded] = useState(true);
@@ -80,18 +84,19 @@ export function Workbench() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toasts, showToast, dismiss } = useToast();
 
+  const result = inv.result;
+
   // Health check + API key status
   useEffect(() => {
     const check = async () => {
       try {
         const h = await api.health();
         setConnected(true);
-        const statuses: ApiKeyStatus[] = [
+        setApiStatuses([
           { configured: h.services?.vision_geospy === 'configured', label: 'GS', title: 'GeoSpy Vision API' },
           { configured: h.services?.vision_geoinfer === 'configured', label: 'GI', title: 'GeoInfer Vision API' },
           { configured: h.services?.llm === 'configured', label: 'LLM', title: 'LLM / Vision Ensemble' },
-        ];
-        setApiStatuses(statuses);
+        ]);
       } catch {
         setConnected(false);
       }
@@ -101,29 +106,23 @@ export function Workbench() {
     return () => clearInterval(interval);
   }, []);
 
-  // Command palette hotkeys: Cmd/Ctrl+Shift+P and Cmd/Ctrl+K
+  // Command palette hotkey: Cmd/Ctrl+K (Shift+P is the stealth admin hotkey
+  // handled globally in App.tsx and never opens anything here).
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const modKey = e.metaKey || e.ctrlKey;
-      if (modKey && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
-        e.preventDefault();
-        if (result) {
-          setShowPalette(true);
-        } else {
-          setActivityView('image');
-        }
-      }
-      if (modKey && (e.key === 'k' || e.key === 'K')) {
+      if (modKey && (e.key === 'k' || e.key === 'K') && !e.shiftKey) {
         e.preventDefault();
         setShowPalette(true);
       }
       if (e.key === 'Escape') {
         setShowPalette(false);
+        setShowProfile(false);
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [result]);
+  }, []);
 
   const analyzeFile = useCallback(async (file: File) => {
     setAnalyzing(true);
@@ -132,8 +131,7 @@ export function Workbench() {
     setThumbnailUrl(thumbUrl);
     try {
       const resp = await api.analyzeFile(file, zeroRetention);
-      setResult(resp);
-      // Record the session for the dashboard analytics
+      inv.loadFromAnalysis(resp, file.name);
       const anomalyCount =
         (resp.steganography_detected ? 1 : 0) +
         (resp.gps_spoofing_detected ? 1 : 0) +
@@ -151,8 +149,6 @@ export function Workbench() {
         risk: classifyRisk(anomalyCount),
       });
       setSessionTick(t => t + 1);
-      // After scanning completes, automatically open the Investigation view
-      // (map-first) for that image — the user does not click + to discover it.
       setActiveSubview('overview');
       showToast(`Analysis complete — ${resp.source}`, 'success');
     } catch (err) {
@@ -161,7 +157,7 @@ export function Workbench() {
     } finally {
       setAnalyzing(false);
     }
-  }, [zeroRetention, showToast]);
+  }, [zeroRetention, showToast, inv]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -177,9 +173,9 @@ export function Workbench() {
 
   /** Navigate to an image sub-view (the sidebar is the primary navigator). */
   const openTool = useCallback((toolId: ToolTabId) => {
-    setActivityView('image');
+    inv.setDomain('image');
     setActiveSubview(toolId);
-  }, []);
+  }, [inv]);
 
   const handleCopyCoords = useCallback(() => {
     if (!result?.coordinates) return;
@@ -212,7 +208,6 @@ export function Workbench() {
     }
   }, [result, thumbnailUrl, showToast]);
 
-  // Render the active image sub-view — all operate on the same evidence/case.
   const renderSubview = (subview: ToolTabId): React.ReactNode => {
     if (!result) return null;
     switch (subview) {
@@ -235,65 +230,46 @@ export function Workbench() {
     }
   };
 
-  // Malicious / review badge counts are derived from the current result.
-  const { maliciousCount, reviewCount } = useMemo(() => {
-    if (!result) return { maliciousCount: 0, reviewCount: 0 };
-    const critical =
-      (result.steganography_detected ? 1 : 0) +
-      (result.gps_spoofing_detected ? 1 : 0) +
-      (result.contradictions?.filter(c => c.severity === 'HIGH').length || 0);
-    const medium =
-      (result.exif_missing ? 1 : 0) +
-      (result.consistency_findings?.filter(f => f.status === 'WARNING').length || 0) +
-      (result.contradictions?.filter(c => c.severity === 'MEDIUM').length || 0);
-    return { maliciousCount: critical, reviewCount: medium };
-  }, [result]);
-
   const newSession = useCallback(() => {
-    setResult(null);
+    inv.clear();
     setError(null);
     setThumbnailUrl(undefined);
     setActiveSubview('overview');
-    setActivityView('image');
-  }, []);
+    inv.setDomain('image');
+  }, [inv]);
 
   const triggerUpload = useCallback(() => {
-    setActivityView('image');
+    inv.setDomain('image');
     fileInputRef.current?.click();
-  }, []);
+  }, [inv]);
 
-  /** Domain navigation handler. ADMIN navigates to the admin route. */
-  const handleDomainNavigate = useCallback((view: ActivityView) => {
-    if (view === 'admin') {
-      window.location.href = ADMIN_LOGIN_PATH;
-      return;
-    }
-    setActivityView(view);
-  }, []);
+  const handleRestoreCase = useCallback((saved: SavedCase) => {
+    inv.restoreCase(saved);
+    setActiveSubview('overview');
+    setThumbnailUrl(undefined);
+    setError(null);
+    showToast(`Restored case ${saved.caseId}`, 'success');
+  }, [inv, showToast]);
 
   const CollapseIcon = sidebarCollapsed ? SIDEBAR_ICONS.expand : SIDEBAR_ICONS.collapse;
+  const activeCaseId = inv.activeCase?.id || null;
 
   return (
     <div className="workbench">
       <TopBar
-        maliciousCount={maliciousCount}
-        reviewCount={reviewCount}
+        activeCaseId={activeCaseId}
         apiStatuses={apiStatuses}
         connected={connected}
         onOpenPalette={() => setShowPalette(true)}
-        onOpenSettings={() => setActivityView('settings')}
-        onOpenAdmin={() => { window.location.href = ADMIN_LOGIN_PATH; }}
+        onOpenProfile={() => setShowProfile(true)}
       />
 
       <div className="workbench-body">
-        {/* Activity Bar (far-left DOMAIN navigation) */}
-        <ActivityBar active={activityView} onNavigate={handleDomainNavigate} evidenceCount={result ? 1 : 0} />
+        <ActivityBar active={inv.domain} onNavigate={(d: DomainId) => inv.setDomain(d)} onOpenProfile={() => setShowProfile(true)} />
 
-        {/* Sidebar — contextual to the active domain */}
         {sidebarVisible && (
           <>
             <div className={`workbench-sidebar ${sidebarCollapsed ? 'workbench-sidebar-collapsed' : ''}`}>
-              {/* Sidebar collapse control — directly on the sidebar, not in Settings */}
               <div className="sidebar-collapse-bar">
                 <button
                   className="sidebar-collapse-btn"
@@ -306,13 +282,12 @@ export function Workbench() {
               </div>
 
               {/* ---- IMAGE domain sidebar ---- */}
-              {activityView === 'image' && (
+              {inv.domain === 'image' && (
                 <>
                   {!sidebarCollapsed && (
                     <div className="sidebar-content">
-                      <div className="sidebar-header">IMAGE INVESTIGATION</div>
+                      <div className="sidebar-header">IMAGE INTELLIGENCE</div>
 
-                      {/* No case loaded → upload is the first step of the workflow */}
                       {!result && !analyzing && (
                         <>
                           <div
@@ -341,15 +316,12 @@ export function Workbench() {
                           )}
                           {!error && (
                             <div className="sidebar-hint">
-                              Upload an image to begin a forensic investigation. All image
-                              tools — map, forensics, OCR, source discovery, provenance, report —
-                              live inside this one continuous investigation.
+                              Upload an image to begin. The full image investigation — map, forensics, OCR, source discovery, provenance, report — lives inside this one domain.
                             </div>
                           )}
                         </>
                       )}
 
-                      {/* Case loaded → continuous investigation sub-view navigation */}
                       {result && (
                         <>
                           <div className="sidebar-case-header">
@@ -361,12 +333,11 @@ export function Workbench() {
                               )}
                             </div>
                             <div className="sidebar-case-meta">
-                              <div className="sidebar-case-id mono">ARK-{result.request_id.slice(0, 8).toUpperCase()}</div>
+                              <div className="sidebar-case-id mono">{activeCaseId}</div>
                               <div className="sidebar-case-source">{result.source}</div>
                             </div>
                           </div>
 
-                          {/* Vertical nav of all investigation stages — never requires [+] */}
                           <div className="sidebar-subnav">
                             {IMAGE_SUBVIEWS.map(sv => {
                               const Icon = sv.icon;
@@ -386,7 +357,6 @@ export function Workbench() {
 
                           <button className="sidebar-new-session" onClick={newSession}>+ New Investigation</button>
 
-                          {/* Collapsible Evidence Explorer tree (kept — useful OSINT detail) */}
                           <div className="sidebar-explorer-section">
                             <button
                               className="sidebar-explorer-toggle"
@@ -402,7 +372,6 @@ export function Workbench() {
                         </>
                       )}
 
-                      {/* Analyzing state — scanning is part of the workflow */}
                       {analyzing && (
                         <div className="sidebar-scanning">
                           <div className="dropzone-scanning"><div className="radar-pulse" /><span>SCANNING...</span></div>
@@ -412,7 +381,6 @@ export function Workbench() {
                     </div>
                   )}
 
-                  {/* Collapsed sidebar — icon-only quick nav between sub-views */}
                   {sidebarCollapsed && result && (
                     <div className="sidebar-collapsed-nav">
                       {IMAGE_SUBVIEWS.map(sv => {
@@ -445,9 +413,9 @@ export function Workbench() {
               )}
 
               {/* ---- NETWORK domain sidebar (placeholder) ---- */}
-              {activityView === 'network' && !sidebarCollapsed && (
+              {inv.domain === 'network' && !sidebarCollapsed && (
                 <div className="sidebar-content">
-                  <div className="sidebar-header">NETWORK INVESTIGATION</div>
+                  <div className="sidebar-header">NETWORK TELEMETRY</div>
                   <div className="sidebar-hint">
                     The network-security investigation domain is reserved for
                     future tooling. No tools are configured yet.
@@ -455,45 +423,13 @@ export function Workbench() {
                 </div>
               )}
 
-              {/* ---- Settings sidebar ---- */}
-              {activityView === 'settings' && !sidebarCollapsed && (
+              {/* ---- CASES domain sidebar ---- */}
+              {inv.domain === 'cases' && !sidebarCollapsed && (
                 <div className="sidebar-content">
-                  <div className="sidebar-header">SETTINGS</div>
-                  <div className="settings-list">
-                    <div className="settings-row">
-                      <span className="settings-label">Backend:</span>
-                      <span className={`settings-value ${connected ? 'settings-ok' : 'settings-err'}`}>
-                        {connected ? 'Connected' : 'Offline'}
-                      </span>
-                    </div>
-                    <div className="settings-row">
-                      <span className="settings-label">Sidebar:</span>
-                      <button className="settings-btn" onClick={() => setSidebarCollapsed(c => !c)}>
-                        {sidebarCollapsed ? 'Expand' : 'Collapse'}
-                      </button>
-                    </div>
-                    <div className="settings-row">
-                      <span className="settings-label">Sidebar Panel:</span>
-                      <button className="settings-btn" onClick={() => setSidebarVisible(false)}>Hide panel</button>
-                    </div>
-                    <div className="settings-row">
-                      <span className="settings-label">Bottom Panel:</span>
-                      <button className="settings-btn" onClick={() => setBottomCollapsed(!bottomCollapsed)}>
-                        {bottomCollapsed ? 'Show' : 'Hide'}
-                      </button>
-                    </div>
-                    <div className="settings-api-header">API PROVIDERS</div>
-                    {apiStatuses.map(s => (
-                      <div key={s.label} className="settings-row">
-                        <span className="settings-label">{s.title}</span>
-                        <span className={`settings-value ${s.configured ? 'settings-ok' : 'settings-err'}`}>
-                          {s.configured ? 'Configured' : 'Not Set'}
-                        </span>
-                      </div>
-                    ))}
-                    <div className="settings-note">
-                      ExifTool, hash, and ELA forensics run fully offline. Vision AI providers require keys configured via the Admin control plane.
-                    </div>
+                  <div className="sidebar-header">CASE EXPLORER</div>
+                  <div className="sidebar-hint">
+                    Cross-domain case layer. Saved investigations and the audit
+                    vault live here. Restore a past case to continue work.
                   </div>
                 </div>
               )}
@@ -505,16 +441,11 @@ export function Workbench() {
         {/* Main area: Viewport + BottomPanel */}
         <div className="workbench-main">
           <div className="workbench-viewport">
-            {activityView === 'image' && (
+            {inv.domain === 'image' && (
               result ? renderSubview(activeSubview) : <DashboardView key={sessionTick} onUpload={triggerUpload} />
             )}
-            {activityView === 'network' && <NetworkPlaceholder />}
-            {activityView === 'settings' && (
-              <div className="viewport-empty">
-                <div className="viewport-empty-title">Settings</div>
-                <div className="viewport-empty-text">Configure THE ARK from the sidebar.</div>
-              </div>
-            )}
+            {inv.domain === 'network' && <NetworkPlaceholder />}
+            {inv.domain === 'cases' && <CaseExplorer onRestoreCase={handleRestoreCase} />}
             <IngestionSweep active={analyzing} />
           </div>
 
@@ -522,24 +453,40 @@ export function Workbench() {
         </div>
       </div>
 
-      <StatusBar result={result} connected={connected} analyzing={analyzing} />
+      <StatusBar result={result} connected={connected} analyzing={analyzing} activeCaseId={activeCaseId} />
 
       <CommandPalette
         open={showPalette}
         onClose={() => setShowPalette(false)}
         onOpenTool={openTool}
         onExportPdf={handleExportPdf}
-        onUpload={() => { setActivityView('image'); fileInputRef.current?.click(); }}
+        onUpload={() => { inv.setDomain('image'); fileInputRef.current?.click(); }}
         hasResult={!!result}
       />
 
-      {/* Hidden file input accessible from command palette / sidebar */}
       <input ref={fileInputRef} type="file" accept="image/jpeg,image/png" onChange={handleFileSelect} style={{ display: 'none' }} />
 
       {!sidebarVisible && (
-        <button className="sidebar-restore" onClick={() => setSidebarVisible(true)} title="Show sidebar">▸</button>
+        <button className="sidebar-restore" onClick={() => setSidebarVisible(true)} title="Show sidebar">
+          <PanelLeft className="w-4 h-4" />
+        </button>
       )}
+
+      <InvestigatorProfileModal
+        open={showProfile}
+        onClose={() => setShowProfile(false)}
+        apiStatuses={apiStatuses}
+        onRestoreCase={handleRestoreCase}
+      />
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </div>
+  );
+}
+
+export function Workbench() {
+  return (
+    <InvestigationProvider>
+      <WorkbenchInner />
+    </InvestigationProvider>
   );
 }

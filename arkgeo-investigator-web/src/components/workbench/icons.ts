@@ -34,6 +34,9 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   MapPin,
+  FolderKanban,
+  Terminal,
+  Activity,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -52,7 +55,12 @@ export const TOOL_ICONS = {
 export const DOMAIN_ICONS = {
   image: ImageIcon,
   network: Network,
-  admin: ShieldHalf,
+  cases: FolderKanban,
+} as const;
+
+/** Footer profile icon (user session — NEVER admin). */
+export const FOOTER_ICONS = {
+  profile: User,
 } as const;
 
 /** Image investigation sub-view icons (sidebar navigation within IMAGE domain). */
@@ -70,6 +78,15 @@ export const SUBVIEW_ICONS = {
 export const SIDEBAR_ICONS = {
   collapse: PanelLeftClose,
   expand: PanelLeftOpen,
+} as const;
+
+/** Bottom console tab icons. */
+export const CONSOLE_ICONS = {
+  problems: AlertTriangle,
+  log: Activity,
+  evidence: FileSearch,
+  audit: ShieldCheck,
+  terminal: Terminal,
 } as const;
 
 /** Activity-bar area → Lucide icon. */

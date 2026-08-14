@@ -1,15 +1,18 @@
 /**
- * TopBar — 40px top application bar (VS Code / GXP Fusion style).
+ * TopBar — 40px top application bar.
  *
- * Left:   Application icon + THE ARK title + workspace selector
- * Center: Global quick search / command palette bar (Cmd+K / Ctrl+Shift+P)
- * Right:  System status badges (malicious / review counts),
- *         API key status indicators, settings icon, user avatar
+ * Single subtle ARK identity on the left (one wordmark — no duplicate logos
+ * elsewhere). Center: global command palette (Cmd/Ctrl+K). Right: status
+ * badges, API provider indicators, connection state, and the logged-in
+ * investigator's profile/session icon.
+ *
+ * The profile icon opens the Investigator Profile Modal — it NEVER links to
+ * Admin. Admin is reachable only via the stealth hotkey Cmd/Ctrl+Shift+P
+ * (handled globally in App.tsx) plus server-side authorization at /console-auth.
  */
 import React from 'react';
 import { UI_ICONS } from './icons';
 
-/** API service status as returned by the backend /health endpoint. */
 export interface ApiKeyStatus {
   configured: boolean;
   label: string;
@@ -17,43 +20,36 @@ export interface ApiKeyStatus {
 }
 
 interface TopBarProps {
-  maliciousCount: number;
-  reviewCount: number;
+  activeCaseId: string | null;
   apiStatuses: ApiKeyStatus[];
   connected: boolean;
   onOpenPalette: () => void;
-  onOpenSettings: () => void;
-  onOpenAdmin: () => void;
+  onOpenProfile: () => void;
 }
 
 export function TopBar({
-  maliciousCount,
-  reviewCount,
+  activeCaseId,
   apiStatuses,
   connected,
   onOpenPalette,
-  onOpenSettings,
-  onOpenAdmin,
+  onOpenProfile,
 }: TopBarProps) {
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
   const paletteHint = isMac ? '⌘K' : 'Ctrl+K';
-  const Brand = UI_ICONS.brand;
   const SearchIcon = UI_ICONS.search;
-  const Chevron = UI_ICONS.chevronDown;
-  const SettingsIcon = UI_ICONS.settings;
   const UserIcon = UI_ICONS.user;
 
   return (
     <div className="topbar">
-      {/* Left: brand + workspace selector */}
+      {/* Left: single subtle ARK identity + active case */}
       <div className="topbar-left">
-        <span className="topbar-brand-icon" title="THE ARK"><Brand className="w-5 h-5" /></span>
-        <span className="topbar-brand-title">THE ARK</span>
-        <span className="topbar-sep" />
-        <button className="topbar-workspace" title="Active workspace">
-          <span className="topbar-workspace-label">Forensic Workbench</span>
-          <span className="topbar-chevron"><Chevron className="w-3 h-3" /></span>
-        </button>
+        <span className="topbar-ark">ARK</span>
+        {activeCaseId && (
+          <>
+            <span className="topbar-sep" />
+            <span className="topbar-case mono" title="Active case">{activeCaseId}</span>
+          </>
+        )}
       </div>
 
       {/* Center: command palette search */}
@@ -65,20 +61,8 @@ export function TopBar({
         </button>
       </div>
 
-      {/* Right: status badges + API indicators + actions */}
+      {/* Right: status badges + API indicators + profile (NOT admin) */}
       <div className="topbar-right">
-        <div className="topbar-badges">
-          <span className="topbar-badge topbar-badge-red" title="High-risk / malicious sessions">
-            <span className="topbar-badge-dot" /> {maliciousCount} Malicious
-          </span>
-          <span className="topbar-badge topbar-badge-amber" title="Sessions flagged for review">
-            <span className="topbar-badge-dot topbar-badge-dot-amber" /> {reviewCount} Review
-          </span>
-        </div>
-
-        <span className="topbar-sep" />
-
-        {/* API key status indicators */}
         <div className="topbar-api-status" title="Configured API providers">
           {apiStatuses.map((s) => (
             <span
@@ -99,8 +83,9 @@ export function TopBar({
         >
           <span className="topbar-conn-dot" />
         </button>
-        <button className="topbar-icon-btn" onClick={onOpenSettings} title="Settings"><SettingsIcon className="w-4 h-4" /></button>
-        <button className="topbar-icon-btn" onClick={onOpenAdmin} title="Admin Console"><UserIcon className="w-4 h-4" /></button>
+        <button className="topbar-icon-btn" onClick={onOpenProfile} title="Investigator Profile & Session">
+          <UserIcon className="w-4 h-4" />
+        </button>
       </div>
     </div>
   );

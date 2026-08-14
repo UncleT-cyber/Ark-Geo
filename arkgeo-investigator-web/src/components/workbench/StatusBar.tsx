@@ -11,14 +11,15 @@ interface StatusBarProps {
   result: AnalyzeResponse | null;
   connected: boolean;
   analyzing: boolean;
+  activeCaseId?: string | null;
 }
 
-export function StatusBar({ result, connected, analyzing }: StatusBarProps) {
+export function StatusBar({ result, connected, analyzing, activeCaseId }: StatusBarProps) {
   const shaShort = result?.image_sha256 ? result.image_sha256.slice(0, 12) + '...' : 'no evidence';
   const coords = result?.coordinates
     ? `${result.coordinates.lat.toFixed(4)}, ${result.coordinates.lon.toFixed(4)}`
     : '—';
-  const caseId = result ? `ARK-${result.request_id.slice(0, 8).toUpperCase()}` : 'no case';
+  const caseId = activeCaseId || (result ? `ARK-${result.request_id.slice(0, 8).toUpperCase()}` : 'no case');
 
   return (
     <div className="statusbar">

@@ -83,8 +83,13 @@ Backend remains the source of truth for all forensic objects.
 ### Frontend workbench shell (domain-based investigation architecture)
 THE ARK is organized by INVESTIGATION DOMAINS, not individual tools. Each domain
 contains every tool required to complete that investigation.
-- `ActivityBar.tsx`: far-left DOMAIN nav — IMAGE (primary), NETWORK (placeholder), ADMIN + Settings (footer)
-- `Workbench.tsx`: TopBar + ActivityBar + Sidebar (image sub-view navigator) + MainViewport + BottomPanel + StatusBar
+- `entities.ts`: shared entity model (DomainId, InvestigationCase, EvidenceItem, etc.)
+- `useInvestigation.tsx`: InvestigationProvider context + `useInvestigation()` hook — holds domain, active case, result, history; drives domain switching across all components
+- `ActivityBar.tsx`: far-left DOMAIN nav — IMAGE (primary), NETWORK (placeholder), CASES (cross-domain case layer) + profile button (footer) + ARK wordmark
+- `TopBar.tsx`: single ARK identity (one wordmark/logo), command palette trigger, connection/API status — NO duplicate logos, NO admin link
+- `Workbench.tsx`: wraps everything in `<InvestigationProvider>` → TopBar + ActivityBar + Sidebar + MainViewport + BottomPanel + StatusBar
+- `InvestigatorProfileModal.tsx`: identity/clearance/API-key status; states "Admin is a protected control plane — not accessible from here"
+- `CaseExplorer.tsx`: CASES domain — cross-domain saved investigations + audit vault
 - Sidebar is the PRIMARY navigator (no TabBar in core flow). IMAGE sidebar shows: upload (no case) OR case header + vertical sub-view nav (Investigation, Spatial/Map, File Forensics, OCR & Vision, Source Discovery, Provenance/C2PA, Case/Report) + collapsible Evidence Explorer + New Investigation.
 - Sidebar collapse toggle is ON the sidebar itself (PanelLeftClose/Open), not in Settings.
 - `DashboardView.tsx`: System Overview & Analytics default view — rendered when no target loaded (IMAGE domain, no case)
@@ -93,7 +98,17 @@ contains every tool required to complete that investigation.
 - `tools/SpatialTool.tsx`: map NEVER disappears — Location Not Established overlay when no coords; fusion/spatial summary side panel
 - `tools/`: SpatialTool, FileForensicsTool, DiscoveryTool, ProvenanceTool, VisionTool, ReportTool (all operate on the same case/evidence context)
 - `CommandPalette.tsx`: Cmd/Ctrl+Shift+P and Cmd/Ctrl+K hotkeys (openTool switches to IMAGE domain + subview)
-- `icons.ts`: central Lucide icon registry — DOMAIN_ICONS, SUBVIEW_ICONS, SIDEBAR_ICONS, TOOL_ICONS, UI_ICONS (no emoji in UI)
+- `BottomPanel.tsx`: domain-aware contextual console — tabs: PROBLEMS, ANALYSIS LOG, EVIDENCE, AUDIT, TERMINAL (terminal has command parser: help/status/clear/scan/connect)
+- `StatusBar.tsx`: accepts `activeCaseId` prop — shows backend status, SHA-256 hash, active case, GPS
+- `icons.ts`: central Lucide icon registry — DOMAIN_ICONS (image/network/cases), SIDEBAR_ICONS, UI_ICONS (no emoji in UI)
+- `App.tsx`: admin reachable ONLY via stealth hotkey Cmd/Ctrl+Shift+P (fires on ALL routes) → obfuscated `/console-auth` login; admin routes never appear in workbench UI
 - Session history persisted to localStorage for dashboard analytics
 - VS Code Dark Slate palette (#181818 / #1E1E1E / #252526 / #007ACC)
 - Existing admin routing at `/console-auth` preserved unchanged
+
+### Frontend dev server notes
+- Vite dev server runs on port 12001 (custom); `npm run dev` (HMR active)
+- Backend on port 8000; vite proxy `/api` → :8000
+- HMR pitfall: if `DashboardView.tsx` (or any file mixing component + non-component exports like `classifyRisk`) fails Fast Refresh, restart the dev server cleanly to avoid a frozen half-state where clicks stop re-rendering. `kill` the vite node PID then `npm run dev`.
+- Backend tests: 154 passing (pytest), 11 warnings (HMAC key length non-blocking)
+- `npx tsc --noEmit` clean; `npx vite build` clean (~1901 modules)

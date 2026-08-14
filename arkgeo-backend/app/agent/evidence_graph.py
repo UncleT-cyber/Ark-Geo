@@ -17,6 +17,7 @@ import uuid
 from typing import Any, Optional
 
 from .schemas import (
+    ClaimType,
     EdgeRelation,
     EvidenceEdge,
     EvidenceGraph,
@@ -290,3 +291,73 @@ def to_dict(graph: EvidenceGraph) -> dict:
         "findings": [f.model_dump() for f in graph.findings],
         "plan_id": graph.plan_id,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Audit nodes — tamper-evident record of every tool invocation.
+# An audit node is a tier-0 (cryptographic) evidence node whose value carries
+# the invocation record (tool_id, arguments hash, status, decision). It is
+# derived_from the evidence node a tool produced (if any), so the lineage from
+# policy decision -> tool run -> evidence is queryable on the graph.
+# --------------------------------------------------------------------------- #
+def build_audit_node(
+    case_id: str,
+    tool_id: str,
+    invocation: dict,
+    policy_decision: Optional[dict] = None,
+) -> EvidenceNode:
+    """Construct a tier-0 audit node for a tool invocation.
+
+    ``invocation`` is the :class:`ToolInvocation` payload (or compatible dict)
+    describing the call: tool_id, arguments, status, error, timings. The
+    arguments are *hashed* rather than stored raw so secrets never land on the
+    graph; only their digest is recorded.
+    """
+    args = invocation.get("arguments", {}) or {}
+    args_hash = hashlib.sha256(
+        json.dumps(args, sort_keys=True, default=str).encode()
+    ).hexdigest()
+    value = {
+        "tool_id": tool_id,
+        "invocation_id": invocation.get("invocation_id", ""),
+        "arguments_hash": args_hash,
+        "status": invocation.get("status", "pending"),
+        "error": invocation.get("error"),
+        "started_at_ms": invocation.get("started_at_ms"),
+        "completed_at_ms": invocation.get("completed_at_ms"),
+        "policy": policy_decision or {},
+    }
+    return build_node(
+        case_id=case_id,
+        tool_id="audit",
+        provenance_type=ProvenanceType.CRYPTOGRAPHIC,
+        claim=f"Audit: {tool_id} invocation {value['status']}",
+        claim_type="other" if not hasattr(ClaimType, "OTHER") else ClaimType.OTHER,
+        value=value,
+        confidence=1.0,
+    )
+
+
+def audit_tool_call(
+    graph: EvidenceGraph,
+    tool_id: str,
+    invocation: dict,
+    policy_decision: Optional[dict] = None,
+    produced_node_id: Optional[str] = None,
+) -> EvidenceNode:
+    """Append an audit node for a tool call, optionally linking to its output.
+
+    Returns the audit node. If ``produced_node_id`` is given and present on the
+    graph, a ``derived_from`` edge is recorded from the audit node to the
+    produced evidence node, making tool->evidence lineage queryable.
+    """
+    audit = build_audit_node(graph.case_id, tool_id, invocation, policy_decision)
+    add_node(graph, audit)
+    if produced_node_id and produced_node_id in graph.nodes:
+        add_edge(
+            graph, audit.node_id, produced_node_id,
+            EdgeRelation.DERIVED_FROM,
+            weight=1.0,
+            note="audit -> evidence",
+        )
+    return audit

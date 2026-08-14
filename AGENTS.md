@@ -100,7 +100,23 @@ prompt.
   promotion rule: tier-0/1 promotable alone; tier-2 needs tier-0/1 corroboration
   OR >=2 independent tier-2 agreements; a higher-tier contradiction blocks).
 - Tests: `tests/test_agent_substrate.py` (18 tests: registry, graph, promotion rule).
-- Phasing: A=registry+graph (this), B=policy guard, C=smallest orchestrator loop
+- `agent/policy_guard.py` (Phase B): the authorization surface. `PolicyGuard.evaluate(tool_id)`
+  returns a `PolicyDecision` (allowed/approval_tier/reason/rule_id); `authorize()` raises typed
+  exceptions (`PermissionDenied` / `BudgetExceeded` / `ToolUnavailable`). Checks: capability
+  permissions (parameterized `call:provider:<name>`; bare `call:provider` implies any), risk->
+  approval tier (low=auto, medium/elevated=confirm_once, action/high-risk=step_confirm; explicit
+  rules can only raise, never downgrade below the risk default), availability (requires_key
+  resolved lazily via the existing settings store so Admin key updates take effect immediately;
+  disabled always denied), and budget enforcement (steps/tokens/ms/api_calls via
+  `BudgetUsage`/`record_run`). `default_rules()` ships sensible defaults. Exceptions exported.
+- `evidence_graph.audit_tool_call` (Phase B): every audited tool invocation emits a tier-0
+  (cryptographic) audit `EvidenceNode` with an `arguments_hash` (secrets never stored raw) plus
+  a `derived_from` edge to the produced evidence node — making policy->tool->evidence lineage
+  queryable on the graph. Audit nodes are hash-validated/tamper-evident like all nodes.
+- Tests: `tests/test_agent_policy.py` (24 tests: allow/deny paths, permission/capability checks,
+  approval tiers, availability gating, budget exhaustion across all 4 counters, typed authorize
+  exceptions, custom-rule override + no-downgrade guarantee, audit emission/linking/tamper).
+- Phasing: A=registry+graph, B=policy guard (this), C=smallest orchestrator loop
   (one goal), D=console tabs, E=adaptive re-planning, F=cross-domain reuse.
 
 ### Frontend workbench shell (domain-based investigation architecture)

@@ -81,8 +81,12 @@ Backend remains the source of truth for all forensic objects.
 - `analyst_overrides.py`: confirm/reject/needs-review with audit logging
 
 ### Frontend workbench shell
-- `Workbench.tsx`: ActivityBar + TabBar + Explorer + MainViewport + BottomPanel + StatusBar
+- `TopBar.tsx`: 40px application bar (brand, workspace selector, command-palette search, malicious/review badges, API key status indicators, settings/avatar)
+- `Workbench.tsx`: TopBar + ActivityBar + Sidebar + TabBar + MainViewport + BottomPanel + StatusBar
+- `DashboardView.tsx`: System Overview & Analytics default view (activity trend chart, risk breakdown, recent sessions) — rendered when no target loaded
 - `tools/`: SpatialTool, FileForensicsTool, DiscoveryTool, ProvenanceTool, VisionTool, ReportTool
-- `CommandPalette.tsx`: Cmd/Ctrl+Shift+P (coexists with admin hotkey)
+- `CommandPalette.tsx`: Cmd/Ctrl+Shift+P and Cmd/Ctrl+K hotkeys
 - `investigation/`: InvestigationOverview, EvidenceExplorer tree
+- Session history persisted to localStorage for dashboard analytics
+- VS Code Dark Slate palette (#181818 / #1E1E1E / #252526 / #007ACC)
 - Existing admin routing at `/console-auth` preserved unchanged

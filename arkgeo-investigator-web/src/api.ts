@@ -47,7 +47,7 @@ export const api = {
   },
 
   /** Health check (public). */
-  async health(): Promise<{ status: string; version: string }> {
+  async health(): Promise<{ status: string; version: string; services: Record<string, string>; uptime_seconds: number }> {
     const { data } = await client.get('/health');
     return data;
   },

@@ -8,9 +8,10 @@
  * ExifViewer, ChainOfCustody, IngestionSweep) inside the new tab architecture.
  * The backend remains the source of truth — the workbench displays and interacts.
  */
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { api } from '../../api';
 import type { AnalyzeResponse } from '../../types';
+import { TopBar, type ApiKeyStatus } from './TopBar';
 import { ActivityBar, type ActivityView } from './ActivityBar';
 import { TabBar, type ToolTabId, type TabInstance } from './TabBar';
 import { EvidenceExplorer } from './investigation/EvidenceExplorer';
@@ -18,6 +19,7 @@ import { InvestigationOverview } from './investigation/InvestigationOverview';
 import { BottomPanel } from './BottomPanel';
 import { StatusBar } from './StatusBar';
 import { CommandPalette } from './CommandPalette';
+import { DashboardView, recordSession, classifyRisk } from './DashboardView';
 import { SpatialTool } from './tools/SpatialTool';
 import { FileForensicsTool } from './tools/FileForensicsTool';
 import { DiscoveryTool } from './tools/DiscoveryTool';
@@ -38,6 +40,10 @@ const TOOL_META: Record<ToolTabId, { title: string; icon: string }> = {
   report: { title: 'Case Report', icon: '📋' },
 };
 
+/** Admin login path — obfuscated slug configurable via env (mirrors App.tsx). */
+const ADMIN_ROUTE_SLUG = (import.meta as any).env?.VITE_ADMIN_ROUTE_SLUG || 'console-auth';
+const ADMIN_LOGIN_PATH = `/${ADMIN_ROUTE_SLUG}`;
+
 let tabIdCounter = 0;
 const nextTabId = () => `tab-${++tabIdCounter}`;
 
@@ -55,15 +61,33 @@ export function Workbench() {
   const [bottomCollapsed, setBottomCollapsed] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [apiStatuses, setApiStatuses] = useState<ApiKeyStatus[]>([]);
+  const [sessionTick, setSessionTick] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toasts, showToast, dismiss } = useToast();
 
-  // Health check
+  // Health check + API key status
   useEffect(() => {
-    api.health().then(() => setConnected(true)).catch(() => setConnected(false));
+    const check = async () => {
+      try {
+        const h = await api.health();
+        setConnected(true);
+        const statuses: ApiKeyStatus[] = [
+          { configured: h.services?.vision_geospy === 'configured', label: 'GS', title: 'GeoSpy Vision API' },
+          { configured: h.services?.vision_geoinfer === 'configured', label: 'GI', title: 'GeoInfer Vision API' },
+          { configured: h.services?.llm === 'configured', label: 'LLM', title: 'LLM / Vision Ensemble' },
+        ];
+        setApiStatuses(statuses);
+      } catch {
+        setConnected(false);
+      }
+    };
+    check();
+    const interval = setInterval(check, 30000);
+    return () => clearInterval(interval);
   }, []);
 
-  // Command palette hotkey: Cmd/Ctrl+Shift+P
+  // Command palette hotkeys: Cmd/Ctrl+Shift+P and Cmd/Ctrl+K
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const modKey = e.metaKey || e.ctrlKey;
@@ -72,9 +96,12 @@ export function Workbench() {
         if (result) {
           setShowPalette(true);
         } else {
-          // No case open — go to upload
           setActivityView('upload');
         }
+      }
+      if (modKey && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setShowPalette(true);
       }
       if (e.key === 'Escape') {
         setShowPalette(false);
@@ -92,6 +119,24 @@ export function Workbench() {
     try {
       const resp = await api.analyzeFile(file, zeroRetention);
       setResult(resp);
+      // Record the session for the dashboard analytics
+      const anomalyCount =
+        (resp.steganography_detected ? 1 : 0) +
+        (resp.gps_spoofing_detected ? 1 : 0) +
+        (resp.exif_missing ? 1 : 0) +
+        (resp.consistency_findings?.filter(f => f.status !== 'OK').length || 0) +
+        (resp.contradictions?.length || 0);
+      recordSession({
+        request_id: resp.request_id,
+        filename: file.name,
+        sha256_short: resp.image_sha256.slice(0, 12),
+        source: resp.source,
+        confidence: resp.consensus.confidence_score,
+        timestamp: Date.now(),
+        anomaly_count: anomalyCount,
+        risk: classifyRisk(anomalyCount),
+      });
+      setSessionTick(t => t + 1);
       // Open investigation overview tab automatically
       const overviewTab: TabInstance = {
         id: nextTabId(), toolId: 'overview', title: 'Investigation', icon: '🔬',
@@ -208,11 +253,51 @@ export function Workbench() {
 
   const activeTab = tabs.find(t => t.id === activeTabId);
 
+  // Malicious / review badge counts are derived from the current result's
+  // anomaly signals (TopBar reflects the active investigation).
+  const { maliciousCount, reviewCount } = useMemo(() => {
+    if (!result) return { maliciousCount: 0, reviewCount: 0 };
+    const critical =
+      (result.steganography_detected ? 1 : 0) +
+      (result.gps_spoofing_detected ? 1 : 0) +
+      (result.contradictions?.filter(c => c.severity === 'HIGH').length || 0);
+    const medium =
+      (result.exif_missing ? 1 : 0) +
+      (result.consistency_findings?.filter(f => f.status === 'WARNING').length || 0) +
+      (result.contradictions?.filter(c => c.severity === 'MEDIUM').length || 0);
+    return { maliciousCount: critical, reviewCount: medium };
+  }, [result]);
+
+  const newSession = useCallback(() => {
+    setResult(null);
+    setTabs([]);
+    setActiveTabId(null);
+    setError(null);
+    setThumbnailUrl(undefined);
+    setActivityView('upload');
+  }, []);
+
+  const triggerUpload = useCallback(() => {
+    setActivityView('upload');
+    fileInputRef.current?.click();
+  }, []);
+
   return (
     <div className="workbench">
-      <ActivityBar active={activityView} onNavigate={setActivityView} evidenceCount={result ? 1 : 0} />
+      <TopBar
+        maliciousCount={maliciousCount}
+        reviewCount={reviewCount}
+        apiStatuses={apiStatuses}
+        connected={connected}
+        onOpenPalette={() => setShowPalette(true)}
+        onOpenSettings={() => setActivityView('settings')}
+        onOpenAdmin={() => { window.location.href = ADMIN_LOGIN_PATH; }}
+      />
 
       <div className="workbench-body">
+        {/* Activity Bar (far-left navigation) */}
+        <ActivityBar active={activityView} onNavigate={setActivityView} evidenceCount={result ? 1 : 0} />
+
         {/* Sidebar (Explorer or Upload) */}
         {sidebarVisible && (
           <>
@@ -254,6 +339,9 @@ export function Workbench() {
                     <div className="sidebar-hint">
                       Upload an image to begin a forensic investigation. Results are unique to each image's actual bytes and metadata.
                     </div>
+                  )}
+                  {result && (
+                    <button className="sidebar-new-session" onClick={newSession}>+ New Investigation</button>
                   )}
                 </div>
               )}
@@ -297,8 +385,17 @@ export function Workbench() {
                         {bottomCollapsed ? 'Show' : 'Hide'}
                       </button>
                     </div>
+                    <div className="settings-api-header">API PROVIDERS</div>
+                    {apiStatuses.map(s => (
+                      <div key={s.label} className="settings-row">
+                        <span className="settings-label">{s.title}</span>
+                        <span className={`settings-value ${s.configured ? 'settings-ok' : 'settings-err'}`}>
+                          {s.configured ? 'Configured' : 'Not Set'}
+                        </span>
+                      </div>
+                    ))}
                     <div className="settings-note">
-                      API providers are configured through the Admin control plane.
+                      ExifTool, hash, and ELA forensics run fully offline. Vision AI providers require keys configured via the Admin control plane.
                     </div>
                   </div>
                 </div>
@@ -319,19 +416,10 @@ export function Workbench() {
           />
 
           <div className="workbench-viewport">
-            {activeTab ? (
+            {activeTab && result ? (
               renderTool(activeTab)
             ) : (
-              <div className="viewport-empty">
-                <div className="viewport-empty-icon">⬡</div>
-                <div className="viewport-empty-title">No Investigation Open</div>
-                <div className="viewport-empty-text">
-                  Upload a target image to begin. Use Cmd/Ctrl+Shift+P for the command palette.
-                </div>
-                <button className="viewport-empty-btn" onClick={() => fileInputRef.current?.click()}>
-                  Upload Target Image
-                </button>
-              </div>
+              <DashboardView key={sessionTick} onUpload={triggerUpload} />
             )}
             <IngestionSweep active={analyzing} />
           </div>

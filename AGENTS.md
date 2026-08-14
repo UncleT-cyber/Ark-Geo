@@ -2,7 +2,7 @@
 
 ## Project Overview
 ArkGeo is a modular AI geolocation and personal safety ecosystem with three applications:
-- **arkgeo-backend** — FastAPI modular "Brain" AI engine (4-tier pipeline)
+- **arkgeo-backend** — FastAPI modular "Brain" AI engine (4-tier pipeline) + **ARK AI orchestration substrate** (`app/agent/`)
 - **arkgeo-mobile** — React Native / Expo tactical safety HUD
 - **arkgeo-investigator-web** — React / Vite forensic OSINT dashboard
 
@@ -79,6 +79,29 @@ Backend remains the source of truth for all forensic objects.
 - `geolocation_fusion.py`: multi-layer evidence model with explainability
 - `source_discovery.py`: provider-agnostic reverse image search (pHash + extensible provider registry)
 - `analyst_overrides.py`: confirm/reject/needs-review with audit logging
+
+### ARK AI orchestration substrate (`app/agent/`) — Phase A (no AI yet)
+Design doc: `docs/ARK_AI_ORCHESTRATION_SPEC.md`. The three-investigator model
+(Human / ARK Core / ARK AI) is **epistemic**: Core outputs are facts, AI outputs
+are hypotheses. A hypothesis cannot be promoted to a finding without
+corroboration from a higher epistemic tier — enforced structurally, not by
+prompt.
+- `agent/schemas.py`: ToolSpec, EvidenceNode/Edge/Finding/Graph, PolicyRule/Decision,
+  InvestigationObjective, PlanRevision/PlanStep (the contracts Phase B+ consumes)
+- `agent/tool_registry.py`: registered wrappers over the existing deterministic
+  tools (custody hash, EXIF, ExifTool, reverse-geocode, telemetry, ELA, EOF,
+  C2PA, consistency, OCR, geolocation fusion, source discovery, contradictions,
+  vision ensemble, consensus). Each is a `ToolSpec` + thin handler; **zero behavior
+  change** to `BrainPipeline`/`/analyze`. `registry.call(id, **kw)` (sync) /
+  `registry.acall(id, **kw)` (async-aware).
+- `agent/evidence_graph.py`: pure, audited graph ops. `build_node`/`add_node`
+  (hash-validated, tamper-evident), `add_edge` (corroborate=+weight /
+  contradict=-weight, sign enforced), `can_promote`/`promote_to_finding` (the
+  promotion rule: tier-0/1 promotable alone; tier-2 needs tier-0/1 corroboration
+  OR >=2 independent tier-2 agreements; a higher-tier contradiction blocks).
+- Tests: `tests/test_agent_substrate.py` (18 tests: registry, graph, promotion rule).
+- Phasing: A=registry+graph (this), B=policy guard, C=smallest orchestrator loop
+  (one goal), D=console tabs, E=adaptive re-planning, F=cross-domain reuse.
 
 ### Frontend workbench shell (domain-based investigation architecture)
 THE ARK is organized by INVESTIGATION DOMAINS, not individual tools. Each domain

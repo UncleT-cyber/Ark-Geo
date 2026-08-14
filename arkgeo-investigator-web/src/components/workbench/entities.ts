@@ -15,7 +15,7 @@
 export type EntityId = string;
 
 /** The active investigation domain. */
-export type DomainId = 'image' | 'network' | 'cases';
+export type DomainId = 'image' | 'network' | 'cases' | 'secops';
 
 /** Root organizational boundary. */
 export interface Tenant {

@@ -7,6 +7,9 @@
  *   │     Upload → Scan → Investigation (map-first) → Forensics → OCR/Vision
  *   │     → Source Discovery → Provenance → Evidence/Audit/Output → Report
  *   ├── NETWORK — network telemetry (structural placeholder)
+ *   ├── SECOPS  — Threat & Security Operations (structural placeholder)
+ *   │     SIEM · IDS/IPS · Threat Hunting · Detection & Correlation
+ *   │     · Incident Management · Security Operations
  *   └── CASES   — cross-domain case layer (saved sessions & audit vault)
  *
  * The PROFILE icon (TopBar + ActivityBar footer) opens the Investigator
@@ -39,6 +42,7 @@ import { ProvenanceTool } from './tools/ProvenanceTool';
 import { VisionTool } from './tools/VisionTool';
 import { CaseReportView } from './tools/CaseReportView';
 import { NetworkPlaceholder } from './NetworkPlaceholder';
+import { SecOpsPlaceholder } from './SecOpsPlaceholder';
 import { CaseExplorer } from './CaseExplorer';
 import { InvestigatorProfileModal } from './InvestigatorProfileModal';
 import { SettingsModal } from './SettingsModal';
@@ -451,6 +455,19 @@ function WorkbenchInner() {
                 </div>
               )}
 
+              {/* ---- SECOPS domain sidebar (placeholder) ---- */}
+              {inv.domain === 'secops' && !sidebarCollapsed && (
+                <div className="sidebar-content">
+                  <div className="sidebar-header">THREAT &amp; SECOPS</div>
+                  <div className="sidebar-hint">
+                    Security-operations investigation domain. Sub-modules:
+                    SIEM, IDS/IPS, Threat Hunting, Detection &amp; Correlation,
+                    Incident Management, and the SecOps dashboard are reserved
+                    for future tooling.
+                  </div>
+                </div>
+              )}
+
               {/* ---- CASES domain sidebar ---- */}
               {inv.domain === 'cases' && !sidebarCollapsed && (
                 <div className="sidebar-content">
@@ -473,6 +490,7 @@ function WorkbenchInner() {
               result ? renderSubview(activeSubview) : <DashboardView key={sessionTick} onUpload={triggerUpload} onSelectSession={handleSelectSession} refreshKey={dashRefresh} />
             )}
             {inv.domain === 'network' && <NetworkPlaceholder />}
+            {inv.domain === 'secops' && <SecOpsPlaceholder />}
             {inv.domain === 'cases' && <CaseExplorer onRestoreCase={handleRestoreCase} />}
             <IngestionSweep active={analyzing} />
           </div>

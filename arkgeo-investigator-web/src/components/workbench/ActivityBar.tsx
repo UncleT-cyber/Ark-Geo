@@ -5,6 +5,8 @@
  * navigation represents the investigation domains themselves:
  *   - IMAGE   — complete image-intelligence lifecycle (primary)
  *   - NETWORK — network telemetry (structural placeholder)
+ *   - SECOPS  — Threat & Security Operations (SIEM, IDS/IPS, threat hunting,
+ *               detection & correlation, incident management, SecOps dashboard)
  *   - CASES   — cross-domain case layer (saved sessions & audit vault)
  *
  * The footer holds a SETTINGS gear (System & API Provider Configuration:
@@ -37,6 +39,7 @@ interface ActivityBarProps {
 const DOMAINS: ActivityItem[] = [
   { id: 'image', icon: DOMAIN_ICONS.image, label: 'Image Intelligence' },
   { id: 'network', icon: DOMAIN_ICONS.network, label: 'Network Telemetry' },
+  { id: 'secops', icon: DOMAIN_ICONS.secops, label: 'Threat & SecOps' },
   { id: 'cases', icon: DOMAIN_ICONS.cases, label: 'Case Explorer' },
 ];
 

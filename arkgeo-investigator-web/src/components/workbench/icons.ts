@@ -36,6 +36,11 @@ import {
   FolderKanban,
   Terminal,
   Activity,
+  Gauge,
+  Siren,
+  Crosshair,
+  Radar,
+  FolderSearch,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -55,6 +60,17 @@ export const DOMAIN_ICONS = {
   image: ImageIcon,
   network: Network,
   cases: FolderKanban,
+  secops: ShieldHalf,
+} as const;
+
+/** Threat & SecOps domain sub-view icons (sidebar navigation within SECOPS domain). */
+export const SECOPS_ICONS = {
+  siem: Gauge,
+  ids_ips: Siren,
+  threat_hunting: Crosshair,
+  detection: Radar,
+  incident_mgmt: FolderSearch,
+  secops_dashboard: Activity,
 } as const;
 
 /** Footer settings icon (system & API provider configuration — NEVER admin). */

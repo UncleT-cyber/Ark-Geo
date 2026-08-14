@@ -80,13 +80,20 @@ Backend remains the source of truth for all forensic objects.
 - `source_discovery.py`: provider-agnostic reverse image search (pHash + extensible provider registry)
 - `analyst_overrides.py`: confirm/reject/needs-review with audit logging
 
-### Frontend workbench shell
-- `TopBar.tsx`: 40px application bar (brand, workspace selector, command-palette search, malicious/review badges, API key status indicators, settings/avatar)
-- `Workbench.tsx`: TopBar + ActivityBar + Sidebar + TabBar + MainViewport + BottomPanel + StatusBar
-- `DashboardView.tsx`: System Overview & Analytics default view (activity trend chart, risk breakdown, recent sessions) — rendered when no target loaded
-- `tools/`: SpatialTool, FileForensicsTool, DiscoveryTool, ProvenanceTool, VisionTool, ReportTool
-- `CommandPalette.tsx`: Cmd/Ctrl+Shift+P and Cmd/Ctrl+K hotkeys
-- `investigation/`: InvestigationOverview, EvidenceExplorer tree
+### Frontend workbench shell (domain-based investigation architecture)
+THE ARK is organized by INVESTIGATION DOMAINS, not individual tools. Each domain
+contains every tool required to complete that investigation.
+- `ActivityBar.tsx`: far-left DOMAIN nav — IMAGE (primary), NETWORK (placeholder), ADMIN + Settings (footer)
+- `Workbench.tsx`: TopBar + ActivityBar + Sidebar (image sub-view navigator) + MainViewport + BottomPanel + StatusBar
+- Sidebar is the PRIMARY navigator (no TabBar in core flow). IMAGE sidebar shows: upload (no case) OR case header + vertical sub-view nav (Investigation, Spatial/Map, File Forensics, OCR & Vision, Source Discovery, Provenance/C2PA, Case/Report) + collapsible Evidence Explorer + New Investigation.
+- Sidebar collapse toggle is ON the sidebar itself (PanelLeftClose/Open), not in Settings.
+- `DashboardView.tsx`: System Overview & Analytics default view — rendered when no target loaded (IMAGE domain, no case)
+- `NetworkPlaceholder.tsx`: NETWORK domain placeholder (planned capabilities, not implemented)
+- `investigation/InvestigationOverview.tsx`: MAP-FIRST command center — map always visible at top (never disappears), Location Not Established overlay when no coords, ARK assessment tiles + WHAT WE KNOW/DON'T KNOW/SUSPICIOUS/INVESTIGATE NEXT below
+- `tools/SpatialTool.tsx`: map NEVER disappears — Location Not Established overlay when no coords; fusion/spatial summary side panel
+- `tools/`: SpatialTool, FileForensicsTool, DiscoveryTool, ProvenanceTool, VisionTool, ReportTool (all operate on the same case/evidence context)
+- `CommandPalette.tsx`: Cmd/Ctrl+Shift+P and Cmd/Ctrl+K hotkeys (openTool switches to IMAGE domain + subview)
+- `icons.ts`: central Lucide icon registry — DOMAIN_ICONS, SUBVIEW_ICONS, SIDEBAR_ICONS, TOOL_ICONS, UI_ICONS (no emoji in UI)
 - Session history persisted to localStorage for dashboard analytics
 - VS Code Dark Slate palette (#181818 / #1E1E1E / #252526 / #007ACC)
 - Existing admin routing at `/console-auth` preserved unchanged

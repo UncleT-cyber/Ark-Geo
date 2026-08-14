@@ -1,16 +1,17 @@
 /**
- * InvestigationOverview — displayed when an asset is opened.
+ * InvestigationOverview — the command center for the current image.
  *
- * Answers:
- *   WHAT DO WE KNOW?
- *   WHAT DON'T WE KNOW?
- *   WHAT LOOKS SUSPICIOUS?
- *   WHAT SHOULD THE ANALYST INVESTIGATE NEXT?
+ * Map-first: the spatial workspace is shown immediately at the top and NEVER
+ * disappears. If a location was found the marker + geographic evidence are
+ * displayed; if not, a clear "Location Not Established" state is shown over
+ * the map. Below the map sits the ARK assessment (what we know / don't know /
+ * what looks suspicious / investigate next) and the assessment tiles.
  *
- * Every major finding is clickable and opens the relevant forensic view.
+ * Every major finding is clickable and opens the relevant forensic sub-view.
  */
 import React from 'react';
-import { Check, HelpCircle, AlertTriangle, ArrowRight } from 'lucide-react';
+import { Check, HelpCircle, AlertTriangle, ArrowRight, MapPin } from 'lucide-react';
+import { MapWorkspace } from '../../MapWorkspace/MapWorkspace';
 import type { AnalyzeResponse } from '../../../types';
 import type { ToolTabId } from '../TabBar';
 
@@ -18,6 +19,8 @@ interface InvestigationOverviewProps {
   result: AnalyzeResponse;
   onOpenTool: (toolId: ToolTabId) => void;
   thumbnailUrl?: string;
+  onCopyCoords?: () => void;
+  onGeofenceViolation?: (point: { lat: number; lon: number }) => void;
 }
 
 function confidenceColor(conf: number): string {
@@ -37,18 +40,66 @@ function stateColor(state: string): string {
   }
 }
 
-export function InvestigationOverview({ result, onOpenTool, thumbnailUrl }: InvestigationOverviewProps) {
+export function InvestigationOverview({ result, onOpenTool, thumbnailUrl, onCopyCoords, onGeofenceViolation }: InvestigationOverviewProps) {
   const summary = result.evidence_summary;
   if (!summary) return null;
   const confColor = confidenceColor(summary.confidence);
   const provColor = stateColor(result.provenance?.state || 'UNAVAILABLE');
   const integColor = stateColor(summary.integrity);
+  const coords = result.coordinates;
+
+  const mapPoints = coords
+    ? [{
+        lat: coords.lat,
+        lon: coords.lon,
+        radius: result.consensus.search_radius_meters,
+        confidence: result.consensus.confidence_score,
+        source: result.source,
+        label: `${result.address?.display_name || result.consensus.primary_country || 'Location'} · ${Math.round(result.consensus.confidence_score * 100)}%`,
+        thumbnailUrl,
+      }]
+    : [];
 
   return (
-    <div className="investigation-overview">
+    <div className="investigation-overview investigation-overview-map-first">
       <div className="overview-header">
         <div className="overview-title">THE ARK ASSESSMENT</div>
         <div className="overview-case-id mono">Case {result.request_id.slice(0, 8).toUpperCase()}</div>
+      </div>
+
+      {/* MAP-FIRST: the spatial workspace is always visible at the top. */}
+      <div className="overview-map-container">
+        <MapWorkspace
+          points={mapPoints}
+          history={[]}
+          onCopyCoords={onCopyCoords}
+          onGeofenceViolation={onGeofenceViolation}
+        />
+        {!coords && (
+          <div className="location-not-established">
+            <div className="location-not-established-card">
+              <div className="location-not-established-icon"><MapPin className="w-8 h-8" /></div>
+              <div className="location-not-established-title">Location Not Established</div>
+              <div className="location-not-established-text">
+                {result.message || 'No GPS coordinates or AI-derived location for this image.'}
+              </div>
+              <button className="location-not-established-action" onClick={() => onOpenTool('spatial')}>
+                Open Spatial Workspace →
+              </button>
+            </div>
+          </div>
+        )}
+        {coords && (
+          <div className="map-location-banner">
+            <span className="map-location-banner-dot" />
+            <span className="map-location-banner-text">
+              {result.address?.display_name || result.consensus.primary_country || 'Location established'}
+            </span>
+            <span className="map-location-banner-conf">
+              {Math.round(result.consensus.confidence_score * 100)}% · {result.source}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="overview-tiles">

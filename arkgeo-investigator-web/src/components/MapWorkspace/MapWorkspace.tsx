@@ -103,7 +103,7 @@ function createTacticalMarker(
 ): L.Marker {
   const thumbHtml = thumbnailUrl
     ? `<img src="${thumbnailUrl}" style="width:60px;height:60px;object-fit:cover;border-radius:4px;border:1px solid #38BDF8;" />`
-    : `<div style="width:60px;height:60px;background:#0D1421;border-radius:4px;border:1px solid #334155;display:flex;align-items:center;justify-content:center;color:#64748B;font-size:24px;">📷</div>`;
+    : `<div style="width:60px;height:60px;background:#0D1421;border-radius:4px;border:1px solid #334155;display:flex;align-items:center;justify-content:center;color:#64748B;font-size:11px;letter-spacing:1px;">NO IMAGE</div>`;
 
   const popupHtml = `
     <div class="arkgeo-blueprint-popup" style="
@@ -132,12 +132,12 @@ function createTacticalMarker(
           background:#0D1421;color:#38BDF8;border:1px solid #38BDF8;border-radius:4px;
           padding:6px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;
           cursor:pointer;font-weight:600;transition:background 0.2s;
-        ">⎘ COPY TARGET LAT/LONG</button>
+        ">COPY TARGET LAT/LONG</button>
         <a href="https://www.google.com/maps?q=${lat},${lon}" target="_blank" rel="noopener noreferrer" style="
           display:block;text-align:center;background:#0D1421;color:#F59E0B;
           border:1px solid #F59E0B;border-radius:4px;padding:6px 10px;font-size:11px;
           font-family:'JetBrains Mono',monospace;text-decoration:none;font-weight:600;
-        ">🛰 OPEN IN SATELLITE →</a>
+        ">OPEN IN SATELLITE →</a>
       </div>
     </div>`;
 
@@ -193,7 +193,7 @@ function createThreatBeaconMarker(lat: number, lon: number): L.Marker {
     html: `<div class="threat-beacon-wrapper">
       <div class="threat-beacon-pulse"></div>
       <div class="threat-beacon-pulse threat-beacon-pulse-2"></div>
-      <div class="threat-beacon-core">⚠</div>
+      <div class="threat-beacon-core">!</div>
     </div>`,
     iconSize: [40, 40],
     iconAnchor: [20, 20],

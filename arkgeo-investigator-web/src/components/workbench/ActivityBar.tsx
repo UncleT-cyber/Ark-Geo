@@ -1,19 +1,19 @@
 /**
- * ActivityBar — narrow far-left navigation bar (VS Code-style).
+ * ActivityBar — narrow far-left DOMAIN navigation bar.
  *
- * Provides access to major investigator areas:
- *   - Upload (Target)
- *   - Explorer (Evidence tree)
- *   - Analysis (Tool tabs)
- *   - Settings
+ * THE ARK is organized by investigation domains, not individual tools.
+ * Each domain contains all tools required to complete that investigation:
+ *   - IMAGE   — full image intelligence & forensic investigation domain (primary)
+ *   - NETWORK — reserved for future network-security tools (placeholder)
+ *   - ADMIN   — admin control plane (bottom)
  *
  * Remains visually quiet and professional — Lucide SVG icons with tooltips.
  */
 import React from 'react';
-import { ACTIVITY_ICONS, UI_ICONS } from './icons';
+import { UI_ICONS, DOMAIN_ICONS } from './icons';
 import type { LucideIcon } from './icons';
 
-export type ActivityView = 'upload' | 'explorer' | 'analysis' | 'settings';
+export type ActivityView = 'image' | 'network' | 'admin' | 'settings';
 
 interface ActivityItem {
   id: ActivityView;
@@ -28,11 +28,14 @@ interface ActivityBarProps {
   evidenceCount?: number;
 }
 
-const ITEMS: ActivityItem[] = [
-  { id: 'upload', icon: ACTIVITY_ICONS.upload, label: 'Target Upload' },
-  { id: 'explorer', icon: ACTIVITY_ICONS.explorer, label: 'Evidence Explorer' },
-  { id: 'analysis', icon: ACTIVITY_ICONS.analysis, label: 'Analysis & Tools' },
-  { id: 'settings', icon: ACTIVITY_ICONS.settings, label: 'Settings' },
+const PRIMARY_DOMAINS: ActivityItem[] = [
+  { id: 'image', icon: DOMAIN_ICONS.image, label: 'Image Investigation' },
+  { id: 'network', icon: DOMAIN_ICONS.network, label: 'Network Investigation' },
+];
+
+const FOOTER_ITEMS: ActivityItem[] = [
+  { id: 'admin', icon: DOMAIN_ICONS.admin, label: 'Admin Console' },
+  { id: 'settings', icon: UI_ICONS.settings, label: 'Settings' },
 ];
 
 export function ActivityBar({ active, onNavigate, evidenceCount }: ActivityBarProps) {
@@ -41,7 +44,7 @@ export function ActivityBar({ active, onNavigate, evidenceCount }: ActivityBarPr
     <div className="activity-bar">
       <div className="activity-brand"><Brand className="w-5 h-5" /></div>
       <div className="activity-items">
-        {ITEMS.map((item) => {
+        {PRIMARY_DOMAINS.map((item) => {
           const Icon = item.icon;
           return (
             <button
@@ -51,7 +54,7 @@ export function ActivityBar({ active, onNavigate, evidenceCount }: ActivityBarPr
               title={item.label}
             >
               <span className="activity-icon"><Icon className="w-5 h-5" /></span>
-              {item.id === 'explorer' && evidenceCount ? (
+              {item.id === 'image' && evidenceCount ? (
                 <span className="activity-badge">{evidenceCount}</span>
               ) : null}
             </button>
@@ -59,9 +62,19 @@ export function ActivityBar({ active, onNavigate, evidenceCount }: ActivityBarPr
         })}
       </div>
       <div className="activity-footer">
-        <span className="activity-icon activity-icon-dim" title="THE ARK Forensic Workbench">
-          <Brand className="w-4 h-4" />
-        </span>
+        {FOOTER_ITEMS.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              className={`activity-item ${active === item.id ? 'activity-item-active' : ''}`}
+              onClick={() => onNavigate(item.id)}
+              title={item.label}
+            >
+              <span className="activity-icon"><Icon className="w-5 h-5" /></span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

@@ -29,6 +29,11 @@ import {
   Image as ImageIcon,
   BarChart3,
   FileWarning,
+  Network,
+  ShieldHalf,
+  PanelLeftClose,
+  PanelLeftOpen,
+  MapPin,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -41,6 +46,30 @@ export const TOOL_ICONS = {
   provenance: ShieldCheck,
   vision: ScanText,
   report: FileText,
+} as const;
+
+/** Activity-bar DOMAIN icons — investigation domains, not individual tools. */
+export const DOMAIN_ICONS = {
+  image: ImageIcon,
+  network: Network,
+  admin: ShieldHalf,
+} as const;
+
+/** Image investigation sub-view icons (sidebar navigation within IMAGE domain). */
+export const SUBVIEW_ICONS = {
+  overview: Microscope,
+  spatial: MapPin,
+  fileforensics: FileSearch,
+  vision: ScanText,
+  discovery: Compass,
+  provenance: ShieldCheck,
+  report: FileText,
+} as const;
+
+/** Sidebar collapse toggle icons. */
+export const SIDEBAR_ICONS = {
+  collapse: PanelLeftClose,
+  expand: PanelLeftOpen,
 } as const;
 
 /** Activity-bar area → Lucide icon. */

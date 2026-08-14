@@ -1,19 +1,31 @@
 /**
  * Workbench — the main THE ARK forensic investigation workstation.
  *
- * VS Code-style layout:
- *   ActivityBar (far left) → Explorer/Upload sidebar → TabBar → MainViewport → BottomPanel → StatusBar
+ * THE ARK is organized by INVESTIGATION DOMAINS, not individual tools.
+ * Each domain contains every tool required to complete that investigation.
  *
- * Preserves all existing analysis capabilities (MapWorkspace, FeatureInspector,
- * ExifViewer, ChainOfCustody, IngestionSweep) inside the new tab architecture.
- * The backend remains the source of truth — the workbench displays and interacts.
+ *   THE ARK
+ *   ├── IMAGE   — full image intelligence & forensic investigation domain
+ *   │     Upload → Scan → Investigation (map-first) → Forensics → OCR/Vision
+ *   │     → Source Discovery → Provenance → Evidence/Audit/Output → Report
+ *   ├── NETWORK — reserved for future network-security tools (placeholder)
+ *   └── ADMIN   — admin control plane
+ *
+ * IMAGE is ONE continuous investigation. Every image-intelligence function
+ * (Spatial, File Forensics, OCR, Source Discovery, Provenance, Report) is a
+ * sub-view of the IMAGE domain, sharing the same case/evidence context.
+ * The sidebar is the primary navigator; the [+] launcher only re-opens
+ * additional analysis views and is never required for the core workflow.
+ *
+ * The backend remains the source of truth — the workbench displays and
+ * interacts.
  */
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { api } from '../../api';
 import type { AnalyzeResponse } from '../../types';
 import { TopBar, type ApiKeyStatus } from './TopBar';
 import { ActivityBar, type ActivityView } from './ActivityBar';
-import { TabBar, type ToolTabId, type TabInstance } from './TabBar';
+import type { ToolTabId } from './TabBar';
 import { EvidenceExplorer } from './investigation/EvidenceExplorer';
 import { InvestigationOverview } from './investigation/InvestigationOverview';
 import { BottomPanel } from './BottomPanel';
@@ -26,33 +38,31 @@ import { DiscoveryTool } from './tools/DiscoveryTool';
 import { ProvenanceTool } from './tools/ProvenanceTool';
 import { VisionTool } from './tools/VisionTool';
 import { ReportTool } from './tools/ReportTool';
+import { NetworkPlaceholder } from './NetworkPlaceholder';
 import { IngestionSweep } from '../IngestionSweep';
 import { useToast, ToastContainer } from '../Toast';
 import { exportCasePdf } from '../../pdfExport';
-import { TOOL_ICONS, type LucideIcon } from './icons';
-import { Upload } from 'lucide-react';
+import { SUBVIEW_ICONS, SIDEBAR_ICONS, type LucideIcon } from './icons';
+import { Upload, ChevronDown, ChevronRight } from 'lucide-react';
 
-const TOOL_META: Record<ToolTabId, { title: string; icon: LucideIcon }> = {
-  overview: { title: 'Investigation', icon: TOOL_ICONS.overview },
-  spatial: { title: 'Spatial Canvas', icon: TOOL_ICONS.spatial },
-  fileforensics: { title: 'File Forensics', icon: TOOL_ICONS.fileforensics },
-  discovery: { title: 'Source Discovery', icon: TOOL_ICONS.discovery },
-  provenance: { title: 'Provenance & C2PA', icon: TOOL_ICONS.provenance },
-  vision: { title: 'OCR & Vision', icon: TOOL_ICONS.vision },
-  report: { title: 'Case Report', icon: TOOL_ICONS.report },
-};
+/** Ordered IMAGE investigation sub-views — one continuous workflow. */
+const IMAGE_SUBVIEWS: { id: ToolTabId; title: string; icon: LucideIcon; hint: string }[] = [
+  { id: 'overview', title: 'Investigation', icon: SUBVIEW_ICONS.overview, hint: 'Assessment & map command center' },
+  { id: 'spatial', title: 'Spatial / Map', icon: SUBVIEW_ICONS.spatial, hint: 'Geolocation, satellite, fusion' },
+  { id: 'fileforensics', title: 'File Forensics', icon: SUBVIEW_ICONS.fileforensics, hint: 'ExifTool, Hex, ELA, JPEG' },
+  { id: 'vision', title: 'OCR & Vision', icon: SUBVIEW_ICONS.vision, hint: 'Text, objects, landmarks' },
+  { id: 'discovery', title: 'Source Discovery', icon: SUBVIEW_ICONS.discovery, hint: 'Reverse search, footprint' },
+  { id: 'provenance', title: 'Provenance / C2PA', icon: SUBVIEW_ICONS.provenance, hint: 'Signatures, edit manifests' },
+  { id: 'report', title: 'Case / Report', icon: SUBVIEW_ICONS.report, hint: 'Custody, overrides, PDF' },
+];
 
 /** Admin login path — obfuscated slug configurable via env (mirrors App.tsx). */
 const ADMIN_ROUTE_SLUG = (import.meta as any).env?.VITE_ADMIN_ROUTE_SLUG || 'console-auth';
 const ADMIN_LOGIN_PATH = `/${ADMIN_ROUTE_SLUG}`;
 
-let tabIdCounter = 0;
-const nextTabId = () => `tab-${++tabIdCounter}`;
-
 export function Workbench() {
-  const [activityView, setActivityView] = useState<ActivityView>('upload');
-  const [tabs, setTabs] = useState<TabInstance[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [activityView, setActivityView] = useState<ActivityView>('image');
+  const [activeSubview, setActiveSubview] = useState<ToolTabId>('overview');
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +73,8 @@ export function Workbench() {
   const [bottomCollapsed, setBottomCollapsed] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [explorerExpanded, setExplorerExpanded] = useState(true);
   const [apiStatuses, setApiStatuses] = useState<ApiKeyStatus[]>([]);
   const [sessionTick, setSessionTick] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -98,7 +110,7 @@ export function Workbench() {
         if (result) {
           setShowPalette(true);
         } else {
-          setActivityView('upload');
+          setActivityView('image');
         }
       }
       if (modKey && (e.key === 'k' || e.key === 'K')) {
@@ -139,13 +151,9 @@ export function Workbench() {
         risk: classifyRisk(anomalyCount),
       });
       setSessionTick(t => t + 1);
-      // Open investigation overview tab automatically
-      const overviewTab: TabInstance = {
-        id: nextTabId(), toolId: 'overview', title: 'Investigation', icon: TOOL_META.overview.icon,
-      };
-      setTabs([overviewTab]);
-      setActiveTabId(overviewTab.id);
-      setActivityView('explorer');
+      // After scanning completes, automatically open the Investigation view
+      // (map-first) for that image — the user does not click + to discover it.
+      setActiveSubview('overview');
       showToast(`Analysis complete — ${resp.source}`, 'success');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Analysis failed');
@@ -167,37 +175,11 @@ export function Workbench() {
     if (file) analyzeFile(file);
   };
 
+  /** Navigate to an image sub-view (the sidebar is the primary navigator). */
   const openTool = useCallback((toolId: ToolTabId) => {
-    setTabs(prev => {
-      // Duplicate prevention: switch to existing tab of same tool
-      const existing = prev.find(t => t.toolId === toolId);
-      if (existing) {
-        setActiveTabId(existing.id);
-        return prev;
-      }
-      const meta = TOOL_META[toolId];
-      const newTab: TabInstance = {
-        id: nextTabId(),
-        toolId,
-        title: meta.title,
-        icon: meta.icon,
-      };
-      setActiveTabId(newTab.id);
-      return [...prev, newTab];
-    });
+    setActivityView('image');
+    setActiveSubview(toolId);
   }, []);
-
-  const closeTab = useCallback((id: string) => {
-    setTabs(prev => {
-      const idx = prev.findIndex(t => t.id === id);
-      if (idx === -1) return prev;
-      const next = prev.filter(t => t.id !== id);
-      if (activeTabId === id) {
-        setActiveTabId(next.length ? (next[Math.max(0, idx - 1)].id) : null);
-      }
-      return next;
-    });
-  }, [activeTabId]);
 
   const handleCopyCoords = useCallback(() => {
     if (!result?.coordinates) return;
@@ -230,12 +212,12 @@ export function Workbench() {
     }
   }, [result, thumbnailUrl, showToast]);
 
-  // Render the active tool view
-  const renderTool = (tab: TabInstance | undefined) => {
-    if (!tab || !result) return null;
-    switch (tab.toolId) {
+  // Render the active image sub-view — all operate on the same evidence/case.
+  const renderSubview = (subview: ToolTabId): React.ReactNode => {
+    if (!result) return null;
+    switch (subview) {
       case 'overview':
-        return <InvestigationOverview result={result} onOpenTool={openTool} thumbnailUrl={thumbnailUrl} />;
+        return <InvestigationOverview result={result} onOpenTool={openTool} thumbnailUrl={thumbnailUrl} onCopyCoords={handleCopyCoords} onGeofenceViolation={handleGeofenceViolation} />;
       case 'spatial':
         return <SpatialTool result={result} thumbnailUrl={thumbnailUrl} onCopyCoords={handleCopyCoords} onGeofenceViolation={handleGeofenceViolation} />;
       case 'fileforensics':
@@ -253,10 +235,7 @@ export function Workbench() {
     }
   };
 
-  const activeTab = tabs.find(t => t.id === activeTabId);
-
-  // Malicious / review badge counts are derived from the current result's
-  // anomaly signals (TopBar reflects the active investigation).
+  // Malicious / review badge counts are derived from the current result.
   const { maliciousCount, reviewCount } = useMemo(() => {
     if (!result) return { maliciousCount: 0, reviewCount: 0 };
     const critical =
@@ -272,17 +251,27 @@ export function Workbench() {
 
   const newSession = useCallback(() => {
     setResult(null);
-    setTabs([]);
-    setActiveTabId(null);
     setError(null);
     setThumbnailUrl(undefined);
-    setActivityView('upload');
+    setActiveSubview('overview');
+    setActivityView('image');
   }, []);
 
   const triggerUpload = useCallback(() => {
-    setActivityView('upload');
+    setActivityView('image');
     fileInputRef.current?.click();
   }, []);
+
+  /** Domain navigation handler. ADMIN navigates to the admin route. */
+  const handleDomainNavigate = useCallback((view: ActivityView) => {
+    if (view === 'admin') {
+      window.location.href = ADMIN_LOGIN_PATH;
+      return;
+    }
+    setActivityView(view);
+  }, []);
+
+  const CollapseIcon = sidebarCollapsed ? SIDEBAR_ICONS.expand : SIDEBAR_ICONS.collapse;
 
   return (
     <div className="workbench">
@@ -297,80 +286,177 @@ export function Workbench() {
       />
 
       <div className="workbench-body">
-        {/* Activity Bar (far-left navigation) */}
-        <ActivityBar active={activityView} onNavigate={setActivityView} evidenceCount={result ? 1 : 0} />
+        {/* Activity Bar (far-left DOMAIN navigation) */}
+        <ActivityBar active={activityView} onNavigate={handleDomainNavigate} evidenceCount={result ? 1 : 0} />
 
-        {/* Sidebar (Explorer or Upload) */}
+        {/* Sidebar — contextual to the active domain */}
         {sidebarVisible && (
           <>
-            <div className="workbench-sidebar">
-              {activityView === 'upload' && (
-                <div className="sidebar-content">
-                  <div className="sidebar-header">TARGET UPLOAD</div>
-                  <div
-                    className={`dropzone ${dragOver ? 'dropzone-active' : ''} ${analyzing ? 'dropzone-busy' : ''}`}
-                    onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-                    onDragLeave={() => setDragOver(false)}
-                    onDrop={handleDrop}
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    {analyzing ? (
-                      <div className="dropzone-scanning"><div className="radar-pulse" /><span>SCANNING...</span></div>
-                    ) : (
-                      <>
-                        <div className="dropzone-icon"><Upload className="w-7 h-7" /></div>
-                        <div className="dropzone-text">Drag & drop image here</div>
-                        <div className="dropzone-subtext">JPEG / PNG · high-res supported</div>
-                      </>
-                    )}
-                  </div>
-                  <input ref={fileInputRef} type="file" accept="image/jpeg,image/png" onChange={handleFileSelect} style={{ display: 'none' }} />
-                  <div className="sidebar-options">
-                    <label className="toggle-row">
-                      <input type="checkbox" checked={zeroRetention} onChange={e => setZeroRetention(e.target.checked)} />
-                      <span className="toggle-label">Zero-Retention Mode</span>
-                    </label>
-                  </div>
-                  {error && (
-                    <div className="error-box">
-                      <div className="error-title">ANALYSIS ERROR</div>
-                      <div className="error-detail">{error}</div>
+            <div className={`workbench-sidebar ${sidebarCollapsed ? 'workbench-sidebar-collapsed' : ''}`}>
+              {/* Sidebar collapse control — directly on the sidebar, not in Settings */}
+              <div className="sidebar-collapse-bar">
+                <button
+                  className="sidebar-collapse-btn"
+                  onClick={() => setSidebarCollapsed(c => !c)}
+                  title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                >
+                  <CollapseIcon className="w-4 h-4" />
+                </button>
+                {!sidebarCollapsed && <span className="sidebar-collapse-label">Collapse</span>}
+              </div>
+
+              {/* ---- IMAGE domain sidebar ---- */}
+              {activityView === 'image' && (
+                <>
+                  {!sidebarCollapsed && (
+                    <div className="sidebar-content">
+                      <div className="sidebar-header">IMAGE INVESTIGATION</div>
+
+                      {/* No case loaded → upload is the first step of the workflow */}
+                      {!result && !analyzing && (
+                        <>
+                          <div
+                            className={`dropzone ${dragOver ? 'dropzone-active' : ''} ${analyzing ? 'dropzone-busy' : ''}`}
+                            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                            onDragLeave={() => setDragOver(false)}
+                            onDrop={handleDrop}
+                            onClick={() => fileInputRef.current?.click()}
+                          >
+                            <div className="dropzone-icon"><Upload className="w-7 h-7" /></div>
+                            <div className="dropzone-text">Drag & drop image here</div>
+                            <div className="dropzone-subtext">JPEG / PNG · high-res supported</div>
+                          </div>
+                          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png" onChange={handleFileSelect} style={{ display: 'none' }} />
+                          <div className="sidebar-options">
+                            <label className="toggle-row">
+                              <input type="checkbox" checked={zeroRetention} onChange={e => setZeroRetention(e.target.checked)} />
+                              <span className="toggle-label">Zero-Retention Mode</span>
+                            </label>
+                          </div>
+                          {error && (
+                            <div className="error-box">
+                              <div className="error-title">ANALYSIS ERROR</div>
+                              <div className="error-detail">{error}</div>
+                            </div>
+                          )}
+                          {!error && (
+                            <div className="sidebar-hint">
+                              Upload an image to begin a forensic investigation. All image
+                              tools — map, forensics, OCR, source discovery, provenance, report —
+                              live inside this one continuous investigation.
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {/* Case loaded → continuous investigation sub-view navigation */}
+                      {result && (
+                        <>
+                          <div className="sidebar-case-header">
+                            <div className="sidebar-case-thumb">
+                              {thumbnailUrl ? (
+                                <img src={thumbnailUrl} alt="target" />
+                              ) : (
+                                <span className="sidebar-case-thumb-placeholder"><Upload className="w-4 h-4" /></span>
+                              )}
+                            </div>
+                            <div className="sidebar-case-meta">
+                              <div className="sidebar-case-id mono">ARK-{result.request_id.slice(0, 8).toUpperCase()}</div>
+                              <div className="sidebar-case-source">{result.source}</div>
+                            </div>
+                          </div>
+
+                          {/* Vertical nav of all investigation stages — never requires [+] */}
+                          <div className="sidebar-subnav">
+                            {IMAGE_SUBVIEWS.map(sv => {
+                              const Icon = sv.icon;
+                              return (
+                                <button
+                                  key={sv.id}
+                                  className={`subnav-item ${activeSubview === sv.id ? 'subnav-item-active' : ''}`}
+                                  onClick={() => openTool(sv.id)}
+                                  title={sv.hint}
+                                >
+                                  <span className="subnav-icon"><Icon className="w-4 h-4" /></span>
+                                  <span className="subnav-label">{sv.title}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <button className="sidebar-new-session" onClick={newSession}>+ New Investigation</button>
+
+                          {/* Collapsible Evidence Explorer tree (kept — useful OSINT detail) */}
+                          <div className="sidebar-explorer-section">
+                            <button
+                              className="sidebar-explorer-toggle"
+                              onClick={() => setExplorerExpanded(e => !e)}
+                            >
+                              <span className="explorer-chevron">{explorerExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
+                              <span className="explorer-section-label">Evidence Explorer</span>
+                            </button>
+                            {explorerExpanded && (
+                              <EvidenceExplorer result={result} onOpenTool={openTool} thumbnailUrl={thumbnailUrl} />
+                            )}
+                          </div>
+                        </>
+                      )}
+
+                      {/* Analyzing state — scanning is part of the workflow */}
+                      {analyzing && (
+                        <div className="sidebar-scanning">
+                          <div className="dropzone-scanning"><div className="radar-pulse" /><span>SCANNING...</span></div>
+                          <div className="sidebar-hint">Processing target asset through the cascade pipeline.</div>
+                        </div>
+                      )}
                     </div>
                   )}
-                  {!result && !analyzing && !error && (
-                    <div className="sidebar-hint">
-                      Upload an image to begin a forensic investigation. Results are unique to each image's actual bytes and metadata.
-                    </div>
-                  )}
-                  {result && (
-                    <button className="sidebar-new-session" onClick={newSession}>+ New Investigation</button>
-                  )}
-                </div>
-              )}
-              {activityView === 'explorer' && (
-                <EvidenceExplorer result={result} onOpenTool={openTool} thumbnailUrl={thumbnailUrl} />
-              )}
-              {activityView === 'analysis' && (
-                <div className="sidebar-content">
-                  <div className="sidebar-header">ANALYSIS TOOLS</div>
-                  {result ? (
-                    <div className="tool-launcher-list">
-                      {(['spatial', 'fileforensics', 'discovery', 'provenance', 'vision', 'report'] as ToolTabId[]).map(tid => {
-                        const Icon = TOOL_META[tid].icon;
+
+                  {/* Collapsed sidebar — icon-only quick nav between sub-views */}
+                  {sidebarCollapsed && result && (
+                    <div className="sidebar-collapsed-nav">
+                      {IMAGE_SUBVIEWS.map(sv => {
+                        const Icon = sv.icon;
                         return (
-                          <button key={tid} className="tool-launcher-btn" onClick={() => openTool(tid)}>
-                            <span className="tool-launcher-icon"><Icon className="w-4 h-4" /></span>
-                            <span className="tool-launcher-label">{TOOL_META[tid].title}</span>
+                          <button
+                            key={sv.id}
+                            className={`subnav-icon-btn ${activeSubview === sv.id ? 'subnav-icon-btn-active' : ''}`}
+                            onClick={() => openTool(sv.id)}
+                            title={sv.title}
+                          >
+                            <Icon className="w-5 h-5" />
                           </button>
                         );
                       })}
                     </div>
-                  ) : (
-                    <div className="sidebar-hint">Upload an image first to access analysis tools.</div>
                   )}
+                  {sidebarCollapsed && !result && (
+                    <div className="sidebar-collapsed-nav">
+                      <button
+                        className="subnav-icon-btn subnav-icon-btn-active"
+                        onClick={() => fileInputRef.current?.click()}
+                        title="Upload image"
+                      >
+                        <Upload className="w-5 h-5" />
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* ---- NETWORK domain sidebar (placeholder) ---- */}
+              {activityView === 'network' && !sidebarCollapsed && (
+                <div className="sidebar-content">
+                  <div className="sidebar-header">NETWORK INVESTIGATION</div>
+                  <div className="sidebar-hint">
+                    The network-security investigation domain is reserved for
+                    future tooling. No tools are configured yet.
+                  </div>
                 </div>
               )}
-              {activityView === 'settings' && (
+
+              {/* ---- Settings sidebar ---- */}
+              {activityView === 'settings' && !sidebarCollapsed && (
                 <div className="sidebar-content">
                   <div className="sidebar-header">SETTINGS</div>
                   <div className="settings-list">
@@ -382,7 +468,13 @@ export function Workbench() {
                     </div>
                     <div className="settings-row">
                       <span className="settings-label">Sidebar:</span>
-                      <button className="settings-btn" onClick={() => setSidebarVisible(false)}>Hide sidebar</button>
+                      <button className="settings-btn" onClick={() => setSidebarCollapsed(c => !c)}>
+                        {sidebarCollapsed ? 'Expand' : 'Collapse'}
+                      </button>
+                    </div>
+                    <div className="settings-row">
+                      <span className="settings-label">Sidebar Panel:</span>
+                      <button className="settings-btn" onClick={() => setSidebarVisible(false)}>Hide panel</button>
                     </div>
                     <div className="settings-row">
                       <span className="settings-label">Bottom Panel:</span>
@@ -410,21 +502,18 @@ export function Workbench() {
           </>
         )}
 
-        {/* Main area: TabBar + Viewport + BottomPanel */}
+        {/* Main area: Viewport + BottomPanel */}
         <div className="workbench-main">
-          <TabBar
-            tabs={tabs}
-            activeTabId={activeTabId}
-            onSelectTab={setActiveTabId}
-            onCloseTab={closeTab}
-            onOpenTool={openTool}
-          />
-
           <div className="workbench-viewport">
-            {activeTab && result ? (
-              renderTool(activeTab)
-            ) : (
-              <DashboardView key={sessionTick} onUpload={triggerUpload} />
+            {activityView === 'image' && (
+              result ? renderSubview(activeSubview) : <DashboardView key={sessionTick} onUpload={triggerUpload} />
+            )}
+            {activityView === 'network' && <NetworkPlaceholder />}
+            {activityView === 'settings' && (
+              <div className="viewport-empty">
+                <div className="viewport-empty-title">Settings</div>
+                <div className="viewport-empty-text">Configure THE ARK from the sidebar.</div>
+              </div>
             )}
             <IngestionSweep active={analyzing} />
           </div>
@@ -440,11 +529,11 @@ export function Workbench() {
         onClose={() => setShowPalette(false)}
         onOpenTool={openTool}
         onExportPdf={handleExportPdf}
-        onUpload={() => { setActivityView('upload'); fileInputRef.current?.click(); }}
+        onUpload={() => { setActivityView('image'); fileInputRef.current?.click(); }}
         hasResult={!!result}
       />
 
-      {/* Hidden file input accessible from command palette */}
+      {/* Hidden file input accessible from command palette / sidebar */}
       <input ref={fileInputRef} type="file" accept="image/jpeg,image/png" onChange={handleFileSelect} style={{ display: 'none' }} />
 
       {!sidebarVisible && (

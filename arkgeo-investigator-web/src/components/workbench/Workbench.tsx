@@ -37,10 +37,11 @@ import { FileForensicsTool } from './tools/FileForensicsTool';
 import { DiscoveryTool } from './tools/DiscoveryTool';
 import { ProvenanceTool } from './tools/ProvenanceTool';
 import { VisionTool } from './tools/VisionTool';
-import { ReportTool } from './tools/ReportTool';
+import { CaseReportView } from './tools/CaseReportView';
 import { NetworkPlaceholder } from './NetworkPlaceholder';
 import { CaseExplorer } from './CaseExplorer';
 import { InvestigatorProfileModal } from './InvestigatorProfileModal';
+import { SettingsModal } from './SettingsModal';
 import { IngestionSweep } from '../IngestionSweep';
 import { useToast, ToastContainer } from '../Toast';
 import { exportCasePdf } from '../../pdfExport';
@@ -48,6 +49,7 @@ import { InvestigationProvider, useInvestigation, type SavedCase } from './useIn
 import { SUBVIEW_ICONS, SIDEBAR_ICONS, type LucideIcon } from './icons';
 import type { DomainId } from './entities';
 import { Upload, ChevronDown, ChevronRight, PanelLeft } from 'lucide-react';
+import { type SessionRecord } from './DashboardView';
 
 /** Ordered IMAGE investigation sub-views — one continuous workflow. */
 const IMAGE_SUBVIEWS: { id: ToolTabId; title: string; icon: LucideIcon; hint: string }[] = [
@@ -76,11 +78,13 @@ function WorkbenchInner() {
   const [bottomCollapsed, setBottomCollapsed] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [explorerExpanded, setExplorerExpanded] = useState(true);
   const [apiStatuses, setApiStatuses] = useState<ApiKeyStatus[]>([]);
   const [sessionTick, setSessionTick] = useState(0);
+  const [dashRefresh, setDashRefresh] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toasts, showToast, dismiss } = useToast();
 
@@ -118,6 +122,7 @@ function WorkbenchInner() {
       if (e.key === 'Escape') {
         setShowPalette(false);
         setShowProfile(false);
+        setShowSettings(false);
       }
     };
     window.addEventListener('keydown', handler);
@@ -224,7 +229,7 @@ function WorkbenchInner() {
       case 'vision':
         return <VisionTool result={result} />;
       case 'report':
-        return <ReportTool result={result} onExportPdf={handleExportPdf} />;
+        return <CaseReportView result={result} thumbnailUrl={thumbnailUrl} onExportPdf={handleExportPdf} />;
       default:
         return null;
     }
@@ -251,6 +256,29 @@ function WorkbenchInner() {
     showToast(`Restored case ${saved.caseId}`, 'success');
   }, [inv, showToast]);
 
+  /** Reload a past target session from the dashboard's Recent Sessions list.
+   *  Matches the session's request_id to a saved cross-domain case and restores
+   *  it into the active image workspace. */
+  const handleSelectSession = useCallback((s: SessionRecord) => {
+    const match = inv.history.find(h => h.caseId.endsWith(s.request_id.replace(/[^a-f0-9]/gi, '').slice(0, 8).toUpperCase()) || h.sha256 === s.sha256_short || h.filename === s.filename);
+    inv.setDomain('image');
+    if (match) {
+      inv.restoreCase(match);
+      setActiveSubview('overview');
+      setThumbnailUrl(undefined);
+      setError(null);
+      showToast(`Restored session ${s.filename}`, 'success');
+    } else {
+      // No matching saved case entity — surface a toast and switch to the
+      // image domain so the analyst can re-ingest if needed.
+      inv.clear();
+      setThumbnailUrl(undefined);
+      setActiveSubview('overview');
+      showToast(`Session ${s.filename} metadata only — re-ingest to restore full analysis`, 'warning');
+    }
+    setDashRefresh(n => n + 1);
+  }, [inv, showToast]);
+
   const CollapseIcon = sidebarCollapsed ? SIDEBAR_ICONS.expand : SIDEBAR_ICONS.collapse;
   const activeCaseId = inv.activeCase?.id || null;
 
@@ -265,7 +293,7 @@ function WorkbenchInner() {
       />
 
       <div className="workbench-body">
-        <ActivityBar active={inv.domain} onNavigate={(d: DomainId) => inv.setDomain(d)} onOpenProfile={() => setShowProfile(true)} />
+        <ActivityBar active={inv.domain} onNavigate={(d: DomainId) => inv.setDomain(d)} onOpenSettings={() => setShowSettings(true)} />
 
         {sidebarVisible && (
           <>
@@ -442,7 +470,7 @@ function WorkbenchInner() {
         <div className="workbench-main">
           <div className="workbench-viewport">
             {inv.domain === 'image' && (
-              result ? renderSubview(activeSubview) : <DashboardView key={sessionTick} onUpload={triggerUpload} />
+              result ? renderSubview(activeSubview) : <DashboardView key={sessionTick} onUpload={triggerUpload} onSelectSession={handleSelectSession} refreshKey={dashRefresh} />
             )}
             {inv.domain === 'network' && <NetworkPlaceholder />}
             {inv.domain === 'cases' && <CaseExplorer onRestoreCase={handleRestoreCase} />}
@@ -477,6 +505,12 @@ function WorkbenchInner() {
         onClose={() => setShowProfile(false)}
         apiStatuses={apiStatuses}
         onRestoreCase={handleRestoreCase}
+      />
+      <SettingsModal
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        apiStatuses={apiStatuses}
+        connected={connected}
       />
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
     </div>

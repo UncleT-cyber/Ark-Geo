@@ -7,9 +7,12 @@
  *   - NETWORK — network telemetry (structural placeholder)
  *   - CASES   — cross-domain case layer (saved sessions & audit vault)
  *
- * The footer holds the logged-in user's PROFILE/session area. It NEVER leads
- * to Admin — Admin is a protected control plane accessible only via stealth
- * hotkey (Cmd/Ctrl+Shift+P) and server-side authorization.
+ * The footer holds a SETTINGS gear (System & API Provider Configuration:
+ * GeoSpy, OpenAI Vision, Mapbox, ExifTool pathing). The investigator's
+ * PROFILE/session lives in the TopBar avatar on the right. Neither footer
+ * nor topbar EVER links to Admin — Admin is a protected control plane
+ * accessible only via stealth hotkey (Cmd/Ctrl+Shift+P) and server-side
+ * authorization.
  *
  * A single subtle "ARK" wordmark sits at the very bottom in muted slate. There
  * are no duplicate logos anywhere else in the interface.
@@ -28,7 +31,7 @@ interface ActivityItem {
 interface ActivityBarProps {
   active: DomainId;
   onNavigate: (view: DomainId) => void;
-  onOpenProfile: () => void;
+  onOpenSettings: () => void;
 }
 
 const DOMAINS: ActivityItem[] = [
@@ -37,8 +40,8 @@ const DOMAINS: ActivityItem[] = [
   { id: 'cases', icon: DOMAIN_ICONS.cases, label: 'Case Explorer' },
 ];
 
-export function ActivityBar({ active, onNavigate, onOpenProfile }: ActivityBarProps) {
-  const ProfileIcon = FOOTER_ICONS.profile;
+export function ActivityBar({ active, onNavigate, onOpenSettings }: ActivityBarProps) {
+  const SettingsIcon = FOOTER_ICONS.settings;
   return (
     <div className="activity-bar">
       <div className="activity-items">
@@ -59,10 +62,10 @@ export function ActivityBar({ active, onNavigate, onOpenProfile }: ActivityBarPr
       <div className="activity-footer">
         <button
           className="activity-item"
-          onClick={onOpenProfile}
-          title="Investigator Profile & Session"
+          onClick={onOpenSettings}
+          title="System & API Provider Configuration"
         >
-          <span className="activity-icon"><ProfileIcon className="w-5 h-5" /></span>
+          <span className="activity-icon"><SettingsIcon className="w-5 h-5" /></span>
         </button>
         {/* Single subtle ARK wordmark — no duplicate logos elsewhere. */}
         <div className="activity-wordmark">ARK</div>

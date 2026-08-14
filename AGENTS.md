@@ -85,18 +85,19 @@ THE ARK is organized by INVESTIGATION DOMAINS, not individual tools. Each domain
 contains every tool required to complete that investigation.
 - `entities.ts`: shared entity model (DomainId, InvestigationCase, EvidenceItem, etc.)
 - `useInvestigation.tsx`: InvestigationProvider context + `useInvestigation()` hook — holds domain, active case, result, history; drives domain switching across all components
-- `ActivityBar.tsx`: far-left DOMAIN nav — IMAGE (primary), NETWORK (placeholder), CASES (cross-domain case layer) + profile button (footer) + ARK wordmark
-- `TopBar.tsx`: single ARK identity (one wordmark/logo), command palette trigger, connection/API status — NO duplicate logos, NO admin link
-- `Workbench.tsx`: wraps everything in `<InvestigationProvider>` → TopBar + ActivityBar + Sidebar + MainViewport + BottomPanel + StatusBar
+- `ActivityBar.tsx`: far-left DOMAIN nav — IMAGE (primary), NETWORK (placeholder), CASES (cross-domain case layer) + **settings gear** (footer, opens SettingsModal) + ARK wordmark. Profile is opened from TopBar avatar, NOT the ActivityBar footer.
+- `TopBar.tsx`: single ARK identity (one wordmark/logo), command palette trigger, connection/API status — NO duplicate logos, NO admin link. Has a **macOS safe-zone** `padding-left: 68px` so content clears native traffic-light window controls in desktop/Electron mode.
+- `Workbench.tsx`: wraps everything in `<InvestigationProvider>` → TopBar + ActivityBar + Sidebar + MainViewport + BottomPanel + StatusBar. Owns `showSettings` state; renders `<SettingsModal>` and handles `handleSelectSession` (reloads a dashboard session into the image workspace).
 - `InvestigatorProfileModal.tsx`: identity/clearance/API-key status; states "Admin is a protected control plane — not accessible from here"
 - `CaseExplorer.tsx`: CASES domain — cross-domain saved investigations + audit vault
 - Sidebar is the PRIMARY navigator (no TabBar in core flow). IMAGE sidebar shows: upload (no case) OR case header + vertical sub-view nav (Investigation, Spatial/Map, File Forensics, OCR & Vision, Source Discovery, Provenance/C2PA, Case/Report) + collapsible Evidence Explorer + New Investigation.
-- Sidebar collapse toggle is ON the sidebar itself (PanelLeftClose/Open), not in Settings.
-- `DashboardView.tsx`: System Overview & Analytics default view — rendered when no target loaded (IMAGE domain, no case)
+- Sidebar collapse toggle is ON the sidebar itself (ChevronLeft = expanded→collapse, ChevronRight = collapsed→expand), not in Settings. The collapse bar sits in a dedicated header ABOVE the primary tool icons so it never displaces them by a row.
+- `DashboardView.tsx`: System Overview & Analytics default view — rendered when no target loaded (IMAGE domain, no case). **No upload button in its header** (the single upload entry point is the sidebar dropzone). Recent Sessions are interactive: rows are selectable (call `onSelectSession` to reload), per-row delete (Trash2), and "Clear History" with inline confirm. Exports `loadSessions`, `recordSession`, `classifyRisk`, `deleteSession`, `clearSessions`, and the `SessionRecord` type.
 - `NetworkPlaceholder.tsx`: NETWORK domain placeholder (planned capabilities, not implemented)
 - `investigation/InvestigationOverview.tsx`: MAP-FIRST command center — map always visible at top (never disappears), Location Not Established overlay when no coords, ARK assessment tiles + WHAT WE KNOW/DON'T KNOW/SUSPICIOUS/INVESTIGATE NEXT below
 - `tools/SpatialTool.tsx`: map NEVER disappears — Location Not Established overlay when no coords; fusion/spatial summary side panel
-- `tools/`: SpatialTool, FileForensicsTool, DiscoveryTool, ProvenanceTool, VisionTool, ReportTool (all operate on the same case/evidence context)
+- `tools/`: SpatialTool, FileForensicsTool, DiscoveryTool, ProvenanceTool, VisionTool, CaseReportView (all operate on the same case/evidence context). CaseReportView replaces the old ReportTool as the court-ready forensic report sub-view.
+- `SettingsModal.tsx`: System & API Provider Configuration — surfaces GeoSpy/OpenAI Vision/LLLM keys (status only, keys are server-side), Mapbox token (client env), ExifTool binary pathing, and backend connection state. Reached ONLY via the ActivityBar footer gear icon — NEVER from admin. Footer note: "Admin is a protected control plane — not accessible from here."
 - `CommandPalette.tsx`: Cmd/Ctrl+Shift+P and Cmd/Ctrl+K hotkeys (openTool switches to IMAGE domain + subview)
 - `BottomPanel.tsx`: domain-aware contextual console — tabs: PROBLEMS, ANALYSIS LOG, EVIDENCE, AUDIT, TERMINAL (terminal has command parser: help/status/clear/scan/connect)
 - `StatusBar.tsx`: accepts `activeCaseId` prop — shows backend status, SHA-256 hash, active case, GPS
@@ -111,4 +112,4 @@ contains every tool required to complete that investigation.
 - Backend on port 8000; vite proxy `/api` → :8000
 - HMR pitfall: if `DashboardView.tsx` (or any file mixing component + non-component exports like `classifyRisk`) fails Fast Refresh, restart the dev server cleanly to avoid a frozen half-state where clicks stop re-rendering. `kill` the vite node PID then `npm run dev`.
 - Backend tests: 154 passing (pytest), 11 warnings (HMAC key length non-blocking)
-- `npx tsc --noEmit` clean; `npx vite build` clean (~1901 modules)
+- `npx tsc --noEmit` clean; `npx vite build` clean (~1902 modules)

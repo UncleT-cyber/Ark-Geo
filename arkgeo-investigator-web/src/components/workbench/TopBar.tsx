@@ -41,7 +41,9 @@ export function TopBar({
 
   return (
     <div className="topbar">
-      {/* Left: single subtle ARK identity + active case */}
+      {/* Left: single subtle ARK identity + active case.
+          macOS/Electron safe zone: padding-left keeps ARK clear of native
+          traffic-light (Close/Minimize/Expand) window controls in desktop mode. */}
       <div className="topbar-left">
         <span className="topbar-ark">ARK</span>
         {activeCaseId && (

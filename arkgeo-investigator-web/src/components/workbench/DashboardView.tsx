@@ -9,8 +9,8 @@
  * Session history is persisted in localStorage so analysts see their own
  * cumulative activity across reloads.
  */
-import React, { useMemo } from 'react';
-import { UI_ICONS } from './icons';
+import React, { useMemo, useState } from 'react';
+import { Trash2, History } from 'lucide-react';
 
 /** A single recorded analysis session (persisted to localStorage). */
 export interface SessionRecord {
@@ -56,12 +56,32 @@ export function classifyRisk(anomalyCount: number): SessionRecord['risk'] {
   return 'low';
 }
 
-interface DashboardViewProps {
-  onUpload: () => void;
+/** Remove a single session by request_id. */
+export function deleteSession(request_id: string): void {
+  try {
+    const next = loadSessions().filter(s => s.request_id !== request_id);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  } catch { /* storage unavailable — non-blocking */ }
 }
 
-export function DashboardView({ onUpload }: DashboardViewProps) {
-  const sessions = useMemo(() => loadSessions(), []);
+/** Purge all saved target sessions. */
+export function clearSessions(): void {
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* non-blocking */ }
+}
+
+interface DashboardViewProps {
+  onUpload: () => void;
+  /** Reload a past target session into the active image workspace. */
+  onSelectSession?: (s: SessionRecord) => void;
+  /** External mutators can bump this to force a re-read of localStorage. */
+  refreshKey?: number;
+}
+
+export function DashboardView({ onUpload, onSelectSession, refreshKey }: DashboardViewProps) {
+  const [, force] = useState(0);
+  const sessions = useMemo(() => loadSessions(), [refreshKey]);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
 
   // Activity trend: count sessions per day for the last 14 days
   const trend = useMemo(() => {
@@ -91,6 +111,20 @@ export function DashboardView({ onUpload }: DashboardViewProps) {
 
   const recent = sessions.slice(0, 8);
 
+  const reload = () => force(n => n + 1);
+
+  const handleDelete = (rid: string) => {
+    deleteSession(rid);
+    setConfirmDel(null);
+    reload();
+  };
+
+  const handleClear = () => {
+    clearSessions();
+    setConfirmClear(false);
+    reload();
+  };
+
   return (
     <div className="dashboard">
       <div className="dashboard-header">
@@ -100,9 +134,6 @@ export function DashboardView({ onUpload }: DashboardViewProps) {
             Forensic intelligence dashboard · {sessions.length} session{sessions.length === 1 ? '' : 's'} recorded
           </div>
         </div>
-        <button className="dashboard-upload-btn" onClick={onUpload}>
-          <span className="dashboard-upload-icon"><UI_ICONS.upload className="w-4 h-4" /></span> New Target Upload
-        </button>
       </div>
 
       <div className="dashboard-grid">
@@ -160,25 +191,63 @@ export function DashboardView({ onUpload }: DashboardViewProps) {
           </div>
         </div>
 
-        {/* Card 3: Recent Sessions */}
+        {/* Card 3: Recent Sessions — fully selectable + per-row delete + clear */}
         <div className="dash-card dash-card-wide">
           <div className="dash-card-header">
-            <span className="dash-card-title">Recent Target Sessions</span>
-            <span className="dash-card-sub">History</span>
+            <span className="dash-card-title"><History className="w-3.5 h-3.5" style={{ display: 'inline', verticalAlign: '-2px', marginRight: '6px' }} />Recent Target Sessions</span>
+            <div className="dash-card-header-actions">
+              <span className="dash-card-sub">History</span>
+              {sessions.length > 0 && (
+                <button
+                  className="dash-clear-btn"
+                  onClick={() => setConfirmClear(true)}
+                  title="Purge all saved sessions"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Clear History
+                </button>
+              )}
+            </div>
           </div>
           <div className="dash-sessions">
             {recent.length === 0 ? (
               <div className="dash-empty">No recent sessions.</div>
             ) : recent.map(s => (
-              <div key={s.request_id} className="dash-session-row">
+              <div
+                key={s.request_id}
+                className={`dash-session-row ${onSelectSession ? 'dash-session-selectable' : ''}`}
+                onClick={() => onSelectSession?.(s)}
+                role={onSelectSession ? 'button' : undefined}
+                title={onSelectSession ? `Reload ${s.filename}` : undefined}
+              >
                 <span className={`dash-session-risk dash-session-${s.risk}`} />
                 <span className="dash-session-name" title={s.filename}>{s.filename}</span>
                 <span className="dash-session-src">{s.source}</span>
                 <span className="dash-session-conf">{Math.round(s.confidence * 100)}%</span>
                 <span className="dash-session-time mono">{new Date(s.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                <button
+                  className="dash-session-del"
+                  title="Delete session"
+                  onClick={(e) => { e.stopPropagation(); setConfirmDel(s.request_id); }}
+                >
+                  <Trash2 className="w-4 h-4 text-red-400" />
+                </button>
               </div>
             ))}
           </div>
+          {confirmClear && (
+            <div className="dash-confirm-inline">
+              <span>Purge all {sessions.length} saved sessions? This cannot be undone.</span>
+              <button className="dash-confirm-yes" onClick={handleClear}>Purge</button>
+              <button className="dash-confirm-no" onClick={() => setConfirmClear(false)}>Cancel</button>
+            </div>
+          )}
+          {confirmDel && (
+            <div className="dash-confirm-inline">
+              <span>Delete this session?</span>
+              <button className="dash-confirm-yes" onClick={() => handleDelete(confirmDel)}>Delete</button>
+              <button className="dash-confirm-no" onClick={() => setConfirmDel(null)}>Cancel</button>
+            </div>
+          )}
         </div>
       </div>
     </div>

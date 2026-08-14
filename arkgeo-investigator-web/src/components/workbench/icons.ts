@@ -31,8 +31,7 @@ import {
   FileWarning,
   Network,
   ShieldHalf,
-  PanelLeftClose,
-  PanelLeftOpen,
+  ChevronLeft,
   MapPin,
   FolderKanban,
   Terminal,
@@ -58,8 +57,9 @@ export const DOMAIN_ICONS = {
   cases: FolderKanban,
 } as const;
 
-/** Footer profile icon (user session — NEVER admin). */
+/** Footer settings icon (system & API provider configuration — NEVER admin). */
 export const FOOTER_ICONS = {
+  settings: Settings,
   profile: User,
 } as const;
 
@@ -74,10 +74,11 @@ export const SUBVIEW_ICONS = {
   report: FileText,
 } as const;
 
-/** Sidebar collapse toggle icons. */
+/** Sidebar collapse toggle icons — arrow direction reflects the collapse action.
+ *  Expanded → ChevronLeft (collapse toward the left); Collapsed → ChevronRight. */
 export const SIDEBAR_ICONS = {
-  collapse: PanelLeftClose,
-  expand: PanelLeftOpen,
+  collapse: ChevronLeft,
+  expand: ChevronRight,
 } as const;
 
 /** Bottom console tab icons. */

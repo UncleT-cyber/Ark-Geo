@@ -6,6 +6,7 @@
  * open the relevant forensic tool tab.
  */
 import React, { useState } from 'react';
+import { ChevronDown, ChevronRight, FolderOpen } from 'lucide-react';
 import type { AnalyzeResponse } from '../../../types';
 import type { ToolTabId } from '../TabBar';
 
@@ -37,7 +38,7 @@ export function EvidenceExplorer({ result, onOpenTool, thumbnailUrl }: EvidenceE
   if (!result) {
     return (
       <div className="explorer-empty">
-        <div className="explorer-empty-icon">🗂</div>
+        <div className="explorer-empty-icon"><FolderOpen className="w-7 h-7" /></div>
         <div className="explorer-empty-title">No Case Open</div>
         <div className="explorer-empty-text">
           Upload an image to begin an investigation. Evidence will appear here.
@@ -117,7 +118,7 @@ export function EvidenceExplorer({ result, onOpenTool, thumbnailUrl }: EvidenceE
         {tree.map((group) => (
           <div key={group.key} className="explorer-group">
             <div className="explorer-section" onClick={() => toggle(group.key)}>
-              <span className="explorer-chevron">{expanded.has(group.key) ? '▾' : '▸'}</span>
+              <span className="explorer-chevron">{expanded.has(group.key) ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
               <span className="explorer-section-label">{group.section}</span>
             </div>
             {expanded.has(group.key) && (

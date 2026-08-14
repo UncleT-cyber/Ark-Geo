@@ -7,6 +7,7 @@
  * OCR/AI providers are unavailable.
  */
 import React from 'react';
+import { AlertTriangle } from 'lucide-react';
 import type { AnalyzeResponse, VisualEvidenceTag } from '../../../types';
 
 interface VisionToolProps {
@@ -107,7 +108,7 @@ export function VisionTool({ result }: VisionToolProps) {
               </span>
             </div>
             {(result.sanity_mismatches || []).map((m, i) => (
-              <div key={i} className="vision-mismatch">⚠ {m}</div>
+              <div key={i} className="vision-mismatch"><AlertTriangle className="w-3.5 h-3.5" /> {m}</div>
             ))}
           </div>
         </div>

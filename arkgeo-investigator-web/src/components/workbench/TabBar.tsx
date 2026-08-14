@@ -4,8 +4,15 @@
  * Supports opening, closing, switching between active tool tabs. Each tab
  * represents a *view* over the same evidence, not an independent copy.
  * The [ + ] button exposes a dropdown of available forensic tools.
+ *
+ * The dropdown separates core investigation views (already part of the
+ * primary workflow) from specialized analysis tools that can be opened
+ * on demand. Core tools open instantly; the launcher exists to reopen
+ * closed tabs or surface secondary capabilities.
  */
 import React, { useState, useRef, useEffect } from 'react';
+import { Plus } from 'lucide-react';
+import { TOOL_ICONS, type LucideIcon } from './icons';
 
 export type ToolTabId =
   | 'overview'
@@ -20,25 +27,33 @@ export interface TabInstance {
   id: string;
   toolId: ToolTabId;
   title: string;
-  icon: string;
+  icon: LucideIcon;
   dirty?: boolean;
 }
 
 interface ToolDefinition {
   toolId: ToolTabId;
   title: string;
-  icon: string;
+  icon: LucideIcon;
   description: string;
 }
 
-const TOOL_REGISTRY: ToolDefinition[] = [
-  { toolId: 'spatial', title: 'Map & Spatial Canvas', icon: '🗺', description: 'GIS, satellite, location hypotheses' },
-  { toolId: 'fileforensics', title: 'File Forensics & Metadata', icon: '📦', description: 'ExifTool tree, Hex, ELA, JPEG structure' },
-  { toolId: 'discovery', title: 'Source Discovery & Footprint', icon: '🔍', description: 'Reverse visual search, web timeline' },
-  { toolId: 'provenance', title: 'Provenance & C2PA', icon: '🔐', description: 'Cryptographic signatures, edit manifests' },
-  { toolId: 'vision', title: 'OCR & Visual Intelligence', icon: '👁', description: 'Text extraction, object/landmark detection' },
-  { toolId: 'report', title: 'Case Report & Evidence Log', icon: '📋', description: 'Chain-of-custody, analyst overrides, PDF' },
+/** Core investigation views — part of the primary case workflow. */
+const CORE_TOOLS: ToolDefinition[] = [
+  { toolId: 'spatial', title: 'Spatial Canvas', icon: TOOL_ICONS.spatial, description: 'GIS, satellite, location hypotheses' },
+  { toolId: 'fileforensics', title: 'File Forensics', icon: TOOL_ICONS.fileforensics, description: 'ExifTool tree, Hex, ELA, JPEG structure' },
+  { toolId: 'vision', title: 'OCR & Vision', icon: TOOL_ICONS.vision, description: 'Text extraction, object/landmark detection' },
 ];
+
+/** Specialized analysis tools — opened on demand for deeper inquiry. */
+const SPECIALIZED_TOOLS: ToolDefinition[] = [
+  { toolId: 'discovery', title: 'Source Discovery', icon: TOOL_ICONS.discovery, description: 'Reverse visual search, web timeline' },
+  { toolId: 'provenance', title: 'Provenance & C2PA', icon: TOOL_ICONS.provenance, description: 'Cryptographic signatures, edit manifests' },
+  { toolId: 'report', title: 'Case Report', icon: TOOL_ICONS.report, description: 'Chain-of-custody, analyst overrides, PDF' },
+];
+
+/** Full registry (kept for backwards-compatible imports). */
+const TOOL_REGISTRY: ToolDefinition[] = [...CORE_TOOLS, ...SPECIALIZED_TOOLS];
 
 interface TabBarProps {
   tabs: TabInstance[];
@@ -63,54 +78,85 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onOpenTool 
     return () => document.removeEventListener('mousedown', handler);
   }, [showMenu]);
 
+  const openToolIds = new Set(tabs.map(t => t.toolId));
+
   return (
     <div className="tabbar">
       <div className="tabbar-tabs">
-        {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            className={`tabbar-tab ${activeTabId === tab.id ? 'tabbar-tab-active' : ''}`}
-            onClick={() => onSelectTab(tab.id)}
-            title={tab.title}
-          >
-            <span className="tabbar-tab-icon">{tab.icon}</span>
-            <span className="tabbar-tab-title">{tab.title}</span>
-            {tab.dirty && <span className="tabbar-tab-dirty" title="Unsaved changes">●</span>}
-            <button
-              className="tabbar-tab-close"
-              onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}
-              title="Close tab"
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <div
+              key={tab.id}
+              className={`tabbar-tab ${activeTabId === tab.id ? 'tabbar-tab-active' : ''}`}
+              onClick={() => onSelectTab(tab.id)}
+              title={tab.title}
             >
-              ×
-            </button>
-          </div>
-        ))}
+              <span className="tabbar-tab-icon"><Icon className="w-4 h-4" /></span>
+              <span className="tabbar-tab-title">{tab.title}</span>
+              {tab.dirty && <span className="tabbar-tab-dirty" title="Unsaved changes">●</span>}
+              <button
+                className="tabbar-tab-close"
+                onClick={(e) => { e.stopPropagation(); onCloseTab(tab.id); }}
+                title="Close tab"
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
       </div>
       <div className="tabbar-actions" ref={menuRef}>
         <button
           className="tabbar-add-btn"
           onClick={() => setShowMenu(!showMenu)}
-          title="New Tool Tab"
+          title="Open investigation tool"
           disabled={!tabs.length}
         >
-          +
+          <Plus className="w-4 h-4" />
         </button>
         {showMenu && (
           <div className="tabbar-dropdown">
-            <div className="tabbar-dropdown-header">Forensic Tools</div>
-            {TOOL_REGISTRY.map((tool) => (
-              <button
-                key={tool.toolId}
-                className="tabbar-dropdown-item"
-                onClick={() => { onOpenTool(tool.toolId); setShowMenu(false); }}
-              >
-                <span className="tabbar-dropdown-icon">{tool.icon}</span>
-                <div className="tabbar-dropdown-text">
-                  <div className="tabbar-dropdown-title">{tool.title}</div>
-                  <div className="tabbar-dropdown-desc">{tool.description}</div>
-                </div>
-              </button>
-            ))}
+            <div className="tabbar-dropdown-header">Open Investigation Tool</div>
+            <div className="tabbar-dropdown-group-label">CORE INVESTIGATION</div>
+            {CORE_TOOLS.map((tool) => {
+              const Icon = tool.icon;
+              const isOpen = openToolIds.has(tool.toolId);
+              return (
+                <button
+                  key={tool.toolId}
+                  className={`tabbar-dropdown-item ${isOpen ? 'tabbar-dropdown-item-active' : ''}`}
+                  onClick={() => { onOpenTool(tool.toolId); setShowMenu(false); }}
+                >
+                  <span className="tabbar-dropdown-icon"><Icon className="w-4 h-4" /></span>
+                  <div className="tabbar-dropdown-text">
+                    <div className="tabbar-dropdown-title">{tool.title}</div>
+                    <div className="tabbar-dropdown-desc">{tool.description}</div>
+                  </div>
+                  {isOpen && <span className="tabbar-dropdown-open-tag">OPEN</span>}
+                </button>
+              );
+            })}
+            <div className="tabbar-dropdown-divider" />
+            <div className="tabbar-dropdown-group-label">SPECIALIZED ANALYSIS</div>
+            {SPECIALIZED_TOOLS.map((tool) => {
+              const Icon = tool.icon;
+              const isOpen = openToolIds.has(tool.toolId);
+              return (
+                <button
+                  key={tool.toolId}
+                  className={`tabbar-dropdown-item ${isOpen ? 'tabbar-dropdown-item-active' : ''}`}
+                  onClick={() => { onOpenTool(tool.toolId); setShowMenu(false); }}
+                >
+                  <span className="tabbar-dropdown-icon"><Icon className="w-4 h-4" /></span>
+                  <div className="tabbar-dropdown-text">
+                    <div className="tabbar-dropdown-title">{tool.title}</div>
+                    <div className="tabbar-dropdown-desc">{tool.description}</div>
+                  </div>
+                  {isOpen && <span className="tabbar-dropdown-open-tag">OPEN</span>}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -118,4 +164,4 @@ export function TabBar({ tabs, activeTabId, onSelectTab, onCloseTab, onOpenTool 
   );
 }
 
-export { TOOL_REGISTRY };
+export { TOOL_REGISTRY, CORE_TOOLS, SPECIALIZED_TOOLS };

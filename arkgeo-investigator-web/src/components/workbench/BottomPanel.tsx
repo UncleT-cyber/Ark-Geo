@@ -9,6 +9,7 @@
  *   OUTPUT      – provider/model/tool output
  */
 import React, { useState } from 'react';
+import { ChevronUp, ChevronDown, X, AlertTriangle } from 'lucide-react';
 import type { AnalyzeResponse } from '../../types';
 
 interface BottomPanelProps {
@@ -58,7 +59,7 @@ export function BottomPanel({ result, collapsed, onToggle }: BottomPanelProps) {
           ))}
         </div>
         <button className="bottom-panel-toggle" onClick={onToggle} title={collapsed ? 'Expand panel' : 'Collapse panel'}>
-          {collapsed ? '▲' : '▼'}
+          {collapsed ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
       </div>
       {!collapsed && (
@@ -67,13 +68,16 @@ export function BottomPanel({ result, collapsed, onToggle }: BottomPanelProps) {
             <div className="bottom-list">
               {problems.length === 0 ? (
                 <div className="bottom-empty">No problems detected</div>
-              ) : problems.map((p, i) => (
-                <div key={i} className={`bottom-row bottom-row-${p.severity}`}>
-                  <span className="bottom-row-icon">{p.severity === 'error' ? '✕' : '⚠'}</span>
-                  <span className="bottom-row-type mono">{p.type}</span>
-                  <span className="bottom-row-msg">{p.msg}</span>
-                </div>
-              ))}
+              ) : problems.map((p, i) => {
+                const Icon = p.severity === 'error' ? X : AlertTriangle;
+                return (
+                  <div key={i} className={`bottom-row bottom-row-${p.severity}`}>
+                    <span className="bottom-row-icon"><Icon className="w-3.5 h-3.5" /></span>
+                    <span className="bottom-row-type mono">{p.type}</span>
+                    <span className="bottom-row-msg">{p.msg}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
           {tab === 'log' && (

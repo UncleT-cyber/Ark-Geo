@@ -6,6 +6,7 @@
  * geolocation fusion explainability panel (WHY? reasoning).
  */
 import React from 'react';
+import { MapPin } from 'lucide-react';
 import { MapWorkspace } from '../../MapWorkspace/MapWorkspace';
 import type { AnalyzeResponse } from '../../../types';
 
@@ -45,7 +46,7 @@ export function SpatialTool({ result, thumbnailUrl, onCopyCoords, onGeofenceViol
             />
           ) : (
             <div className="tool-empty">
-              <div className="tool-empty-icon">🗺</div>
+              <div className="tool-empty-icon"><MapPin className="w-8 h-8" /></div>
               <div className="tool-empty-title">No Coordinates</div>
               <div className="tool-empty-text">
                 {result.message || 'This image has no GPS coordinates. EXIF metadata is missing and no AI vision keys are configured.'}

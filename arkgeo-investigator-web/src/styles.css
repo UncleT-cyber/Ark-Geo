@@ -1,25 +1,35 @@
 /* ArkGeo Investigator Portal — global styles
-   VS Code Dark Slate palette */
+   Deep Dark Charcoal theme (tactical forensic workstation) */
 :root {
-  --bg-darkest: #181818;     /* application background (VS Code primary dark) */
-  --bg-dark: #1E1E1E;        /* sidebar / panel backgrounds (editor bg) */
-  --bg-card: #252526;        /* card containers & tab bars */
-  --bg-elevated: #2D2D2D;    /* hover / elevated surfaces */
-  --bg-input: #3C3C3C;       /* input fields */
-  --cyan: #007ACC;           /* VS Code Accent Blue (active/selected) */
+  --bg-darkest: #0B0C10;     /* root background (deep obsidian black) */
+  --bg-dark: #12141A;        /* editor panels / sidebars (dark charcoal) */
+  --bg-card: #181B22;        /* card containers & tab bars */
+  --bg-elevated: #252A36;    /* active tab / highlights / hover surfaces */
+  --bg-input: #252A36;       /* input fields */
+  --cyan: #007ACC;           /* primary accent (active/selected) */
   --cyan-dim: #0E639C;      /* darker accent */
-  --cyan-bright: #1B8AC4;   /* brighter accent */
-  --emergency: #F14C4C;      /* red alert */
-  --success: #89D185;        /* green */
-  --warning: #CCA700;        /* amber */
-  --text-primary: #CCCCCC;   /* primary text */
-  --text-secondary: #858585;  /* secondary text */
-  --text-muted: #6B6B6B;     /* muted text */
-  --border: #3C3C3C;         /* standard border */
-  --border-dim: #2D2D2D;     /* dim border */
+  --cyan-bright: #38BDF8;   /* brighter accent / highlights */
+  --emergency: #EF4444;      /* red alert (critical conditions) */
+  --success: #10B981;        /* green (verified states) */
+  --warning: #F59E0B;        /* amber warnings */
+  --text-primary: #F1F5F9;   /* primary text */
+  --text-secondary: #94A3B8;  /* secondary text */
+  --text-muted: #64748B;     /* muted text */
+  --border: #252A36;         /* standard border */
+  --border-dim: #1E2128;     /* dim border */
 }
 
 * { box-sizing: border-box; }
+
+/* Lucide icon sizing utilities (no Tailwind; sizes used across workbench) */
+.w-3 { width: 12px; } .h-3 { height: 12px; }
+.w-3\.5 { width: 14px; } .h-3\.5 { height: 14px; }
+.w-4 { width: 16px; } .h-4 { height: 16px; }
+.w-5 { width: 20px; } .h-5 { height: 20px; }
+.w-7 { width: 28px; } .h-7 { height: 28px; }
+.w-8 { width: 32px; } .h-8 { height: 32px; }
+/* ensure lucide svg fills its size class */
+svg.lucide { stroke-width: 1.75; }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: var(--bg-darkest); }

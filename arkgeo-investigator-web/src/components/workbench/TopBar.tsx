@@ -1,12 +1,13 @@
 /**
  * TopBar — 40px top application bar (VS Code / GXP Fusion style).
  *
- * Left:   Application icon + ARKGEO title + workspace selector
+ * Left:   Application icon + THE ARK title + workspace selector
  * Center: Global quick search / command palette bar (Cmd+K / Ctrl+Shift+P)
  * Right:  System status badges (malicious / review counts),
  *         API key status indicators, settings icon, user avatar
  */
 import React from 'react';
+import { UI_ICONS } from './icons';
 
 /** API service status as returned by the backend /health endpoint. */
 export interface ApiKeyStatus {
@@ -36,24 +37,29 @@ export function TopBar({
 }: TopBarProps) {
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
   const paletteHint = isMac ? '⌘K' : 'Ctrl+K';
+  const Brand = UI_ICONS.brand;
+  const SearchIcon = UI_ICONS.search;
+  const Chevron = UI_ICONS.chevronDown;
+  const SettingsIcon = UI_ICONS.settings;
+  const UserIcon = UI_ICONS.user;
 
   return (
     <div className="topbar">
       {/* Left: brand + workspace selector */}
       <div className="topbar-left">
-        <span className="topbar-brand-icon" title="ArkGeo">⬢</span>
-        <span className="topbar-brand-title">ARKGEO</span>
+        <span className="topbar-brand-icon" title="THE ARK"><Brand className="w-5 h-5" /></span>
+        <span className="topbar-brand-title">THE ARK</span>
         <span className="topbar-sep" />
         <button className="topbar-workspace" title="Active workspace">
           <span className="topbar-workspace-label">Forensic Workbench</span>
-          <span className="topbar-chevron">▾</span>
+          <span className="topbar-chevron"><Chevron className="w-3 h-3" /></span>
         </button>
       </div>
 
       {/* Center: command palette search */}
       <div className="topbar-center">
         <button className="topbar-search" onClick={onOpenPalette} title="Open command palette">
-          <span className="topbar-search-icon">🔍</span>
+          <span className="topbar-search-icon"><SearchIcon className="w-4 h-4" /></span>
           <span className="topbar-search-text">Search or run a command…</span>
           <span className="topbar-search-kbd">{paletteHint}</span>
         </button>
@@ -93,8 +99,8 @@ export function TopBar({
         >
           <span className="topbar-conn-dot" />
         </button>
-        <button className="topbar-icon-btn" onClick={onOpenSettings} title="Settings">⚙</button>
-        <button className="topbar-icon-btn" onClick={onOpenAdmin} title="Admin Console">👤</button>
+        <button className="topbar-icon-btn" onClick={onOpenSettings} title="Settings"><SettingsIcon className="w-4 h-4" /></button>
+        <button className="topbar-icon-btn" onClick={onOpenAdmin} title="Admin Console"><UserIcon className="w-4 h-4" /></button>
       </div>
     </div>
   );

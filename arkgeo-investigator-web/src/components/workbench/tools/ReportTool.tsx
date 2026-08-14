@@ -8,6 +8,7 @@
  * Adds the analyst override interface for human assessment of machine findings.
  */
 import React, { useState, useEffect, useCallback } from 'react';
+import { Check, X, HelpCircle, FileText } from 'lucide-react';
 import type { AnalyzeResponse, AnalystOverride } from '../../../types';
 import { ChainOfCustody } from '../../ChainOfCustody/ChainOfCustody';
 import { api } from '../../../api';
@@ -60,9 +61,9 @@ export function ReportTool({ result, onExportPdf }: ReportToolProps) {
             Machine assessment: <strong>{result.consensus.primary_country || result.address?.display_name || 'Unknown'}</strong> ({Math.round(result.consensus.confidence_score * 100)}%)
           </div>
           <div className="report-override-buttons">
-            <button className="override-btn override-confirm" disabled={submitting} onClick={() => submitOverride('confirm')}>✓ Confirm</button>
-            <button className="override-btn override-reject" disabled={submitting} onClick={() => submitOverride('reject')}>✕ Reject</button>
-            <button className="override-btn override-review" disabled={submitting} onClick={() => submitOverride('needs_review')}>? Needs Review</button>
+            <button className="override-btn override-confirm" disabled={submitting} onClick={() => submitOverride('confirm')}><Check className="w-4 h-4" /> Confirm</button>
+            <button className="override-btn override-reject" disabled={submitting} onClick={() => submitOverride('reject')}><X className="w-4 h-4" /> Reject</button>
+            <button className="override-btn override-review" disabled={submitting} onClick={() => submitOverride('needs_review')}><HelpCircle className="w-4 h-4" /> Needs Review</button>
           </div>
           <textarea
             className="override-note"
@@ -107,7 +108,7 @@ export function ReportTool({ result, onExportPdf }: ReportToolProps) {
         </div>
 
         <div className="report-section">
-          <button className="report-export-btn" onClick={onExportPdf}>📄 Generate PDF Report</button>
+          <button className="report-export-btn" onClick={onExportPdf}><FileText className="w-4 h-4" /> Generate PDF Report</button>
         </div>
       </div>
     </div>

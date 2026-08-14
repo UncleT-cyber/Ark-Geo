@@ -91,7 +91,7 @@ export function IngestionSweep({ active }: Props) {
             <div className="sweep-radar-ring sweep-radar-ring-2" />
             <div className="sweep-radar-dot" />
           </div>
-          <div className="sweep-title">ARKGEO FORENSIC INGESTION</div>
+          <div className="sweep-title">THE ARK FORENSIC INGESTION</div>
           <div className="sweep-subtitle">Processing target asset through cascade pipeline</div>
         </div>
 

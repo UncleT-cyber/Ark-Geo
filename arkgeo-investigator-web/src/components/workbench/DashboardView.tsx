@@ -10,6 +10,7 @@
  * cumulative activity across reloads.
  */
 import React, { useMemo } from 'react';
+import { UI_ICONS } from './icons';
 
 /** A single recorded analysis session (persisted to localStorage). */
 export interface SessionRecord {
@@ -100,7 +101,7 @@ export function DashboardView({ onUpload }: DashboardViewProps) {
           </div>
         </div>
         <button className="dashboard-upload-btn" onClick={onUpload}>
-          <span className="dashboard-upload-icon">📁</span> New Target Upload
+          <span className="dashboard-upload-icon"><UI_ICONS.upload className="w-4 h-4" /></span> New Target Upload
         </button>
       </div>
 

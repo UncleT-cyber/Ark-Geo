@@ -10,6 +10,7 @@
  * Every major finding is clickable and opens the relevant forensic view.
  */
 import React from 'react';
+import { Check, HelpCircle, AlertTriangle, ArrowRight } from 'lucide-react';
 import type { AnalyzeResponse } from '../../../types';
 import type { ToolTabId } from '../TabBar';
 
@@ -46,7 +47,7 @@ export function InvestigationOverview({ result, onOpenTool, thumbnailUrl }: Inve
   return (
     <div className="investigation-overview">
       <div className="overview-header">
-        <div className="overview-title">ARKGEO ASSESSMENT</div>
+        <div className="overview-title">THE ARK ASSESSMENT</div>
         <div className="overview-case-id mono">Case {result.request_id.slice(0, 8).toUpperCase()}</div>
       </div>
 
@@ -96,28 +97,28 @@ export function InvestigationOverview({ result, onOpenTool, thumbnailUrl }: Inve
         <div className="overview-section overview-known">
           <div className="overview-section-title">WHAT WE KNOW</div>
           {summary.known.length ? summary.known.map((k, i) => (
-            <div key={i} className="overview-item overview-item-known">✓ {k}</div>
+            <div key={i} className="overview-item overview-item-known"><Check className="w-3.5 h-3.5" /> {k}</div>
           )) : <div className="overview-item-muted">No confirmed facts yet</div>}
         </div>
 
         <div className="overview-section overview-unknown">
           <div className="overview-section-title">WHAT WE DON'T KNOW</div>
           {summary.unknown.length ? summary.unknown.map((k, i) => (
-            <div key={i} className="overview-item overview-item-unknown">? {k}</div>
+            <div key={i} className="overview-item overview-item-unknown"><HelpCircle className="w-3.5 h-3.5" /> {k}</div>
           )) : <div className="overview-item-muted">No gaps identified</div>}
         </div>
 
         <div className="overview-section overview-suspicious">
           <div className="overview-section-title">WHAT LOOKS SUSPICIOUS</div>
           {summary.suspicious.length ? summary.suspicious.map((k, i) => (
-            <div key={i} className="overview-item overview-item-suspicious">⚠ {k}</div>
+            <div key={i} className="overview-item overview-item-suspicious"><AlertTriangle className="w-3.5 h-3.5" /> {k}</div>
           )) : <div className="overview-item-muted">No anomalies detected</div>}
         </div>
 
         <div className="overview-section overview-next">
           <div className="overview-section-title">INVESTIGATE NEXT</div>
           {summary.next_steps.map((k, i) => (
-            <div key={i} className="overview-item overview-item-next">→ {k}</div>
+            <div key={i} className="overview-item overview-item-next"><ArrowRight className="w-3.5 h-3.5" /> {k}</div>
           ))}
         </div>
       </div>

@@ -17,7 +17,7 @@ export function NotFoundPage() {
         <div className="not-found-desc">
           The page you are looking for does not exist or has been moved.
         </div>
-        <Link to="/" className="not-found-link">← Return to ArkGeo Portal</Link>
+        <Link to="/" className="not-found-link">← Return to THE ARK Portal</Link>
       </div>
     </div>
   );

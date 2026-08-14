@@ -1,5 +1,5 @@
 /**
- * Workbench — the main ArkGeo forensic investigation workstation.
+ * Workbench — the main THE ARK forensic investigation workstation.
  *
  * VS Code-style layout:
  *   ActivityBar (far left) → Explorer/Upload sidebar → TabBar → MainViewport → BottomPanel → StatusBar
@@ -29,15 +29,17 @@ import { ReportTool } from './tools/ReportTool';
 import { IngestionSweep } from '../IngestionSweep';
 import { useToast, ToastContainer } from '../Toast';
 import { exportCasePdf } from '../../pdfExport';
+import { TOOL_ICONS, type LucideIcon } from './icons';
+import { Upload } from 'lucide-react';
 
-const TOOL_META: Record<ToolTabId, { title: string; icon: string }> = {
-  overview: { title: 'Investigation', icon: '🔬' },
-  spatial: { title: 'Spatial Canvas', icon: '🗺' },
-  fileforensics: { title: 'File Forensics', icon: '📦' },
-  discovery: { title: 'Source Discovery', icon: '🔍' },
-  provenance: { title: 'Provenance & C2PA', icon: '🔐' },
-  vision: { title: 'OCR & Vision', icon: '👁' },
-  report: { title: 'Case Report', icon: '📋' },
+const TOOL_META: Record<ToolTabId, { title: string; icon: LucideIcon }> = {
+  overview: { title: 'Investigation', icon: TOOL_ICONS.overview },
+  spatial: { title: 'Spatial Canvas', icon: TOOL_ICONS.spatial },
+  fileforensics: { title: 'File Forensics', icon: TOOL_ICONS.fileforensics },
+  discovery: { title: 'Source Discovery', icon: TOOL_ICONS.discovery },
+  provenance: { title: 'Provenance & C2PA', icon: TOOL_ICONS.provenance },
+  vision: { title: 'OCR & Vision', icon: TOOL_ICONS.vision },
+  report: { title: 'Case Report', icon: TOOL_ICONS.report },
 };
 
 /** Admin login path — obfuscated slug configurable via env (mirrors App.tsx). */
@@ -139,7 +141,7 @@ export function Workbench() {
       setSessionTick(t => t + 1);
       // Open investigation overview tab automatically
       const overviewTab: TabInstance = {
-        id: nextTabId(), toolId: 'overview', title: 'Investigation', icon: '🔬',
+        id: nextTabId(), toolId: 'overview', title: 'Investigation', icon: TOOL_META.overview.icon,
       };
       setTabs([overviewTab]);
       setActiveTabId(overviewTab.id);
@@ -207,7 +209,7 @@ export function Workbench() {
   }, [result, showToast]);
 
   const handleGeofenceViolation = useCallback(async (point: { lat: number; lon: number }) => {
-    showToast('⚠ GEOFENCE VIOLATION', 'error');
+    showToast('GEOFENCE VIOLATION', 'error');
     try {
       await api.dispatchThreatAlert({
         alert_type: 'geofence_violation',
@@ -316,7 +318,7 @@ export function Workbench() {
                       <div className="dropzone-scanning"><div className="radar-pulse" /><span>SCANNING...</span></div>
                     ) : (
                       <>
-                        <div className="dropzone-icon">📁</div>
+                        <div className="dropzone-icon"><Upload className="w-7 h-7" /></div>
                         <div className="dropzone-text">Drag & drop image here</div>
                         <div className="dropzone-subtext">JPEG / PNG · high-res supported</div>
                       </>
@@ -353,12 +355,15 @@ export function Workbench() {
                   <div className="sidebar-header">ANALYSIS TOOLS</div>
                   {result ? (
                     <div className="tool-launcher-list">
-                      {(['spatial', 'fileforensics', 'discovery', 'provenance', 'vision', 'report'] as ToolTabId[]).map(tid => (
-                        <button key={tid} className="tool-launcher-btn" onClick={() => openTool(tid)}>
-                          <span className="tool-launcher-icon">{TOOL_META[tid].icon}</span>
-                          <span className="tool-launcher-label">{TOOL_META[tid].title}</span>
-                        </button>
-                      ))}
+                      {(['spatial', 'fileforensics', 'discovery', 'provenance', 'vision', 'report'] as ToolTabId[]).map(tid => {
+                        const Icon = TOOL_META[tid].icon;
+                        return (
+                          <button key={tid} className="tool-launcher-btn" onClick={() => openTool(tid)}>
+                            <span className="tool-launcher-icon"><Icon className="w-4 h-4" /></span>
+                            <span className="tool-launcher-label">{TOOL_META[tid].title}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="sidebar-hint">Upload an image first to access analysis tools.</div>

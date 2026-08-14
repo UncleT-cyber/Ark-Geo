@@ -6,6 +6,7 @@
  * shows ELA heatmap, hex viewer, and structured consistency findings.
  */
 import React, { useState } from 'react';
+import { ChevronDown, ChevronRight, FileSearch, BarChart3, Check } from 'lucide-react';
 import type { AnalyzeResponse, ConsistencyFinding } from '../../../types';
 
 interface FileForensicsToolProps {
@@ -28,7 +29,7 @@ function ConsistencyFindingRow({ finding }: { finding: ConsistencyFinding }) {
         <span className="finding-badge" style={{ color, borderColor: color }}>{finding.status}</span>
         <span className="finding-type mono">{finding.type}</span>
         <span className="finding-msg">{finding.message}</span>
-        <span className="finding-chevron">{expanded ? '▾' : '▸'}</span>
+        <span className="finding-chevron">{expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
       </div>
       {expanded && finding.evidence.length > 0 && (
         <div className="finding-evidence">
@@ -44,7 +45,7 @@ function MetadataGroup({ name, entries }: { name: string; entries: { tag: string
   return (
     <div className="meta-group">
       <div className="meta-group-header" onClick={() => setExpanded(!expanded)}>
-        <span className="meta-chevron">{expanded ? '▾' : '▸'}</span>
+        <span className="meta-chevron">{expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
         <span className="meta-group-name">{name}</span>
         <span className="meta-group-count">{entries.length}</span>
       </div>
@@ -86,7 +87,7 @@ export function FileForensicsTool({ result, thumbnailUrl }: FileForensicsToolPro
           <div className="tool-metadata">
             {!deep?.available ? (
               <div className="tool-empty">
-                <div className="tool-empty-icon">📦</div>
+                <div className="tool-empty-icon"><FileSearch className="w-8 h-8" /></div>
                 <div className="tool-empty-title">ExifTool Unavailable</div>
                 <div className="tool-empty-text">{deep?.error || 'ExifTool is not installed on the server.'}</div>
               </div>
@@ -118,7 +119,7 @@ export function FileForensicsTool({ result, thumbnailUrl }: FileForensicsToolPro
               </>
             ) : (
               <div className="tool-empty">
-                <div className="tool-empty-icon">📊</div>
+                <div className="tool-empty-icon"><BarChart3 className="w-8 h-8" /></div>
                 <div className="tool-empty-title">ELA Not Available</div>
                 <div className="tool-empty-text">ELA heatmap could not be generated for this image.</div>
               </div>
@@ -130,7 +131,7 @@ export function FileForensicsTool({ result, thumbnailUrl }: FileForensicsToolPro
           <div className="tool-consistency">
             {!hasFindings ? (
               <div className="tool-empty">
-                <div className="tool-empty-icon">✓</div>
+                <div className="tool-empty-icon"><Check className="w-8 h-8" /></div>
                 <div className="tool-empty-title">No Inconsistencies Found</div>
                 <div className="tool-empty-text">Metadata consistency checks passed — no timeline anomalies, software edits, or device mismatches detected.</div>
               </div>

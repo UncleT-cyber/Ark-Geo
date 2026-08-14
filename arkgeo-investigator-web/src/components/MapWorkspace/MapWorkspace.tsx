@@ -109,14 +109,14 @@ function createTacticalMarker(
     <div class="arkgeo-blueprint-popup" style="
       font-family: 'JetBrains Mono', monospace;
       min-width: 200px; padding: 0; overflow: hidden;
-      background: #0B0F17; border: 1px solid #38BDF8; border-radius: 6px;
+      background: #0B0C10; border: 1px solid #38BDF8; border-radius: 6px;
     ">
       <div style="
         background: #0D1421; padding: 6px 10px; border-bottom: 1px solid #1E293B;
         display: flex; align-items: center; gap: 8px;
       ">
         <div style="width:8px;height:8px;background:#38BDF8;border-radius:50%;box-shadow:0 0 6px #38BDF8;"></div>
-        <span style="color:#38BDF8;font-size:11px;font-weight:700;letter-spacing:1px;">ARKGEO TARGET</span>
+        <span style="color:#38BDF8;font-size:11px;font-weight:700;letter-spacing:1px;">THE ARK TARGET</span>
       </div>
       <div style="padding:10px;display:flex;gap:10px;align-items:flex-start;">
         ${thumbHtml}
@@ -151,7 +151,7 @@ function createTacticalMarker(
         position: absolute; top: 0; left: 0;
         width: 28px; height: 28px;
         background: ${color};
-        border: 2px solid #0B0F17;
+        border: 2px solid #0B0C10;
         border-radius: 50% 50% 50% 0;
         transform: rotate(-45deg);
         box-shadow: 0 0 12px ${color}99, 0 2px 6px rgba(0,0,0,0.6);
@@ -159,7 +159,7 @@ function createTacticalMarker(
       <div style="
         position: absolute; top: 11px; left: 11px;
         width: 6px; height: 6px;
-        background: #0B0F17;
+        background: #0B0C10;
         border-radius: 50%;
       "></div>
     </div>`,
@@ -294,7 +294,7 @@ export function MapWorkspace({ points, history, onCopyCoords, onGeofenceViolatio
     if (inHighRisk) {
       const beacon = createThreatBeaconMarker(activePoint.lat, activePoint.lon);
       beacon.bindPopup(
-        `<div class="arkgeo-blueprint-popup" style="font-family:'JetBrains Mono',monospace;min-width:200px;background:#0B0F17;border:1px solid #EF4444;border-radius:6px;padding:10px;">
+        `<div class="arkgeo-blueprint-popup" style="font-family:'JetBrains Mono',monospace;min-width:200px;background:#0B0C10;border:1px solid #EF4444;border-radius:6px;padding:10px;">
           <div style="color:#EF4444;font-weight:700;font-size:12px;letter-spacing:1px;">⚠ GEOFENCE VIOLATION</div>
           <div style="color:#F87171;font-size:11px;margin-top:6px;">Target is inside a HIGH-RISK restricted zone</div>
           <div style="color:#7DD3FC;font-size:12px;margin-top:6px;font-family:monospace;">
@@ -335,7 +335,7 @@ export function MapWorkspace({ points, history, onCopyCoords, onGeofenceViolatio
         L.circleMarker([pt.lat, pt.lon], {
           radius: 4,
           color: '#38BDF8',
-          fillColor: '#0B0F17',
+          fillColor: '#0B0C10',
           fillOpacity: 1,
           weight: 2,
         }).addTo(layer);

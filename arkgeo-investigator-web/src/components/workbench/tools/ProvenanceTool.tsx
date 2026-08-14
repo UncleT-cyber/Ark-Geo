@@ -8,6 +8,7 @@
  * Also displays contradictions detected across evidence layers.
  */
 import React from 'react';
+import { AlertTriangle } from 'lucide-react';
 import type { AnalyzeResponse } from '../../../types';
 
 interface ProvenanceToolProps {
@@ -72,7 +73,7 @@ export function ProvenanceTool({ result }: ProvenanceToolProps) {
             {prov.warnings.length > 0 && (
               <div className="provenance-warnings">
                 <div className="provenance-warnings-title">WARNINGS</div>
-                {prov.warnings.map((w, i) => <div key={i} className="provenance-warning">⚠ {w}</div>)}
+                {prov.warnings.map((w, i) => <div key={i} className="provenance-warning"><AlertTriangle className="w-3.5 h-3.5" /> {w}</div>)}
               </div>
             )}
           </div>
@@ -80,7 +81,7 @@ export function ProvenanceTool({ result }: ProvenanceToolProps) {
 
         <div className="contradictions-section">
           <div className="contradictions-title">
-            ⚠ CONTRADICTIONS DETECTED ({contradictions.length})
+            <AlertTriangle className="w-4 h-4" /> CONTRADICTIONS DETECTED ({contradictions.length})
           </div>
           {contradictions.length === 0 ? (
             <div className="contradictions-empty">

@@ -362,6 +362,7 @@ export function Dashboard() {
                     imageSha256={result.image_sha256}
                     exifMissing={result.exif_missing}
                     steganographyDetected={result.steganography_detected}
+                    imageIntelligence={result.image_intelligence ?? null}
                   />
                   <AudioContextPlayer audioBase64={null} />
                   <ChainOfCustody

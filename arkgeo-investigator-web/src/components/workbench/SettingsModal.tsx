@@ -25,7 +25,12 @@ interface ProviderRow {
 
 const PROVIDERS: ProviderRow[] = [
   { key: 'vision_geospy', label: 'GeoSpy Vision API', icon: KeyRound, hint: 'Street-level image geolocation (Tier 2 vision ensemble).' },
+  { key: 'vision_geoinfer', label: 'GeoInfer Vision API', icon: KeyRound, hint: 'Dedicated geo-vision provider for location estimation.' },
   { key: 'llm', label: 'OpenAI Vision / LLM Ensemble', icon: KeyRound, hint: 'Multi-factor visual reasoning + clue extraction.' },
+  { key: 'gemini', label: 'Gemini Vision API', icon: KeyRound, hint: 'Alternative vision provider for scene analysis.' },
+  { key: 'anthropic', label: 'Anthropic Claude', icon: KeyRound, hint: 'Alternative vision provider for scene analysis.' },
+  { key: 'reverse_search', label: 'Reverse Source Search', icon: KeyRound, hint: 'TinEye / Serper web reverse-source discovery (pHash + image matches).' },
+  { key: 'streetview', label: 'Google Street View', icon: MapPin, hint: 'Panorama metadata + static imagery for established coordinates.' },
   { key: 'mapbox', label: 'Mapbox Token', icon: MapPin, hint: 'Vector / satellite map tiles in the spatial canvas.' },
   { key: 'exiftool', label: 'ExifTool Path', icon: Wrench, hint: 'Local binary for deep metadata extraction (Tier 1).' },
 ];
@@ -70,7 +75,12 @@ export function SettingsModal({ open, onClose, apiStatuses, connected }: Setting
   const lookup = (key: string): ApiKeyStatus | undefined => apiStatuses.find(s =>
     s.title.toLowerCase().includes(key.replace('vision_', '').replace('_', ' ')) ||
     (key === 'vision_geospy' && s.label === 'GS') ||
-    (key === 'llm' && s.label === 'LLM'),
+    (key === 'vision_geoinfer' && s.label === 'GI') ||
+    (key === 'llm' && s.label === 'LLM') ||
+    (key === 'gemini' && s.label === 'GM') ||
+    (key === 'anthropic' && s.label === 'AN') ||
+    (key === 'reverse_search' && s.label === 'RS') ||
+    (key === 'streetview' && s.label === 'SV'),
   );
 
   return (
@@ -88,7 +98,7 @@ export function SettingsModal({ open, onClose, apiStatuses, connected }: Setting
           <section className="settings-section">
             <div className="settings-section-title"><KeyRound className="w-3.5 h-3.5" /> VISION &amp; LLM PROVIDERS</div>
             <div className="settings-provider-list">
-              {PROVIDERS.filter(p => p.key !== 'mapbox' && p.key !== 'exiftool').map(p => {
+              {PROVIDERS.filter(p => ['vision_geospy', 'vision_geoinfer', 'llm', 'gemini', 'anthropic'].includes(p.key)).map(p => {
                 const Icon = p.icon;
                 const status = lookup(p.key);
                 const configured = !!status?.configured;
@@ -112,12 +122,35 @@ export function SettingsModal({ open, onClose, apiStatuses, connected }: Setting
           </section>
 
           <section className="settings-section">
+            <div className="settings-section-title"><KeyRound className="w-3.5 h-3.5" /> IMAGE INTELLIGENCE SUITE</div>
+            <div className="settings-provider-list">
+              {PROVIDERS.filter(p => ['reverse_search', 'streetview'].includes(p.key)).map(p => {
+                const Icon = p.icon;
+                const status = lookup(p.key);
+                const configured = !!status?.configured;
+                return (
+                  <div key={p.key} className={`settings-provider-row ${configured ? 'settings-provider-on' : 'settings-provider-off'}`}>
+                    <span className="settings-provider-icon"><Icon className="w-4 h-4" /></span>
+                    <div className="settings-provider-main">
+                      <div className="settings-provider-label">{p.label}</div>
+                      <div className="settings-provider-hint">{p.hint}</div>
+                    </div>
+                    <span className={`settings-provider-state ${configured ? 'state-on' : 'state-off'}`}>
+                      {configured ? 'Configured' : 'Not Set'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="settings-section">
             <div className="settings-section-title"><MapPin className="w-3.5 h-3.5" /> MAPBOX MAP TILES</div>
             <div className={`settings-provider-row ${false ? 'settings-provider-on' : 'settings-provider-off'}`}>
               <span className="settings-provider-icon"><MapPin className="w-4 h-4" /></span>
               <div className="settings-provider-main">
                 <div className="settings-provider-label">Mapbox Access Token</div>
-                <div className="settings-provider-hint">Vector + satellite tiles for the spatial canvas. Falls back to OpenStreetMap when unset.</div>
+                <div className="settings-provider-hint">Client map tiles (VITE_MAPBOX_TOKEN). A server-side token also powers Geocoding reverse lookups via Admin.</div>
               </div>
               <span className="settings-provider-state state-off">Client env (VITE_MAPBOX_TOKEN)</span>
             </div>

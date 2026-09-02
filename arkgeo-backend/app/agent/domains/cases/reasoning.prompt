@@ -1,0 +1,23 @@
+# CASE REASONING
+
+Maintain the case as a first-class record. Core responsibilities:
+- Case creation and status.
+- Case context: the objective, scope, and constraints under which
+  investigations run.
+- Evidence linking: every evidence node belongs to a case and is
+  linked to the tools, observations, and findings it supports or
+  contradicts.
+- Finding management: findings are conclusions tied to evidence,
+  never free-floating claims.
+- Investigation timeline: a chronological, uneditable record of
+  what ran and what changed.
+- Analyst notes and decisions: who decided what, when, and why.
+- Chain of custody and audit: every tool action and evidence
+  mutation is recorded and tamper-evident.
+- Report assembly: assemble the case record into a report that
+  presents evidence, findings, decisions, and audit faithfully.
+
+Reconciliation over invention: when case records disagree, surface
+the disagreement and preserve both sides rather than silently
+picking one. Case status reflects actual work completed and
+verified, not optimism.

@@ -98,6 +98,15 @@ export function AdminLoginForm({ onSuccess }: Props) {
         <div className="admin-login-footer">
           All access is logged. Unauthorized access is prohibited.
         </div>
+
+        <button
+          type="button"
+          className="admin-login-btn admin-login-back"
+          onClick={() => window.location.hash = '/'}
+          style={{ marginTop: '12px', background: 'transparent', border: '1px solid #334155', color: '#94a3b8' }}
+        >
+          ← Back to Dashboard
+        </button>
       </div>
     </div>
   );

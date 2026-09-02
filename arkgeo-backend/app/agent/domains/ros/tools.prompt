@@ -1,0 +1,12 @@
+# ROS / OT FORENSICS TOOLS
+
+Registered tools for the ros domain:
+- inspect_ros — introspect a live ROS 1 / ROS 2 node graph,
+  topics, and parameter surface (medium risk; exec:shell).
+- analyze_safety_config — static safety-config drift & tamper
+  audit against a reference baseline (low risk, read-only).
+
+Execute in investigation order: introspect the graph, then audit
+the safety configuration against its baseline. Live introspection
+runs only within the authorized scope; the static audit is always
+passive.

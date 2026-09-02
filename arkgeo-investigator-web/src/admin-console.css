@@ -1,0 +1,301 @@
+/* ==========================================================================
+   ARK ADMIN / SUPER-ADMIN CONSOLE — Tactical Cyber / Dark Operations
+   Theme: deep void #090D11 · surface #11161B · border #1E2630
+   Accent: Emerald Cyber-Green #10B981 / #059669 (distinct from workspace
+   blue canvas).  Inter + JetBrains Mono, rounded-2xl cards, glowing pill
+   borders, left-bordered active nav tabs with pill highlight overlays.
+   ========================================================================== */
+
+.ark-admin {
+  --av-bg: #090D11;
+  --av-surface: #11161B;
+  --av-surface-2: #161D26;
+  --av-border: #1E2630;
+  --av-border-soft: rgba(30, 38, 48, 0.6);
+  --av-accent: #10B981;
+  --av-accent-2: #059669;
+  --av-accent-glow: rgba(16, 185, 129, 0.2);
+  --av-accent-soft: rgba(16, 185, 129, 0.08);
+  --av-danger: #EF4444;
+  --av-warning: #F59E0B;
+  --av-text: #F9FAFB;
+  --av-text-2: #9CA3AF;
+  --av-text-3: #6B7280;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--av-bg);
+  color: var(--av-text);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* ---------------- Header ---------------- */
+.ark-admin-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 56px;
+  padding: 0 20px;
+  background: var(--av-surface);
+  border-bottom: 1px solid var(--av-border);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.ark-admin-brand { display: flex; align-items: center; gap: 10px; min-width: 220px; }
+.ark-admin-logo {
+  width: 30px; height: 30px; border-radius: 9px;
+  background: var(--av-accent-soft);
+  border: 1px solid var(--av-accent-glow);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--av-accent);
+  box-shadow: 0 0 18px rgba(16, 185, 129, 0.12);
+}
+.ark-admin-brand-title {
+  font-size: 13px; font-weight: 700; letter-spacing: 2.5px;
+  font-family: 'JetBrains Mono', monospace; color: var(--av-text);
+  white-space: nowrap;
+}
+.ark-admin-header-spacer { flex: 1; }
+.ark-admin-super-badge {
+  font-size: 9px; letter-spacing: 2px; font-family: 'JetBrains Mono', monospace;
+  color: #A7F3D0; background: var(--av-accent-soft);
+  border: 1px solid var(--av-accent-glow);
+  padding: 4px 10px; border-radius: 999px;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.08);
+  white-space: nowrap;
+}
+.ark-admin-user-pill {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 12px; border-radius: 999px;
+  background: var(--av-surface-2); border: 1px solid var(--av-border);
+  font-size: 12px; color: var(--av-text-2); font-family: 'JetBrains Mono', monospace;
+}
+.ark-admin-user-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--av-accent); box-shadow: 0 0 8px var(--av-accent); }
+.ark-admin-link {
+  color: var(--av-text-2); text-decoration: none; font-size: 12px;
+  font-family: 'JetBrains Mono', monospace; transition: color 0.15s;
+}
+.ark-admin-link:hover { color: var(--av-accent); }
+.ark-admin-logout {
+  background: transparent; border: 1px solid rgba(239, 68, 68, 0.5); color: #FCA5A5;
+  padding: 6px 14px; border-radius: 8px; font-size: 11px;
+  font-family: 'JetBrains Mono', monospace; cursor: pointer; transition: all 0.15s;
+}
+.ark-admin-logout:hover { background: rgba(239, 68, 68, 0.12); }
+
+/* ---------------- Shell ---------------- */
+.ark-admin-shell { display: flex; flex: 1; min-height: 0; }
+
+/* ---------------- Sidebar ---------------- */
+.ark-admin-sidebar {
+  width: 240px; flex-shrink: 0;
+  background: var(--av-surface);
+  border-right: 1px solid var(--av-border);
+  padding: 14px 10px;
+  overflow-y: auto;
+}
+.ark-admin-sidebar-label {
+  font-size: 9px; letter-spacing: 2px; color: var(--av-text-3);
+  font-family: 'JetBrains Mono', monospace; text-transform: uppercase;
+  padding: 0 10px 8px;
+}
+.ark-admin-nav-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 9px 12px; margin-bottom: 2px;
+  background: transparent; border: none; border-left: 3px solid transparent;
+  border-radius: 10px; color: var(--av-text-2); font-size: 13px;
+  text-align: left; cursor: pointer; transition: all 0.15s;
+}
+.ark-admin-nav-item:hover { background: var(--av-surface-2); color: var(--av-text); }
+.ark-admin-nav-item-active {
+  background: var(--av-accent-soft);
+  border-left-color: var(--av-accent);
+  color: var(--av-text);
+  box-shadow: inset 0 0 0 1px var(--av-accent-glow), 0 0 16px rgba(16, 185, 129, 0.06);
+}
+.ark-admin-nav-item svg { flex-shrink: 0; }
+.ark-admin-nav-item-active svg { color: var(--av-accent); }
+
+/* ---------------- Content ---------------- */
+.ark-admin-content { flex: 1; padding: 24px 28px; overflow-y: auto; min-width: 0; }
+.ark-admin-page-title { font-size: 20px; font-weight: 700; color: var(--av-text); margin: 0; }
+.ark-admin-page-subtitle { font-size: 13px; color: var(--av-text-2); margin: 4px 0 20px; }
+
+/* ---------------- Cards ---------------- */
+.ark-card {
+  background: var(--av-surface);
+  border: 1px solid var(--av-border);
+  border-radius: 16px;
+  padding: 18px 20px;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.ark-card:hover { border-color: var(--av-accent-glow); box-shadow: 0 0 20px rgba(16, 185, 129, 0.05); }
+.ark-card-title {
+  font-size: 11px; letter-spacing: 1.8px; text-transform: uppercase;
+  color: var(--av-text-2); font-family: 'JetBrains Mono', monospace;
+  margin: 0 0 4px;
+}
+.ark-card-value {
+  font-size: 30px; font-weight: 700; color: var(--av-text);
+  font-family: 'JetBrains Mono', monospace;
+}
+.ark-stat {
+  font-size: 28px; font-weight: 700; color: var(--av-text);
+  font-family: 'JetBrains Mono', monospace; line-height: 1.1;
+}
+.ark-card-sub { font-size: 11px; color: var(--av-text-3); margin-top: 2px; }
+
+.ark-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+.ark-grid-3 { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+
+/* Clickable command-center card */
+.ark-cc-card { cursor: pointer; position: relative; overflow: hidden; }
+.ark-cc-card:hover { transform: translateY(-2px); }
+.ark-cc-card-icon {
+  width: 40px; height: 40px; border-radius: 12px;
+  background: var(--av-accent-soft); border: 1px solid var(--av-accent-glow);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--av-accent); margin-bottom: 12px;
+}
+.ark-cc-card-title { font-size: 14px; font-weight: 600; color: var(--av-text); margin: 0 0 4px; }
+.ark-cc-card-desc { font-size: 12px; color: var(--av-text-2); line-height: 1.45; margin: 0; }
+.ark-cc-card-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 12px; font-size: 11px; color: var(--av-accent);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ---------------- Badges ---------------- */
+.ark-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10px; letter-spacing: 1px; font-family: 'JetBrains Mono', monospace;
+  padding: 3px 10px; border-radius: 999px; border: 1px solid transparent;
+  white-space: nowrap;
+}
+.ark-badge-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.ark-badge-green { color: #6EE7B7; background: rgba(16, 185, 129, 0.12); border-color: var(--av-accent-glow); }
+.ark-badge-red { color: #FCA5A5; background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.25); }
+.ark-badge-amber { color: #FCD34D; background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.25); }
+.ark-badge-gray { color: var(--av-text-2); background: var(--av-surface-2); border-color: var(--av-border); }
+.ark-badge-blue { color: #7DD3FC; background: rgba(6, 182, 212, 0.1); border-color: rgba(6, 182, 212, 0.25); }
+
+/* ---------------- Tables ---------------- */
+.ark-table-wrap { overflow-x: auto; border: 1px solid var(--av-border); border-radius: 14px; background: var(--av-surface); }
+.ark-table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 640px; }
+.ark-table th {
+  text-align: left; font-size: 9.5px; letter-spacing: 1.5px; text-transform: uppercase;
+  color: var(--av-text-3); font-family: 'JetBrains Mono', monospace;
+  padding: 10px 14px; border-bottom: 1px solid var(--av-border);
+  background: var(--av-surface-2);
+}
+.ark-table td { padding: 11px 14px; border-bottom: 1px solid var(--av-border-soft); color: var(--av-text-2); vertical-align: top; }
+.ark-table tr:last-child td { border-bottom: none; }
+.ark-table tr:hover td { background: rgba(16, 185, 129, 0.03); }
+.ark-cell-strong { color: var(--av-text); font-weight: 600; }
+.ark-mono { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+
+/* ---------------- Buttons ---------------- */
+.ark-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 14px; border-radius: 10px; font-size: 12px; font-weight: 600;
+  font-family: 'JetBrains Mono', monospace; cursor: pointer;
+  border: 1px solid var(--av-border); background: var(--av-surface-2); color: var(--av-text);
+  transition: all 0.15s;
+}
+.ark-btn:hover:not(:disabled) { border-color: var(--av-accent); color: var(--av-accent); }
+.ark-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.ark-btn-primary {
+  background: var(--av-accent); border-color: var(--av-accent); color: #052E1F; font-weight: 700;
+  box-shadow: 0 0 18px rgba(16, 185, 129, 0.25);
+}
+.ark-btn-primary:hover:not(:disabled) { background: #34D399; border-color: #34D399; color: #052E1F; }
+.ark-btn-danger { border-color: rgba(239, 68, 68, 0.5); color: #FCA5A5; }
+.ark-btn-danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.12); color: #FECACA; border-color: #EF4444; }
+.ark-btn-sm { padding: 4px 10px; font-size: 10.5px; border-radius: 8px; }
+.ark-btn-xs { padding: 2px 8px; font-size: 10px; border-radius: 7px; }
+
+/* ---------------- Inputs ---------------- */
+.ark-input, .ark-select, .ark-textarea {
+  background: var(--av-surface-2);
+  border: 1px solid var(--av-border);
+  color: var(--av-text); border-radius: 10px;
+  padding: 9px 12px; font-size: 13px; outline: none; transition: border-color 0.15s;
+  font-family: 'JetBrains Mono', monospace;
+}
+.ark-input:focus, .ark-select:focus, .ark-textarea:focus { border-color: var(--av-accent); box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1); }
+.ark-field { display: flex; flex-direction: column; gap: 6px; }
+.ark-field-label { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--av-text-3); font-family: 'JetBrains Mono', monospace; }
+
+/* ---------------- Toggle switch ---------------- */
+.ark-toggle { position: relative; width: 38px; height: 21px; flex-shrink: 0; }
+.ark-toggle input { opacity: 0; width: 0; height: 0; }
+.ark-toggle-slider {
+  position: absolute; inset: 0; border-radius: 999px;
+  background: var(--av-surface-2); border: 1px solid var(--av-border); transition: all 0.18s; cursor: pointer;
+}
+.ark-toggle-slider::before {
+  content: ""; position: absolute; width: 15px; height: 15px; border-radius: 50%;
+  left: 2px; top: 2px; background: var(--av-text-3); transition: all 0.18s;
+}
+.ark-toggle input:checked + .ark-toggle-slider { background: var(--av-accent); border-color: var(--av-accent); box-shadow: 0 0 12px rgba(16, 185, 129, 0.35); }
+.ark-toggle input:checked + .ark-toggle-slider::before { transform: translateX(17px); background: #052E1F; }
+
+/* ---------------- Section header ---------------- */
+.ark-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.ark-section-title { font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: var(--av-accent); font-family: 'JetBrains Mono', monospace; margin: 0; }
+
+/* ---------------- Telemetry panel ---------------- */
+.ark-telemetry-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.ark-telemetry-item { background: var(--av-surface-2); border: 1px solid var(--av-border); border-radius: 10px; padding: 10px 12px; }
+.ark-telemetry-k { font-size: 9px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--av-text-3); font-family: 'JetBrains Mono', monospace; margin-bottom: 4px; }
+.ark-telemetry-v { font-size: 12px; color: var(--av-text); font-family: 'JetBrains Mono', monospace; word-break: break-all; }
+
+/* ---------------- Storage gauge ---------------- */
+.ark-gauge { height: 8px; border-radius: 999px; background: var(--av-surface-2); border: 1px solid var(--av-border); overflow: hidden; }
+.ark-gauge-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--av-accent-2), var(--av-accent)); box-shadow: 0 0 10px rgba(16, 185, 129, 0.4); transition: width 0.4s ease; }
+
+/* ---------------- RBAC matrix ---------------- */
+.ark-rbac-row { display: flex; align-items: center; gap: 14px; padding: 9px 4px; border-bottom: 1px solid var(--av-border-soft); }
+.ark-rbac-row:last-child { border-bottom: none; }
+.ark-rbac-perm { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--av-text-2); font-family: 'JetBrains Mono', monospace; }
+.ark-check {
+  width: 16px; height: 16px; accent-color: var(--av-accent); cursor: pointer;
+}
+
+/* ---------------- Keyboard hint bar ---------------- */
+.ark-shortcut-bar {
+  margin-top: 22px; display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; border-radius: 12px;
+  background: var(--av-surface); border: 1px solid var(--av-border);
+  font-size: 12px; color: var(--av-text-3); font-family: 'JetBrains Mono', monospace;
+}
+.ark-kbd {
+  font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+  background: var(--av-surface-2); border: 1px solid var(--av-border);
+  border-bottom-width: 2px; border-radius: 6px; padding: 2px 7px; color: var(--av-text-2);
+}
+
+/* ---------------- Loading ---------------- */
+.ark-admin-loading {
+  min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; background: var(--av-bg); color: var(--av-text-3);
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+}
+.ark-spinner {
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 3px solid var(--av-border); border-top-color: var(--av-accent);
+  animation: ark-spin 0.8s linear infinite;
+}
+@keyframes ark-spin { to { transform: rotate(360deg); } }
+
+/* ---------------- Misc ---------------- */
+.ark-empty { padding: 26px; text-align: center; color: var(--av-text-3); font-size: 13px; }
+.ark-inline { display: flex; align-items: center; gap: 8px; }
+.ark-mt { margin-top: 14px; }
+.ark-mt-lg { margin-top: 22px; }
+.ark-row-gap { display: flex; flex-direction: column; gap: 12px; }
+.ark-hr { border: none; border-top: 1px solid var(--av-border); margin: 16px 0; }
+.ark-flag { font-size: 9px; color: var(--av-text-3); font-family: 'JetBrains Mono', monospace; letter-spacing: 1px; }
+.ark-flag-seed { color: #FCD34D; }

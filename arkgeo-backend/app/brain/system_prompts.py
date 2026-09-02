@@ -30,6 +30,47 @@ and provide your best-guess country/region only.
 """
 
 # --------------------------------------------------------------------------- #
+# Terrain IMINT / GEOINT reasoning (Feature 4)
+# --------------------------------------------------------------------------- #
+TERRAIN_IMINT_PROMPT = """You are an expert IMINT/GEOINT forensic analyst. \
+Geolocate this image using terrain and vegetation, architecture & infrastructure, \
+language & symbols, and lighting & shadow angles. Be systematic and honest. Do not \
+fabricate evidence.
+
+Analyze each factor separately and report what you actually see:
+
+1) TERRAIN & VEGETATION — soil color, landform (flat/rolling/mountainous/coastal), \
+dominant flora, climate zone, agricultural patterns.
+2) ARCHITECTURE & INFRASTRUCTURE — building materials, roof styles, window framing, \
+utility poles, road signage, electrical standards, street furniture.
+3) LANGUAGE & SYMBOLS — any visible text, script type, language family, flags, \
+logos, license plates, country codes.
+4) LIGHTING & SHADOW ANGLES — sun position, shadow length/direction, approximate \
+latitude band and time-of-day implied.
+
+Then reason from those observations into a ranked list of the TOP-3 candidate \
+regions (country / sub-region / biome) where the image was most likely captured. \
+Rank by confidence: the strongest candidate first.
+
+Output a raw, valid JSON object (no markdown, no commentary) with this schema:
+{
+  "estimated_latitude": <float or null>,
+  "estimated_longitude": <float or null>,
+  "search_radius_meters": <float or null>,
+  "confidence_score": <0.0-1.0>,
+  "primary_country": "<string or null>",
+  "region": "<string or null>",
+  "candidate_regions": [
+    {"region": "<country or sub-region or biome>", "confidence": <0.0-1.0>, "rationale": "<factor-driven justification>"}
+  ],
+  "visual_evidence_tags": [
+    {"category": "architecture|botanical|infrastructure|ocr", "label": "<short tag>", "confidence": <0.0-1.0>}
+  ]
+}
+If the image is low-context (blank wall, no terrain, no text), set confidence_score \
+<= 0.05 and return an empty candidate_regions array. Never invent a location."""
+
+# --------------------------------------------------------------------------- #
 # Tier 3 – OCR & Infrastructure Extractor
 # --------------------------------------------------------------------------- #
 OCR_INFRASTRUCTURE_PROMPT = """Extract all textual, numerical, and structural \

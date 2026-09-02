@@ -11,6 +11,7 @@
  * (handled globally in App.tsx) plus server-side authorization at /console-auth.
  */
 import React from 'react';
+import { Save } from 'lucide-react';
 import { UI_ICONS } from './icons';
 
 export interface ApiKeyStatus {
@@ -25,6 +26,8 @@ interface TopBarProps {
   connected: boolean;
   onOpenPalette: () => void;
   onOpenProfile: () => void;
+  /** Save the current workspace observations into the Case Vault (all domains). */
+  onSaveInvestigation: () => void;
 }
 
 export function TopBar({
@@ -33,6 +36,7 @@ export function TopBar({
   connected,
   onOpenPalette,
   onOpenProfile,
+  onSaveInvestigation,
 }: TopBarProps) {
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
   const paletteHint = isMac ? '⌘K' : 'Ctrl+K';
@@ -84,6 +88,13 @@ export function TopBar({
           title={connected ? 'Backend connected' : 'Backend offline'}
         >
           <span className="topbar-conn-dot" />
+        </button>
+        <button
+          className="topbar-icon-btn topbar-save-btn"
+          onClick={onSaveInvestigation}
+          title="Save Investigation to Case Vault"
+        >
+          <Save className="w-4 h-4" />
         </button>
         <button className="topbar-icon-btn" onClick={onOpenProfile} title="Investigator Profile & Session">
           <UserIcon className="w-4 h-4" />

@@ -14,10 +14,11 @@
  * button that invokes a print-optimized layout (@media print in workbench.css).
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import { Check, X, HelpCircle, FileText, Printer, Fingerprint, MapPin, Layers, ShieldCheck, History } from 'lucide-react';
+import { Check, X, HelpCircle, FileText, Printer, Fingerprint, MapPin, Layers, ShieldCheck, History, ListChecks } from 'lucide-react';
 import type { AnalyzeResponse, AnalystOverride, ConsistencyFinding } from '../../../types';
 import { ChainOfCustody } from '../../ChainOfCustody/ChainOfCustody';
 import { api } from '../../../api';
+import { useInvestigation } from '../useInvestigation';
 
 interface CaseReportViewProps {
   result: AnalyzeResponse;
@@ -44,6 +45,7 @@ export function CaseReportView({ result, thumbnailUrl, onExportPdf }: CaseReport
   const [overrides, setOverrides] = useState<AnalystOverride[]>([]);
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const { pipeline } = useInvestigation();
 
   const loadOverrides = useCallback(async () => {
     try {
@@ -141,6 +143,11 @@ export function CaseReportView({ result, thumbnailUrl, onExportPdf }: CaseReport
               <MetaField label="File Size" value={fileSize ? `${fileSize} bytes` : '—'} mono />
               <MetaField label="Ingested" value={result.created_at ? new Date(result.created_at).toLocaleString() : '—'} />
               <MetaField label="Source" value={result.source} />
+              <MetaField label="Asset Classification" value={
+                pipeline?.classification
+                  ? `${pipeline.classification.classification} (${pipeline.classification.platformProfile}, ${Math.round(pipeline.classification.confidence * 100)}%)`
+                  : result.image_classification || '—'
+              } />
               <MetaField label="Integrity" value={integrity} />
             </div>
           </div>
@@ -152,6 +159,8 @@ export function CaseReportView({ result, thumbnailUrl, onExportPdf }: CaseReport
               consensus). Determined location:{' '}
               <strong>{summary?.location || consensus.primary_country || result.address?.display_name || 'Not established'}</strong>
               {' '}with <strong>{Math.round(confidence)}%</strong> confidence. Integrity status: <strong>{integrity}</strong>.
+              {pipeline?.classification && ` Asset classified as ${pipeline.classification.classification} (${pipeline.classification.platformProfile}).`}
+              {pipeline?.fusion?.location.candidate && ` Fused location candidate: ${pipeline.fusion.location.candidate}.`}
               {result.exif_missing && ' EXIF metadata was stripped or missing, forcing fallback to visual analysis.'}
               {result.steganography_detected && ' Structural anomaly detected (trailing bytes after EOF).'}
               {result.gps_spoofing_detected && ' GPS spoofing suspected via sanity/climate cross-checks.'}
@@ -343,6 +352,210 @@ export function CaseReportView({ result, thumbnailUrl, onExportPdf }: CaseReport
                 {audit.map((line, i) => (
                   <div key={i} className="case-report-audit-row mono">{line}</div>
                 ))}
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Section F: Continuous Image Intelligence Cascade */}
+        {pipeline && (
+          <section className="case-report-section">
+            <div className="case-report-section-title"><ListChecks className="w-4 h-4" /> F · Continuous Image Intelligence Cascade</div>
+
+            <div className="case-report-sub-block">
+              <div className="case-report-sub-title">Pipeline Steps</div>
+              <div className="case-report-verdicts">
+                {pipeline.steps.map((s) => (
+                  <div key={s.step} className="case-report-verdict">
+                    <span className={`case-report-verdict-status ${s.ok ? 'verdict-ok' : 'verdict-fail'}`}>{s.ok ? 'OK' : 'FAIL'}</span>
+                    <span className="case-report-verdict-dim mono">STEP {s.step}</span>
+                    <span className="case-report-verdict-concl">{s.name}</span>
+                    <span className="case-report-verdict-conf mono">{s.elapsedMs}ms · {s.observations.length} obs</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {pipeline.fusion?.verdicts.length > 0 && (
+              <div className="case-report-sub-block">
+                <div className="case-report-sub-title">Fusion Verdicts</div>
+                <div className="case-report-verdicts">
+                  {pipeline.fusion.verdicts.map((v) => (
+                    <div key={v.dimension} className="case-report-verdict">
+                      <span className={`case-report-verdict-status verdict-${v.status.toLowerCase()}`}>{v.status}</span>
+                      <span className="case-report-verdict-dim mono">{v.dimension.toUpperCase()}</span>
+                      <span className="case-report-verdict-concl">{v.conclusion}</span>
+                      <span className="case-report-verdict-conf mono">{Math.round(v.confidence * 100)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="case-report-sub-block">
+              <div className="case-report-sub-title">Location Assessment</div>
+              <div className="case-report-meta-grid">
+                <MetaField label="Status" value={pipeline.fusion?.location.status} />
+                <MetaField label="Candidate" value={pipeline.fusion?.location.candidate} />
+                <MetaField label="Confidence" value={pipeline.fusion?.location ? `${Math.round(pipeline.fusion.location.confidence * 100)}%` : '—'} />
+                <MetaField label="Supporting" value={pipeline.fusion?.location ? String(pipeline.fusion.location.supporting.length) : '0'} />
+                <MetaField label="Contradicting" value={pipeline.fusion?.location ? String(pipeline.fusion.location.contradicting.length) : '0'} />
+              </div>
+              {pipeline.fusion?.location.note && <div className="case-report-prov-detail">{pipeline.fusion.location.note}</div>}
+            </div>
+
+            {pipeline.fusion?.timeline.length > 0 && (
+              <div className="case-report-sub-block">
+                <div className="case-report-sub-title">Reconstructed Timeline ({pipeline.fusion.timeline.length})</div>
+                <div className="case-report-audit">
+                  {pipeline.fusion.timeline.map((t, i) => (
+                    <div key={i} className="case-report-audit-row mono">{t.date || 'unknown date'} — {t.note}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {pipeline.observations.length > 0 && (
+              <div className="case-report-sub-block">
+                <div className="case-report-sub-title">Structured Observations ({pipeline.observations.length})</div>
+                <div className="case-report-findings">
+                  {pipeline.observations.map((o) => (
+                    <div key={o.id} className="case-report-finding" style={{ borderLeftColor: sevColor(o.status === 'ANOMALY' ? 'HIGH' : o.status === 'UNAVAILABLE' ? 'LOW' : 'OK') }}>
+                      <span className="finding-badge">{o.status}</span>
+                      <span className="finding-type mono">{o.type}</span>
+                      <span className="finding-sev mono">S{o.step}</span>
+                      <span className="finding-msg">{o.label} — {o.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Section G: AI Intelligence Analysis */}
+        <section className="case-report-section">
+          <div className="case-report-section-title"><Layers className="w-4 h-4" /> G · AI Intelligence Analysis</div>
+
+          {/* Discrete AI provider results */}
+          {result.ai_evidence && (
+            <div className="case-report-sub-block">
+              <div className="case-report-sub-title">Discrete AI Providers</div>
+              <div className="case-report-meta-grid">
+                {(() => {
+                  const geospy = result.ai_evidence?.geospy as any;
+                  const scene = result.ai_evidence?.scene as any;
+                  return (
+                    <>
+                      <MetaField
+                        label="GeoSpy Prediction"
+                        value={geospy?.estimated_latitude != null
+                          ? `${Number(geospy.estimated_latitude).toFixed(4)}, ${Number(geospy.estimated_longitude).toFixed(4)} (${Math.round((geospy.confidence_score || 0) * 100)}%)`
+                          : '—'}
+                      />
+                      <MetaField
+                        label="Vision Scene Country"
+                        value={scene?.primary_country || scene?.region || '—'}
+                      />
+                      <MetaField
+                        label="Vision Scene Confidence"
+                        value={scene?.confidence_score != null ? `${Math.round(scene.confidence_score * 100)}%` : '—'}
+                      />
+                      <MetaField
+                        label="Credible Interval (95%)"
+                        value={result.credible_interval_radius != null ? `${Math.round(result.credible_interval_radius)} m` : '—'}
+                      />
+                    </>
+                  );
+                })()}
+              </div>
+
+              {(() => {
+                const scene = result.ai_evidence?.scene as any;
+                const ocr = (scene?.ocr_texts as string[] | undefined) || [];
+                const regions = (scene?.candidate_regions as { region: string; confidence?: number; rationale?: string }[] | undefined) || [];
+                return (
+                  <>
+                    {ocr.length > 0 && (
+                      <div className="case-report-sub-block">
+                        <div className="case-report-sub-title">OCR Text (scene)</div>
+                        <div className="case-report-tags">
+                          {ocr.map((t, i) => <span key={i} className="case-report-tag">{t}</span>)}
+                        </div>
+                      </div>
+                    )}
+                    {regions.length > 0 && (
+                      <div className="case-report-sub-block">
+                        <div className="case-report-sub-title">Terrain IMINT Candidate Regions</div>
+                        <div className="case-report-findings">
+                          {regions.map((r, i) => (
+                            <div key={i} className="case-report-finding">
+                              <span className="finding-badge">{Math.round((r.confidence || 0) * 100)}%</span>
+                              <span className="finding-type">{r.region}</span>
+                              <span className="finding-msg">{r.rationale || ''}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* Reverse source / source discovery */}
+          {result.source_discovery && (
+            <div className="case-report-sub-block">
+              <div className="case-report-sub-title">Reverse Source Discovery</div>
+              <div className="case-report-meta-grid">
+                <MetaField label="State" value={result.source_discovery.state} />
+                <MetaField label="Provider" value={result.source_discovery.provider} />
+                <MetaField
+                  label="Perceptual Hash"
+                  value={result.source_discovery.phash ? String(result.source_discovery.phash).slice(0, 16) + '…' : '—'}
+                  mono
+                />
+                <MetaField
+                  label="Exact / Similar Matches"
+                  value={`${(result.source_discovery.exact_matches || []).length} / ${(result.source_discovery.similar_matches || []).length}`}
+                />
+              </div>
+              <div className="case-report-prov-detail">{result.source_discovery.detail}</div>
+
+              {/* Original rehydration success */}
+              {result.recovered_original?.recovered_gps && (
+                <div className="case-report-recovered">
+                  <span className="anomaly-tag anomaly-stego" style={{ color: '#22C55E', borderColor: '#22C55E' }}>REHYDRATED</span>
+                  Recovered original GPS{' '}
+                  <strong className="mono">
+                    {Number(result.recovered_original.recovered_gps.lat).toFixed(4)}, {Number(result.recovered_original.recovered_gps.lon).toFixed(4)}
+                  </strong>
+                  {result.recovered_original.recovered_source_url && (
+                    <> from <a className="case-report-link" href={result.recovered_original.recovered_source_url} target="_blank" rel="noreferrer">{result.recovered_original.recovered_source_url}</a></>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Satellite / aerial cross-reference */}
+          {result.satellite_crossref?.state === 'AVAILABLE' && (
+            <div className="case-report-sub-block">
+              <div className="case-report-sub-title">Satellite / Aerial Cross-Reference ({result.satellite_crossref.provider})</div>
+              {result.satellite_crossref.tile_url && (
+                <img className="case-report-sat-tile" src={result.satellite_crossref.tile_url} alt="satellite reference" />
+              )}
+              <div className="case-report-prov-detail">{result.satellite_crossref.detail}</div>
+            </div>
+          )}
+
+          {/* Probability surface */}
+          {result.probability_surface && (
+            <div className="case-report-sub-block">
+              <div className="case-report-sub-title">Monte-Carlo Probability Surface</div>
+              <div className="case-report-prov-detail">
+                {`A ${result.probability_surface?.grid_span_m ? Math.round(Number(result.probability_surface.grid_span_m)) : '—'} m span centred on the resolved pin, derived from ${result.consensus?.monte_carlo_samples || '—'} Monte-Carlo samples. 95% credible interval: ${result.credible_interval_radius != null ? Math.round(result.credible_interval_radius) + ' m' : '—'}.`}
               </div>
             </div>
           )}

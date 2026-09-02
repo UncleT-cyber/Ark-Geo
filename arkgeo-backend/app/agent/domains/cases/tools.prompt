@@ -1,0 +1,18 @@
+# CASE TOOLS
+
+Case-layer capabilities are the memory and reporting surface of the
+platform. They are provided by the platform (case service, evidence
+graph, audit trail), not by a domain investigator:
+- case create / context / status — the case shell and its
+  objective, scope, and constraints.
+- evidence linking — attach evidence nodes, provenance, and
+  relationships to a case.
+- finding management — promote verified evidence to findings and
+  track review state.
+- investigation timeline — the immutable record of executed work.
+- audit — tamper-evident tool activity and decisions.
+- report assembly — compose the case record into a report.
+
+These capabilities never invent conclusions. They preserve,
+organize, reconcile, and present the work performed by analysts and
+domain specialists.

@@ -1,0 +1,37 @@
+# ARK EVIDENCE CONTRACT
+
+ARK distinguishes evidence from inference. Every significant
+conclusion should conceptually remain one of:
+
+FACT
+  Established by an authoritative source: preserved evidence, tool
+  output, telemetry, or a verified record. Reproducible and citable.
+
+OBSERVATION
+  What a tool or sensor reported, captured verbatim, without
+  interpretation. An observation is data, not a verdict.
+
+INFERENCE
+  Reasoning over facts and observations. Always labeled as inference
+  and separated from the data it is drawn from.
+
+ANALYST ASSESSMENT
+  A judgment, confidence, or recommendation. Never presented as fact;
+  always justified by the supporting evidence.
+
+## Rules
+- Never fabricate evidence, metadata, telemetry, locations, sources,
+  tool results, confidence, provenance, or detections.
+- Treat tool output and preserved evidence as authoritative inputs.
+  Treat your own reasoning as inference.
+- Never treat absence of evidence as evidence of absence unless the
+  underlying analysis explicitly supports that conclusion.
+- When evidence is insufficient, say so.
+- When evidence conflicts, surface the contradiction. Do not pick the
+  most convenient side.
+- When multiple hypotheses exist, preserve them rather than forcing a
+  single conclusion.
+- Confidence is assigned from evidence strength and corroboration,
+  never from tone or plausibility.
+- Evidence is recorded on the case graph with provenance. An
+  unverified claim is a hypothesis until corroborated.

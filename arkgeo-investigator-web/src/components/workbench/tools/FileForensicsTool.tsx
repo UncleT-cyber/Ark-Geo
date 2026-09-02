@@ -7,11 +7,15 @@
  */
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, FileSearch, BarChart3, Check } from 'lucide-react';
-import type { AnalyzeResponse, ConsistencyFinding } from '../../../types';
+import type { AnalyzeResponse, ConsistencyFinding, ReverseSearchResult } from '../../../types';
+import { api } from '../../../api';
+import { ExifViewer } from '../../ExifViewer/ExifViewer';
 
 interface FileForensicsToolProps {
   result: AnalyzeResponse;
   thumbnailUrl?: string;
+  /** Original ingested file — required for the on-demand reverse source search. */
+  file?: File | null;
 }
 
 function severityColor(severity: string): string {
@@ -63,19 +67,38 @@ function MetadataGroup({ name, entries }: { name: string; entries: { tag: string
   );
 }
 
-export function FileForensicsTool({ result, thumbnailUrl }: FileForensicsToolProps) {
+export function FileForensicsTool({ result, thumbnailUrl, file }: FileForensicsToolProps) {
   const [showHex, setShowHex] = useState(false);
-  const [tab, setTab] = useState<'metadata' | 'ela' | 'consistency' | 'structure'>('metadata');
+  const [tab, setTab] = useState<'imint' | 'metadata' | 'ela' | 'consistency' | 'structure'>('imint');
+  const [reverseSearch, setReverseSearch] = useState<ReverseSearchResult | null>(null);
+  const [reverseSearchLoading, setReverseSearchLoading] = useState(false);
+
+  const handleReverseSearch = async () => {
+    if (!file || reverseSearchLoading) return;
+    setReverseSearchLoading(true);
+    try {
+      const rs = await api.reverseSearch(file, `image lookup for ${result.image_sha256.slice(0, 12)}`);
+      setReverseSearch(rs);
+    } catch {
+      setReverseSearch({ state: 'ERROR', phash: '', embedded_urls: [], exact_matches: [], similar_matches: [], timeline: [], provider: '', detail: 'Reverse source search failed.' });
+    } finally {
+      setReverseSearchLoading(false);
+    }
+  };
+
+  const handleReverseSearchClear = () => setReverseSearch(null);
 
   const deep = result.deep_metadata;
   const groups = deep?.groups || {};
   const findings = result.consistency_findings || [];
   const hasFindings = findings.length > 0;
   const hexBytes = result.image_sha256.slice(0, 64).match(/.{1,2}/g) || [];
+  const imint = result.image_intelligence;
 
   return (
     <div className="tool-view tool-fileforensics">
       <div className="tool-subtabs">
+        <button className={`tool-subtab ${tab === 'imint' ? 'tool-subtab-active' : ''}`} onClick={() => setTab('imint')}>IMINT · 4-Pillar</button>
         <button className={`tool-subtab ${tab === 'metadata' ? 'tool-subtab-active' : ''}`} onClick={() => setTab('metadata')}>ExifTool Tree</button>
         <button className={`tool-subtab ${tab === 'ela' ? 'tool-subtab-active' : ''}`} onClick={() => setTab('ela')}>ELA</button>
         <button className={`tool-subtab ${tab === 'consistency' ? 'tool-subtab-active' : ''}`} onClick={() => setTab('consistency')}>Consistency ({findings.length})</button>
@@ -83,6 +106,25 @@ export function FileForensicsTool({ result, thumbnailUrl }: FileForensicsToolPro
       </div>
 
       <div className="tool-content">
+        {tab === 'imint' && (
+          <div className="tool-imint">
+            <ExifViewer
+              exifRaw={result.exif_raw ?? null}
+              imageSha256={result.image_sha256}
+              exifMissing={result.exif_missing}
+              steganographyDetected={result.steganography_detected}
+              imageIntelligence={result.image_intelligence ?? null}
+              metadataStatus={result.metadata_status}
+              candidateRegions={result.candidate_regions ?? null}
+              reverseSearch={reverseSearch}
+              reverseSearchLoading={reverseSearchLoading}
+              reverseSearchDisabled={!file}
+              onReverseSearch={handleReverseSearch}
+              onReverseSearchClear={handleReverseSearchClear}
+            />
+          </div>
+        )}
+
         {tab === 'metadata' && (
           <div className="tool-metadata">
             {!deep?.available ? (
@@ -154,6 +196,12 @@ export function FileForensicsTool({ result, thumbnailUrl }: FileForensicsToolPro
               <div className="structure-row"><span className="structure-label">File Size:</span> <span className="mono">{deep?.file_info?.file_size as string || 'N/A'}</span></div>
               <div className="structure-row"><span className="structure-label">Dimensions:</span> <span className="mono">{deep?.file_info ? `${deep.file_info.image_width}×${deep.file_info.image_height}` : 'N/A'}</span></div>
               <div className="structure-row"><span className="structure-label">Steganography:</span> <span className="mono" style={{ color: result.steganography_detected ? '#EF4444' : '#22C55E' }}>{result.steganography_detected ? `DETECTED (${result.trailing_bytes_count} trailing bytes)` : 'CLEAN'}</span></div>
+              {imint?.analysis?.is_screenshot_likely && (
+                <div className="structure-row" style={{ color: '#F59E0B' }}>
+                  <span className="structure-label">Asset Type:</span>
+                  <span className="mono">SCREENSHOT LIKELY — {imint.analysis.screenshot_reasons?.join(' · ').toUpperCase()}</span>
+                </div>
+              )}
             </div>
             <button className="tool-btn" onClick={() => setShowHex(!showHex)}>{showHex ? 'Hide' : 'Show'} Hex Viewer</button>
             {showHex && (

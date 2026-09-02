@@ -19,6 +19,7 @@ import pytest
 from PIL import Image
 from fastapi.testclient import TestClient
 
+from app.services.ai_gateway import ai_gateway
 from main import app
 
 
@@ -111,7 +112,9 @@ class TestIngestWithTelemetryFallback:
         assert data["telemetry_resolve"] is not None
         assert abs(data["telemetry_resolve"]["lat"] - 51.5074) < 0.01
 
-    def test_ingest_no_gps_no_telemetry_returns_low_confidence(self):
+    @patch.object(ai_gateway, "is_configured", return_value=False)
+    @patch.object(ai_gateway, "has_vision_llm", return_value=False)
+    def test_ingest_no_gps_no_telemetry_returns_low_confidence(self, _v, _c):
         img = _make_plain_image()
         b64 = _b64(img)
         resp = self.client.post(

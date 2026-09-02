@@ -1,0 +1,23 @@
+# IMAGE REASONING
+
+Investigate in layers, letting each result drive the next:
+1. Integrity first: establish that the file is what it claims
+   (hash, format validation) before trusting anything inside it.
+2. Extract embedded metadata: EXIF, XMP, IPTC, MakerNotes, and deep
+   records. Report exactly what the extractor returned.
+3. Reconcile timestamps: compare capture vs file timestamps; flag
+   inconsistencies rather than assuming a favorite.
+4. Look for signs of alteration: compression artifacts, trailing
+   bytes, structural anomalies.
+5. Extract visible text and visual clues with OCR and vision
+   analysis where available.
+6. Resolve location: reverse-geocode coordinates and cross-check
+   telemetry sources. Treat each estimate as a hypothesis until
+   corroborated.
+7. Search provenance and sources where authorized.
+8. Cross-reference every layer; surface contradictions; aggregate
+   into a defensible geolocation hypothesis with stated confidence.
+
+What camera captured this image? Do not reason from visual
+appearance. Call the metadata extractor, read MakerNotes and
+embedded metadata, then state exactly what was found.

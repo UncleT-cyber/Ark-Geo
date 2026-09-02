@@ -21,7 +21,7 @@ ArkGeo is a modular AI geolocation and personal safety ecosystem with three appl
 ### Backend
 ```bash
 cd arkgeo-backend
-python -m pytest tests/ -q              # run tests (19 passing)
+python -m pytest tests/ -q              # run tests (196 passing)
 python -m uvicorn main:app --reload     # start dev server (port 8000)
 ```
 
@@ -67,8 +67,9 @@ npx expo start                          # Expo dev server
 - Commits include `Co-authored-by: openhands <openhands@all-hands.dev>`
 - No node_modules, .env, __pycache__, dist/ in version control
 
-## Workbench Architecture (Forensic IDE Refactor)
-The investigator UI is being transformed into a VS Code-style workbench.
+## Workbench Architecture (Integrated Security Environment Refactor)
+The investigator UI is being transformed into the ARK ISE — an Integrated
+Security Environment with workspace-based navigation.
 Backend remains the source of truth for all forensic objects.
 
 ### Backend evidence model extensions (new)
@@ -116,8 +117,20 @@ prompt.
 - Tests: `tests/test_agent_policy.py` (24 tests: allow/deny paths, permission/capability checks,
   approval tiers, availability gating, budget exhaustion across all 4 counters, typed authorize
   exceptions, custom-rule override + no-downgrade guarantee, audit emission/linking/tamper).
-- Phasing: A=registry+graph, B=policy guard (this), C=smallest orchestrator loop
-  (one goal), D=console tabs, E=adaptive re-planning, F=cross-domain reuse.
+- Phasing: A=registry+graph, B=policy guard (done), C=smallest orchestrator
+  loop (one goal), D=console tabs, E=adaptive re-planning, F=cross-domain
+  reuse. Full plan incl. phases G-J and the integrated security environment:
+  `docs/ARK_INTEGRATED_SECURITY_ENVIRONMENT.md`.
+- **ARK Cognitive Architecture** (12 core units + 5 domain specialists): the
+  canonical structure is `docs/ARK_INTEGRATED_SECURITY_ENVIRONMENT.md` §2.
+  Contracts live in `app/agent/schemas.py` (Hypothesis, Critique,
+  ContextFrame, ModelSpec, structured Finding, SpecialistSpec — units 05-10).
+  `app/agent/specialists.py` registers the domain specialists (IMAGE is live
+  with 16 tools; NETWORK/SECOPS/OSINT/WEB declare planned tool ids only).
+  Phase C builds units 01 (orchestrator), 02 (planner), 07 (context), 09
+  (model gateway), 10 (findings wiring).
+- Local LLM: Ollama on-host; use cached models only (`qwen2.5-coder:3b` is the
+  Phase C planner). Do NOT pull new models without explicit instruction.
 
 ### Frontend workbench shell (domain-based investigation architecture)
 THE ARK is organized by INVESTIGATION DOMAINS, not individual tools. Each domain
@@ -151,5 +164,8 @@ contains every tool required to complete that investigation.
 - Vite dev server runs on port 12001 (custom); `npm run dev` (HMR active)
 - Backend on port 8000; vite proxy `/api` → :8000
 - HMR pitfall: if `DashboardView.tsx` (or any file mixing component + non-component exports like `classifyRisk`) fails Fast Refresh, restart the dev server cleanly to avoid a frozen half-state where clicks stop re-rendering. `kill` the vite node PID then `npm run dev`.
-- Backend tests: 154 passing (pytest), 11 warnings (HMAC key length non-blocking)
+- Backend tests: 226 passing (pytest), 11 warnings (HMAC key length non-blocking)
+- Env note: `Pillow==10.3.0`/`pydantic==2.7.1` pins do NOT build on Python 3.13 —
+  the working venv uses upgraded Pillow+pydantic+fastapi; requirements.txt needs
+  re-pinning. `exiftool` binary required (brew install exiftool).
 - `npx tsc --noEmit` clean; `npx vite build` clean (~1902 modules)

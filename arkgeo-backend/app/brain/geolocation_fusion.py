@@ -55,6 +55,57 @@ class GeoFusionResult:
 class GeolocationFusion:
     """Fuse multi-layer evidence into a defensible location hypothesis."""
 
+    # ------------------------------------------------------------------ #
+    def cross_reference(
+        self,
+        coordinates: Optional[Coordinates],
+        address: Optional[dict] = None,
+    ) -> dict:
+        """Build a satellite/aerial reference tile for the predicted location.
+
+        Provider-agnostic: returns an ``AVAILABLE`` result with a static
+        satellite-tile URL when a map provider key is configured (Mapbox or
+        Google), otherwise ``UNAVAILABLE``.  No network call is made here —
+        the URL is handed to the client so the analyst can visually confirm
+        the predicted pin against overhead imagery.
+        """
+        from app.core.config import settings
+
+        if not coordinates or (coordinates.lat == 0.0 and coordinates.lon == 0.0):
+            return {"state": "UNAVAILABLE", "detail": "No coordinates to cross-reference."}
+        lat, lon = coordinates.lat, coordinates.lon
+        token = getattr(settings, "mapbox_token", None) or getattr(settings, "mapbox_access_token", None)
+        if token:
+            url = (
+                f"https://api.mapbox.com/styles/v1/mapbox/satellite-v9/static/"
+                f"{lon},{lat},16,0/400x400?access_token={token}"
+            )
+            return {
+                "state": "AVAILABLE",
+                "provider": "mapbox",
+                "tile_url": url,
+                "zoom": 16,
+                "detail": "Satellite reference tile for the predicted location.",
+            }
+        gkey = getattr(settings, "google_maps_api_key", None)
+        if gkey:
+            url = (
+                f"https://maps.googleapis.com/maps/api/staticmap?center="
+                f"{lat},{lon}&zoom=16&size=400x400&maptype=satellite&key={gkey}"
+            )
+            return {
+                "state": "AVAILABLE",
+                "provider": "google",
+                "tile_url": url,
+                "zoom": 16,
+                "detail": "Satellite reference tile for the predicted location.",
+            }
+        return {
+            "state": "UNAVAILABLE",
+            "detail": "No satellite/aerial provider configured (Mapbox or Google Maps key).",
+        }
+
+    # ------------------------------------------------------------------ #
     def fuse(
         self,
         consensus: Optional[ConsensusResult],
@@ -63,6 +114,8 @@ class GeolocationFusion:
         visual_tags: list[VisualEvidenceTag],
         consistency_findings: list[dict],
         exif_raw: dict,
+        satellite: Optional[dict] = None,
+        recovered_gps: Optional[dict] = None,
     ) -> dict:
         """Build the fusion result from available evidence layers."""
         evidence: list[EvidenceItem] = []
@@ -77,6 +130,20 @@ class GeolocationFusion:
                 evidence_class="hardware_metadata",
                 value=f"{coordinates.lat},{coordinates.lon}",
             ))
+
+        # Layer 1b: Recovered original GPS (rehydration of a stripped share)
+        if recovered_gps:
+            _inner = recovered_gps.get("recovered_gps") or {}
+            g = _inner.get("gps") or _inner
+            if g.get("lat") is not None and g.get("lon") is not None:
+                evidence.append(EvidenceItem(
+                    layer="Recovered Original",
+                    label=f"GPS rehydrated from original web copy: {g['lat']:.4f}, {g['lon']:.4f}",
+                    direction="supporting",
+                    confidence=0.95,
+                    evidence_class="recovered_metadata",
+                    value=f"{g['lat']},{g['lon']}",
+                ))
 
         # Layer 2: Visual scene tags (observations)
         for tag in visual_tags:
@@ -99,6 +166,16 @@ class GeolocationFusion:
                     confidence=tag.confidence,
                     evidence_class="ocr_text",
                 ))
+
+        # Layer 1c: Satellite/aerial cross-reference (external confirmation)
+        if satellite and satellite.get("state") == "AVAILABLE":
+            evidence.append(EvidenceItem(
+                layer="Satellite Cross-Ref",
+                label=f"Overhead imagery available ({satellite.get('provider')}) for confirmation.",
+                direction="supporting",
+                confidence=0.5,
+                evidence_class="satellite_crossref",
+            ))
 
         # Contradictions from consistency findings
         for finding in consistency_findings:
@@ -138,6 +215,8 @@ class GeolocationFusion:
             "supporting": [self._serialize(e) for e in supporting],
             "contradicting": [self._serialize(e) for e in contradicting],
             "independent_evidence_classes": len(classes),
+            "satellite_crossref": satellite,
+            "recovered_original": recovered_gps,
             "detail": detail,
         }
 

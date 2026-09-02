@@ -34,6 +34,7 @@ class ConsensusEngine:
     ) -> ConsensusResult:
         # 1) Trust deterministic metadata above everything else.
         if metadata_coords:
+            mc = self._monte_carlo(metadata_coords.lat, metadata_coords.lon, 25.0)
             return ConsensusResult(
                 estimated_latitude=metadata_coords.lat,
                 estimated_longitude=metadata_coords.lon,
@@ -42,6 +43,7 @@ class ConsensusEngine:
                 tier_used="metadata",
                 visual_evidence_tags=self._merge_tags(vision_results, extractor_results),
                 sources=["metadata"],
+                **mc,
             )
 
         # 2) Telemetry (cell / Wi-Fi / last-known) – good but coarse.
@@ -50,6 +52,7 @@ class ConsensusEngine:
                 [telemetry_coords] + self._coords_from_results(vision_results),
                 [0.7] + [r.confidence_score for r in vision_results if r.estimated_latitude],
             )
+            mc = self._monte_carlo(consensus.lat, consensus.lon, 500.0)
             return ConsensusResult(
                 estimated_latitude=consensus.lat,
                 estimated_longitude=consensus.lon,
@@ -58,6 +61,7 @@ class ConsensusEngine:
                 tier_used="telemetry",
                 visual_evidence_tags=self._merge_tags(vision_results, extractor_results),
                 sources=["telemetry"] + [r.source for r in vision_results],
+                **mc,
             )
 
         # 3) Pure AI consensus – vision + extractors only.
@@ -79,6 +83,7 @@ class ConsensusEngine:
                 flag_low_context_indoor=low_context,
                 visual_evidence_tags=tags,
                 sources=[r.source for r in all_results],
+                **self._monte_carlo(0.0, 0.0, 0.0),
             )
 
         coords = self._coords_from_results(coord_results)
@@ -111,11 +116,74 @@ class ConsensusEngine:
             flag_low_context_indoor=low_context,
             visual_evidence_tags=self._merge_tags(vision_results, extractor_results),
             sources=[r.source for r in all_results],
+            **self._monte_carlo(consensus_coord.lat, consensus_coord.lon, radius),
         )
 
     # ------------------------------------------------------------------ #
     # Helpers
     # ------------------------------------------------------------------ #
+    def _monte_carlo(self, lat: float, lon: float, radius_m: float) -> dict:
+        """Draw Monte-Carlo samples around the estimate to quantify uncertainty.
+
+        Returns ``credible_interval_radius`` (95th-percentile distance in metres)
+        and a coarse ``probability_surface`` grid for map heatmap visualisation.
+        Returns empty/zero fields when the estimate is degenerate (no location).
+        """
+        if (lat == 0.0 and lon == 0.0) or not radius_m or radius_m <= 0 or radius_m > 200_000:
+            return {
+                "credible_interval_radius": None,
+                "probability_surface": None,
+                "monte_carlo_samples": 0,
+            }
+        import math
+        import random
+
+        sigma = max(25.0, radius_m / 2.0)
+        n = 600
+        clat = math.radians(lat)
+        samples: list[tuple[float, float]] = []
+        for _ in range(n):
+            east = random.gauss(0.0, sigma)
+            north = random.gauss(0.0, sigma)
+            dlat = north / 111_320.0
+            dlon = east / (111_320.0 * max(math.cos(clat), 1e-6))
+            samples.append((lat + dlat, lon + dlon))
+
+        mean_lat = sum(s[0] for s in samples) / n
+        mean_lon = sum(s[1] for s in samples) / n
+        dists = [
+            math.hypot(
+                (s[0] - mean_lat) * 111_320.0,
+                (s[1] - mean_lon) * 111_320.0 * max(math.cos(math.radians(mean_lat)), 1e-6),
+            )
+            for s in samples
+        ]
+        dists.sort()
+        ci = dists[int(0.95 * n)] if n else radius_m
+
+        # 7x7 normalised density grid spanning 2*radius_m.  Frontend renders
+        # this as a probability heatmap centred on the resolved pin.
+        half = max(radius_m, 200.0)
+        size = (half * 2.0) / 7.0
+        grid = [[0] * 7 for _ in range(7)]
+        for s in samples:
+            gi = min(6, max(0, int((s[0] - mean_lat + half) / size)))
+            gj = min(6, max(0, int((s[1] - mean_lon + half) / size)))
+            grid[gi][gj] += 1
+        maxc = max((max(r) for r in grid), default=1) or 1
+        grid = [[c / maxc for c in row] for row in grid]
+
+        return {
+            "credible_interval_radius": round(ci, 1),
+            "probability_surface": {
+                "center": [round(mean_lat, 6), round(mean_lon, 6)],
+                "sigma_m": round(sigma, 1),
+                "grid": grid,
+                "grid_span_m": round(half * 2.0, 1),
+            },
+            "monte_carlo_samples": n,
+        }
+
     @staticmethod
     def _coords_from_results(results: List[VisionResult]) -> List[Coordinates]:
         return [

@@ -71,6 +71,17 @@ class AnalyzeRequest(BaseModel):
     run_indoor_prompt: bool = True
 
 
+class ReverseSearchRequest(BaseModel):
+    """On-demand reverse source search for a single image (Visual Identifiers)."""
+    image_base64: str
+    search_query: Optional[str] = None
+
+
+class BatchGeocodeRequest(BaseModel):
+    """Forward-geocode a list of OCR text strings (street/place candidates)."""
+    queries: List[str]
+
+
 # --------------------------------------------------------------------------- #
 # Brain output (vision + consensus)
 # --------------------------------------------------------------------------- #
@@ -90,6 +101,31 @@ class VisionResult(BaseModel):
     region: Optional[str] = None
     evidence_tags: List[VisualEvidenceTag] = Field(default_factory=list)
     raw: Optional[dict[str, Any]] = None
+    # Terrain IMINT — ranked candidate regions from the vision-LLM reasoning pass.
+    candidate_regions: List[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Ranked top-3 candidate regions with confidence + rationale.",
+    )
+
+
+class CandidateRegion(BaseModel):
+    """One ranked IMINT candidate region (terrain / vegetation / language)."""
+    region: str
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    rationale: Optional[str] = None
+
+
+class GeoCandidate(BaseModel):
+    """A forward-geocoded OCR text candidate plotted on the spatial canvas."""
+    query: str
+    lat: float
+    lon: float
+    source: str = Field(
+        default="nominatim",
+        description="google | nominatim",
+    )
+    cached: bool = False
+    matched: bool = True
 
 
 class ConsensusResult(BaseModel):
@@ -103,6 +139,132 @@ class ConsensusResult(BaseModel):
     tier_used: str = Field(..., description="metadata|telemetry|vision|consensus")
     flag_low_context_indoor: bool = False
     sources: List[str] = Field(default_factory=list)
+    # ------------------------------------------------------------------ #
+    # Monte-Carlo uncertainty quantification (probabilistic surface)
+    # ------------------------------------------------------------------ #
+    credible_interval_radius: Optional[float] = Field(
+        None,
+        description="95% credible-interval radius (metres) from Monte-Carlo sampling.",
+    )
+    probability_surface: Optional[dict] = Field(
+        None,
+        description="Coarse probability surface for map heatmap visualisation "
+        "(center, sigma_m, grid).",
+    )
+    monte_carlo_samples: int = Field(
+        0, description="Number of Monte-Carlo samples drawn.",
+    )
+
+
+# --------------------------------------------------------------------------- #
+# IMINT — 4-pillar unified Image Data Extraction payload
+# --------------------------------------------------------------------------- #
+class GeospatialInfo(BaseModel):
+    """Pillar 1 — Geospatial Intelligence (Where)."""
+    latitude: Optional[str] = None
+    latitude_ref: Optional[str] = None
+    latitude_decimal: Optional[float] = None
+    longitude: Optional[str] = None
+    longitude_ref: Optional[str] = None
+    longitude_decimal: Optional[float] = None
+    gps_altitude: Optional[float] = None
+    altitude_meters: Optional[float] = None
+    altitude_ref: Optional[str] = None
+    gps_img_direction: Optional[float] = None
+    gps_img_direction_ref: Optional[str] = None
+    gps_speed: Optional[float] = None
+    gps_speed_ref: Optional[str] = None
+    gps_processing_method: Optional[str] = None
+    gps_dest_latitude: Optional[str] = None
+    gps_dest_latitude_ref: Optional[str] = None
+    dest_latitude_decimal: Optional[float] = None
+    gps_dest_longitude: Optional[str] = None
+    gps_dest_longitude_ref: Optional[str] = None
+    dest_longitude_decimal: Optional[float] = None
+    gps_dop: Optional[float] = None
+    dop_quality: Optional[str] = None
+    gps_satellites: Optional[str] = None
+    gps_status: Optional[str] = None
+    gps_measure_mode: Optional[str] = None
+    has_coordinates: bool = False
+    coords_plausible: bool = False
+
+
+class TemporalInfo(BaseModel):
+    """Pillar 2 — Chronological & Temporal Integrity (When)."""
+    datetime_original: Optional[str] = None
+    datetime_digitized: Optional[str] = None
+    offset_time: Optional[str] = None
+    offset_time_original: Optional[str] = None
+    offset_time_digitized: Optional[str] = None
+    subsec_time_original: Optional[str] = None
+    subsec_time_digitized: Optional[str] = None
+    gps_date_stamp: Optional[str] = None
+    gps_time_stamp: Optional[str] = None
+    device_clock_utc: Optional[str] = None
+    satellite_clock_utc: Optional[str] = None
+    clock_delta_seconds: Optional[int] = None
+    clock_drift_detected: bool = False
+    has_timestamps: bool = False
+
+
+class DeviceInfo(BaseModel):
+    """Pillar 3 — Hardware Provenance & Digital Fingerprinting."""
+    make: Optional[str] = None
+    model: Optional[str] = None
+    lens_make: Optional[str] = None
+    lens_model: Optional[str] = None
+    body_serial_number: Optional[str] = None
+    lens_serial_number: Optional[str] = None
+    software: Optional[str] = None
+    image_unique_id: Optional[str] = None
+    owner_name: Optional[str] = None
+    artist: Optional[str] = None
+    copyright: Optional[str] = None
+    profile_strings: Optional[dict[str, Optional[str]]] = None
+    has_provenance: bool = False
+
+
+class CaptureInfo(BaseModel):
+    """Pillar 4 — Photographic Capture Diagnostics (How)."""
+    exposure_time: Optional[float] = None
+    exposure_time_str: Optional[str] = None
+    f_number: Optional[float] = None
+    aperture_value: Optional[float] = None
+    shutter_speed_value: Optional[float] = None
+    iso: Optional[int] = None
+    flash: Optional[int] = None
+    flash_fired: Optional[bool] = None
+    focal_length: Optional[float] = None
+    focal_length_35mm: Optional[int] = None
+    metering_mode: Optional[int] = None
+    light_source: Optional[int] = None
+    sensing_method: Optional[int] = None
+    exposure_program: Optional[int] = None
+    has_capture: bool = False
+
+
+class ImintAnalysis(BaseModel):
+    """Derived intelligence computed over the four pillars."""
+    pillars_present: dict[str, bool] = Field(default_factory=dict)
+    clock_drift_detected: bool = False
+    dop_quality: Optional[str] = None
+    subsec_anomaly_detected: bool = False
+    subsec_anomaly_reasons: List[str] = Field(default_factory=list)
+    geospatial_conflicts: List[str] = Field(default_factory=list)
+    unique_fingerprint: Optional[str] = None
+    is_screenshot_likely: bool = False
+    screenshot_aspect_ratio: Optional[float] = None
+    screenshot_reasons: List[str] = Field(default_factory=list)
+
+
+class ImintPayload(BaseModel):
+    """Unified IMINT extraction payload — one key per pillar, always present."""
+    geospatial: GeospatialInfo = Field(default_factory=GeospatialInfo)
+    temporal: TemporalInfo = Field(default_factory=TemporalInfo)
+    device: DeviceInfo = Field(default_factory=DeviceInfo)
+    capture: CaptureInfo = Field(default_factory=CaptureInfo)
+    analysis: ImintAnalysis = Field(default_factory=ImintAnalysis)
 
 
 # --------------------------------------------------------------------------- #
@@ -138,6 +300,34 @@ class AnalyzeResponse(BaseModel):
     gps_climate_zone: Optional[str] = None
     visual_climate_zone: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # ------------------------------------------------------------------ #
+    # Stripped-metadata fallback routing (Feature 1)
+    # ------------------------------------------------------------------ #
+    metadata_status: Optional[str] = Field(
+        None,
+        description="EXIF_PRESENT | STRIPPED_BY_INTERMEDIARY",
+    )
+    # ------------------------------------------------------------------ #
+    # OCR → geocoding candidates (Feature 2)
+    # ------------------------------------------------------------------ #
+    geo_candidates: List["GeoCandidate"] = Field(
+        default_factory=list,
+        description="Forward-geocoded OCR text candidates (street/place).",
+    )
+    # ------------------------------------------------------------------ #
+    # Terrain IMINT — ranked candidate regions (Feature 4)
+    # ------------------------------------------------------------------ #
+    candidate_regions: List["CandidateRegion"] = Field(
+        default_factory=list,
+        description="Ranked top-3 candidate regions from vision-LLM terrain reasoning.",
+    )
+
+    # ------------------------------------------------------------------ #
+    # IMINT — 4-pillar unified Image Data Extraction payload (Image
+    # Intelligence Core). Every field is Optional: a missing/stripped tag
+    # is serialised as null, never dropped, never crashes.
+    # ------------------------------------------------------------------ #
+    image_intelligence: Optional["ImintPayload"] = None
 
     # ------------------------------------------------------------------ #
     # Workbench forensic extensions (deep analysis layer)
@@ -173,6 +363,66 @@ class AnalyzeResponse(BaseModel):
     analysis_log: List[str] = Field(
         default_factory=list,
         description="Live analysis stream of forensic processing events.",
+    )
+
+    # ------------------------------------------------------------------ #
+    # Universal Image Intelligence suite
+    # ------------------------------------------------------------------ #
+    streetview: Optional[dict[str, Any]] = Field(
+        None,
+        description="Google Street View panorama (metadata + static image URL).",
+    )
+    ai_evidence: Optional[dict[str, Any]] = Field(
+        None,
+        description="Discrete AI provider results (geospy / scene / reverse source).",
+    )
+    evidence_graph: Optional[dict[str, Any]] = Field(
+        None,
+        description="Provenance-tagged evidence graph (ai_hypothesis vs tool_inference).",
+    )
+    search_radius_meters: Optional[float] = Field(
+        None,
+        description="Probabilistic bounding-circle radius for the resolved pin.",
+    )
+    observations: List[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Canonical structured observations (OBS-*) from every forensic layer.",
+    )
+    image_classification: Optional[str] = Field(
+        None,
+        description="Likely Screenshot | Likely Camera Photograph | Likely Exported Image | Unknown",
+    )
+    # ------------------------------------------------------------------ #
+    # Step 1 — Original rehydration (recover GPS from a stripped share's
+    # earliest known web copy via reverse-source + EXIF re-extraction)
+    # ------------------------------------------------------------------ #
+    recovered_original: Optional[dict[str, Any]] = Field(
+        None,
+        description="GPS/metadata recovered by rehydrating the original (pre-"
+        "compression) copy discovered through reverse source search.",
+    )
+    # ------------------------------------------------------------------ #
+    # Step 3 — Monte-Carlo + satellite cross-reference surfaced for the report
+    # ------------------------------------------------------------------ #
+    probability_surface: Optional[dict] = Field(
+        None,
+        description="Probability surface mirror of consensus.probability_surface "
+        "for top-level report access.",
+    )
+    credible_interval_radius: Optional[float] = Field(
+        None, description="Mirror of consensus.credible_interval_radius.",
+    )
+    satellite_crossref: Optional[dict] = Field(
+        None,
+        description="Satellite/aerial cross-reference of the predicted location.",
+    )
+    # ------------------------------------------------------------------ #
+    # AI Intelligence Layer — structured assessment from the global model
+    # ------------------------------------------------------------------ #
+    ai_intelligence: Optional[dict[str, Any]] = Field(
+        None,
+        description="AI intelligence assessment (observations, contradictions, "
+        "recommendations) from the global ARK-CAI model.",
     )
 
 
@@ -238,9 +488,30 @@ class ApiKeysUpdate(BaseModel):
     geospy_api_key: Optional[str] = None
     geoinfer_api_key: Optional[str] = None
     llm_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    openrouter_api_key: Optional[str] = None
+    huggingface_api_key: Optional[str] = None
+    mapbox_token: Optional[str] = None
+    tineye_api_key: Optional[str] = None
+    serper_api_key: Optional[str] = None
+    google_maps_api_key: Optional[str] = None
     twilio_account_sid: Optional[str] = None
     twilio_auth_token: Optional[str] = None
     twilio_from_number: Optional[str] = None
+    hlr_api_key: Optional[str] = None
+    opencellid_api_key: Optional[str] = None
+    infobip_api_key: Optional[str] = None
+    opencnam_account_sid: Optional[str] = None
+    opencnam_auth_token: Optional[str] = None
+    telesign_customer_id: Optional[str] = None
+    telesign_rest_key: Optional[str] = None
+    truid_client_id: Optional[str] = None
+    truid_client_secret: Optional[str] = None
+    reverse_search_api_key: Optional[str] = None
+    ocr_api_key: Optional[str] = None
+    c2pa_api_key: Optional[str] = None
+    satellite_api_key: Optional[str] = None
 
 
 class ThresholdsUpdate(BaseModel):

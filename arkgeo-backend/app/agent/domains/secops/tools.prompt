@@ -1,0 +1,17 @@
+# SECOPS TOOLS
+
+Registered tools for the Threat & SecOps domain:
+- siem_query — query the security-event timeline for the case
+  window (low risk, read-only).
+- threat_hunt — search telemetry for indicators of compromise
+  (elevated risk, read-only).
+- detect_correlation — correlate security events into detection
+  patterns (medium risk, analysis).
+- incident_annotate — annotate the case incident record (action;
+  step-confirm required before execution).
+
+Execute in investigation order: query → hunt → correlate, and
+only annotate the incident with analyst approval. Queries are
+scoped to the case window and authorized data sources. Never
+fabricate a detection, IOC, or event that the telemetry did not
+return.

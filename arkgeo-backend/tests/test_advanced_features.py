@@ -2,6 +2,7 @@
 ELA generation, GPS spoofing detection, admin settings store.
 """
 import io
+from unittest.mock import patch
 
 import piexif
 import pytest
@@ -13,6 +14,7 @@ from app.brain.metadata_extractor import (
     check_gps_spoofing,
 )
 from app.models import Coordinates, VisualEvidenceTag
+from app.services.ai_gateway import ai_gateway
 
 
 def _make_plain_image_bytes() -> bytes:
@@ -360,7 +362,9 @@ class TestPipelineAdvancedFeatures:
         assert "gps_climate_zone" in data
         assert "visual_climate_zone" in data
 
-    def test_no_exif_no_keys_returns_null_coordinates(self):
+    @patch.object(ai_gateway, "is_configured", return_value=False)
+    @patch.object(ai_gateway, "has_vision_llm", return_value=False)
+    def test_no_exif_no_keys_returns_null_coordinates(self, _v, _c):
         img_bytes = _make_plain_image_bytes()
         resp = self.client.post(
             "/api/v1/analyze",

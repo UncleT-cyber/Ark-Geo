@@ -1,0 +1,41 @@
+# ARK REPORTING CONTRACT
+
+Every specialist returns structured output in the same general
+shape. The content changes by domain; the structure does not.
+That keeps the console renderable as
+Plan → Evidence → Findings → Problems → Audit → Output
+for every domain without inventing a new UI architecture.
+
+## Output structure
+- Investigation Plan
+  The ordered tool steps and their rationale.
+- Evidence Used
+  Facts and observations, each citable to its source node.
+- Tool Actions
+  What was executed, in what order, and what each returned.
+- Observations
+  Verbatim sensor/tool output, uninterpreted.
+- Findings
+  Structured conclusions with claim type, severity, confidence,
+  and supporting/contradicting evidence.
+- Contradictions
+  Any conflicting evidence, surfaced explicitly.
+- Hypotheses
+  Preserved candidate explanations, not forced to one answer.
+- Confidence
+  Stated explicitly, derived from evidence strength and
+  corroboration.
+- Unknowns
+  What remains unverified or unanswered.
+- Recommended Next Actions
+  Concrete next steps for the analyst.
+- Analyst Review
+  The human remains the final decision-maker; conclusions are
+  presented for review, not asserted as final.
+
+## Rules
+- Never invent any field above. If a section has no content, state
+  that it is empty (e.g. "no contradictions found" only if the
+  underlying analysis supports it).
+- Output machine-readable JSON where a parser is present; keep
+  prose minimal and tied to the structured fields.

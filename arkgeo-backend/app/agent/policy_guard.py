@@ -179,6 +179,7 @@ class PolicyGuard:
         self.granted = list(granted_permissions or [S.Permission.READ_EVIDENCE])
         self.usage = BudgetUsage(budget=budget or S.Budget())
         self._key = key_resolver or _key_resolver()
+        self._confirmed: set[str] = set()
 
     # ------------------------------------------------------------------ #
     def set_budget(self, budget: S.Budget) -> None:
@@ -186,6 +187,17 @@ class PolicyGuard:
 
     def add_rule(self, rule: S.PolicyRule) -> None:
         self.rules.append(rule)
+
+    # ------------------------------------------------------------------ #
+    # Step confirmation — high-risk (step_confirm) tools need a recorded
+    # approval before the executor runs them. Phase E: the adaptive loop
+    # pauses (pause_to_ask) rather than auto-running these.
+    # ------------------------------------------------------------------ #
+    def record_confirmation(self, tool_id: str) -> None:
+        self._confirmed.add(tool_id)
+
+    def is_confirmed(self, tool_id: str) -> bool:
+        return tool_id in self._confirmed
 
     # ------------------------------------------------------------------ #
     def _resolve_approval(self, tool: Tool) -> tuple[S.ApprovalTier, str, str]:

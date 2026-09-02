@@ -11,6 +11,8 @@ import React, { useEffect, useState, useRef } from 'react';
 
 interface Props {
   active: boolean;
+  /** Optional live cascade step label (continuous image-intelligence pipeline). */
+  phase?: string | null;
 }
 
 interface FeedLine {
@@ -40,7 +42,7 @@ const TAG_COLORS: Record<FeedLine['tag'], string> = {
   DONE: '#38BDF8',
 };
 
-export function IngestionSweep({ active }: Props) {
+export function IngestionSweep({ active, phase }: Props) {
   const [visibleLines, setVisibleLines] = useState<FeedLine[]>([]);
   const [progress, setProgress] = useState(0);
   const feedEndRef = useRef<HTMLDivElement>(null);
@@ -93,6 +95,7 @@ export function IngestionSweep({ active }: Props) {
           </div>
           <div className="sweep-title">THE ARK FORENSIC INGESTION</div>
           <div className="sweep-subtitle">Processing target asset through cascade pipeline</div>
+          {phase && <div className="sweep-phase mono">{phase}</div>}
         </div>
 
         <div className="sweep-progress-container">

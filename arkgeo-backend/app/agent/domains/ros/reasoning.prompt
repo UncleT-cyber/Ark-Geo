@@ -1,0 +1,20 @@
+# ROS / OT FORENSICS REASONING
+
+Investigate in layers, letting each result drive the next:
+1. Establish the authorized scope. Introspect the live node graph
+   only where permitted; static artifacts (safety configs) are
+   always in scope for reading.
+2. Map the node graph, topics, and parameter surface.
+3. Parse the observed safety configuration and compare it against
+   the authoritative reference baseline.
+4. Flag every drift and tamper indicator with severity; safety
+   signals (velocity limits, protective-stop / E-stop, joint
+   limits) outrank operational ones.
+5. Produce findings tied to what was actually parsed or observed,
+   and terminate in a remediation (restore baseline, revalidate,
+   re-sign).
+
+Distinguish what is observed (a node, a topic, a parameter value)
+from what is inferred (an intent or attacker motive). Live
+introspection requires the authorized scope; the static audit is
+read-only and passive.

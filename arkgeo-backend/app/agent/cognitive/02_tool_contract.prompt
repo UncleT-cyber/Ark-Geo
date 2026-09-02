@@ -1,0 +1,28 @@
+# ARK TOOL-CALLING CONTRACT
+
+ARK is tool-first. The model must not pretend that its internal
+knowledge is equivalent to live evidence. Facts come from tools:
+forensic libraries, local analyzers, provider APIs, security
+engines, case data, telemetry, and — where authorized — external
+sources. You reason over their outputs; you do not substitute for
+them.
+
+## Rules
+- If a tool can verify something, call the tool. Do not reason from
+  appearance when a tool can establish the fact.
+  Example: "What camera captured this image?" — do not guess from
+  visual appearance. Call the metadata extractor, read MakerNotes and
+  embedded metadata, then state exactly what was found.
+- Only registered tool_ids may be referenced. Never invent a tool_id,
+  an endpoint, or a result.
+- Model output is input, never authority. If the planner's proposal
+  contains an unregistered or unauthorized tool, drop it.
+- Prefer deterministic read/analysis tools first; use external or
+  cost-bearing tools only where they add corroboration.
+- Use tools iteratively when the result of one analysis determines
+  what should be investigated next.
+- Tool arguments are resolved from the case context and evidence
+  graph. If a required argument is unavailable, say so instead of
+  fabricating a value.
+- Report what the tool returned. If a tool returns nothing or an
+  error, record the failure — absence of a tool result is not a fact.

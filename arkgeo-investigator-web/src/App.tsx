@@ -1,11 +1,13 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Workbench } from './components/workbench/Workbench';
 import { AdminLoginForm } from './components/AdminLoginForm';
 import { AdminConsole } from './components/AdminConsole';
 import { NotFoundPage } from './components/NotFoundPage';
 import { adminAuth } from './api';
 import './dashboard.css';
+import './admin-console.css';
+import './client-settings.css';
 
 /**
  * Admin route slug — configurable via VITE_ADMIN_ROUTE_SLUG env var.
@@ -46,13 +48,15 @@ export default function App() {
 
   // Global stealth hotkey: Cmd+Shift+P (Mac) / Ctrl+Shift+P (others) → admin
   // login. This is the ONLY way to reach Admin from the workbench — the profile
-  // icon and activity bar never link to it. Fires on ALL routes.
+  // icon and activity bar never link to it. Fires on ALL routes. Uses both
+  // e.key (letter) and e.code (physical key) so non-QWERTY layouts still work.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const modKey = e.metaKey || e.ctrlKey;
-      if (modKey && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
+      const isP = e.key === 'P' || e.key === 'p' || e.code === 'KeyP';
+      if (modKey && e.shiftKey && isP) {
         e.preventDefault();
-        window.location.href = ADMIN_LOGIN_PATH;
+        window.location.hash = ADMIN_LOGIN_PATH;
       }
     };
     window.addEventListener('keydown', handler);
@@ -60,9 +64,9 @@ export default function App() {
   }, [ADMIN_LOGIN_PATH]);
 
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Routes>
-        {/* Public investigator portal — Forensic Workbench */}
+        {/* Public surface — THE ARK ISE (Integrated Security Environment) */}
         <Route path="/" element={<Workbench />} />
 
         {/* Obfuscated admin route — login gate */}
@@ -74,6 +78,6 @@ export default function App() {
         {/* All other paths → 404 (hides admin routes) */}
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 }

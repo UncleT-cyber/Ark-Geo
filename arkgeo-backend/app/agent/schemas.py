@@ -150,8 +150,41 @@ class EvidenceEdge(BaseModel):
     note: Optional[str] = None
 
 
+class FindingStatus(str, Enum):
+    """Workflow state of a structured finding (cognitive unit 10)."""
+    DRAFT = "draft"
+    NEEDS_REVIEW = "needs_review"
+    VALIDATED = "validated"
+    REJECTED = "rejected"
+    SUPERSEDED = "superseded"
+
+
+class FindingSeverity(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class FindingType(str, Enum):
+    """Typed conclusion categories — not free-text prose."""
+    TIMELINE_ANOMALY = "timeline_anomaly"
+    LOCATION_CREDIBILITY = "location_credibility"
+    DEVICE_ATTRIBUTION = "device_attribution"
+    TAMPER_DETECTION = "tamper_detection"
+    SOURCE_CONFLICT = "source_conflict"
+    PROVENANCE_STATE = "provenance_state"
+    CORRELATION = "correlation"
+    OTHER = "other"
+
+
 class Finding(BaseModel):
-    """A claim promoted from evidence — court-relevant output."""
+    """A claim promoted from evidence — court-relevant output.
+
+    Cognitive unit 10 consumes/produces this. All fields beyond the Phase A/B
+    core are optional so existing consumers (``evidence_graph`` promotion)
+    keep working unchanged.
+    """
     finding_id: str
     case_id: str
     claim_type: ClaimType
@@ -161,6 +194,12 @@ class Finding(BaseModel):
     supporting_node_ids: list[str]
     contradicting_node_ids: list[str]
     promoted_at_ms: int = Field(default_factory=now_ms)
+    finding_type: FindingType = FindingType.OTHER
+    severity: FindingSeverity = FindingSeverity.MEDIUM
+    status: FindingStatus = FindingStatus.NEEDS_REVIEW
+    observation: Optional[str] = None
+    assessment: Optional[str] = None
+    domain: Optional[DomainId] = None
 
 
 class EvidenceGraph(BaseModel):
@@ -173,6 +212,153 @@ class EvidenceGraph(BaseModel):
 
 class PromotionDenied(Exception):
     """A tier-2 node cannot be promoted to a finding without corroboration."""
+
+
+# --------------------------------------------------------------------------- #
+# Cognitive layer contracts (ARK_INTEGRATED_SECURITY_ENVIRONMENT.md §2)
+# These are the data shapes of units 05-09 — additive contracts, no behavior
+# change to Phase A/B code.
+# --------------------------------------------------------------------------- #
+class Hypothesis(BaseModel):
+    """Unit 05 — a ranked, evidence-tagged hypothesis. NEVER a fact.
+
+    ``Hypothesis`` objects are tier-2 reasoning artifacts. They may support
+    graph nodes (as ``ai_hypothesis``) but promotion to a Finding still goes
+    through the evidence-graph promotion rule; the hypothesis itself is not
+    promoted.
+    """
+    hypothesis_id: str
+    case_id: str
+    domain: DomainId
+    claim: str                                  # "Location is likely Lagos"
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+    supporting_node_ids: list[str] = Field(default_factory=list)
+    contradicting_node_ids: list[str] = Field(default_factory=list)
+    unresolved_questions: list[str] = Field(default_factory=list)
+    model_id: Optional[str] = None              # pinned — part of provenance
+    alternatives: list["HypothesisCandidate"] = Field(default_factory=list)
+    created_at_ms: int = Field(default_factory=now_ms)
+
+
+class HypothesisCandidate(BaseModel):
+    """One ranked option inside a Hypothesis (e.g. Lagos 82% / Abuja 11%)."""
+    claim: str
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+    supporting_node_ids: list[str] = Field(default_factory=list)
+    contradicting_node_ids: list[str] = Field(default_factory=list)
+
+
+class Critique(BaseModel):
+    """Unit 06 — the Critic's challenge to a conclusion. Not a verdict.
+
+    A Critique asks what could make the target conclusion wrong; it must
+    enumerate independent-evidence checks and alternative explanations. The
+    orchestrator records critiques as nodes so the challenge is auditable.
+    """
+    critique_id: str
+    case_id: str
+    target_id: str                               # node_id or finding_id
+    questions: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    alternative_explanations: list[str] = Field(default_factory=list)
+    challenges_conclusion: bool = False
+    model_id: Optional[str] = None
+    created_at_ms: int = Field(default_factory=now_ms)
+
+
+class ContextFrame(BaseModel):
+    """Unit 07 — layered investigation context for the planner/interactor.
+
+    Levels: immediate (current step/outputs) → investigation (case + findings
+    + hypotheses) → session (analyst activity) → historical (authorized prior
+    cases) → organizational (tenant policy/config). The AI must know
+    "we are investigating CASE-2047" without the analyst repeating it.
+    """
+    case_id: Optional[str] = None
+    domain: Optional[DomainId] = None
+    objective: Optional[InvestigationObjective] = None
+    current_tool_id: Optional[str] = None
+    current_step_id: Optional[str] = None
+    recent_evidence_node_ids: list[str] = Field(default_factory=list)
+    active_hypothesis_ids: list[str] = Field(default_factory=list)
+    open_finding_ids: list[str] = Field(default_factory=list)
+    session_note: Optional[str] = None
+    tenant_id: Optional[str] = None
+    is_zero_retention: bool = False
+
+
+class GapType(str, Enum):
+    """Unit 04 — kinds of gaps the correlator derives from the graph."""
+    UNVERIFIED_CLAIM = "unverified_claim"
+    OPEN_CONTRADICTION = "open_contradiction"
+    LOW_CORROBORATION = "low_corroboration"
+    MISSING_LAYER = "missing_layer"
+
+
+class GraphGap(BaseModel):
+    """Unit 04 — a concrete gap the orchestrator may close with a re-plan.
+
+    ``addressable_by`` lists registered tool_ids that could close the gap;
+    the model proposes an ordering among those (or termination), never a
+    free-form tool pick.
+    """
+    gap_id: str
+    gap_type: GapType
+    severity: RiskLevel
+    rationale: str
+    addressable_by: list[str] = Field(default_factory=list)
+    related_node_ids: list[str] = Field(default_factory=list)
+    resolved: bool = False
+
+
+# --------------------------------------------------------------------------- #
+# 9. Model Gateway contracts
+# --------------------------------------------------------------------------- #
+class ModelCapability(str, Enum):
+    PLANNING = "planning"       # objective -> plan, re-planning
+    ROUTING = "routing"         # small/fast tool-selection decisions
+    VISION = "vision"           # image/scene interpretation
+    EMBEDDING = "embedding"     # similarity / semantic search
+    OCR = "ocr"                 # text-in-image extraction
+    REASONING = "reasoning"     # strong multi-step correlation
+    CRITIC = "critic"           # verification / challenge
+
+
+class ModelProvider(str, Enum):
+    OLLAMA = "ollama"
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    HUGGINGFACE = "huggingface"
+    LOCAL = "local"
+    OTHER = "other"
+
+
+class ModelSpec(BaseModel):
+    """Unit 09 — one routable model. Mirrors ToolSpec: the system (policy)
+    decides which model a task may use; choice is recorded per node."""
+    model_id: str
+    name: str
+    capabilities: list[ModelCapability]
+    provider: ModelProvider
+    local: bool = True
+    version: str = ""                            # pinned version — provenance
+    offline_ok: bool = True
+    zero_retention_safe: bool = True             # may run on sensitive cases
+    cost_estimate: Optional[CostEstimate] = None
+    endpoint: Optional[str] = None               # e.g. Ollama model tag
+
+
+# --------------------------------------------------------------------------- #
+# Domain specialists — knowledge/tool-selection layers (NOT AI brains)
+# --------------------------------------------------------------------------- #
+class SpecialistSpec(BaseModel):
+    """A domain specialist: knows its domain, routes to registered tools."""
+    domain: DomainId
+    name: str
+    description: str
+    understands: list[str] = Field(default_factory=list)
+    tool_ids: list[str] = Field(default_factory=list)
+    goal_mappings: dict[str, str] = Field(default_factory=dict)  # goal -> template_id
 
 
 # --------------------------------------------------------------------------- #
@@ -189,6 +375,20 @@ class Budget(BaseModel):
     max_tokens: int = 200_000
     max_ms: int = 600_000
     max_api_calls: int = 10
+
+
+class BudgetEstimate(BaseModel):
+    """Budget limits + expected burn for a plan, shown BEFORE approval.
+
+    ``estimated_*`` sums the registered tools' cost estimates over the plan
+    steps; the analyst sees whether the plan fits the objective's budget
+    before anything executes.
+    """
+    budget: Optional[Budget] = None
+    estimated_steps: int = 0
+    estimated_tokens: int = 0
+    estimated_ms: int = 0
+    estimated_api_calls: int = 0
 
 
 class PolicyMatch(BaseModel):
@@ -242,6 +442,7 @@ class InvestigationObjective(BaseModel):
     objective_id: str
     goal: InvestigationGoal
     subject: str
+    domain: DomainId = "image"
     claims_to_verify: list[ClaimToVerify] = Field(default_factory=list)
     constraints: ObjectiveConstraints = Field(default_factory=ObjectiveConstraints)
     natural_language: Optional[str] = None
@@ -279,6 +480,7 @@ class PlanRevision(BaseModel):
     proposed_at_ms: int = Field(default_factory=now_ms)
     approved_at_ms: Optional[int] = None
     approved_by: Optional[str] = None
+    budget_estimate: Optional["BudgetEstimate"] = None
     hash: str = ""
 
 
@@ -291,7 +493,14 @@ __all__ = [
     # Evidence Graph
     "ProvenanceType", "ClaimType", "EdgeRelation",
     "EvidenceNode", "EvidenceEdge", "Finding", "EvidenceGraph",
+    "FindingStatus", "FindingSeverity", "FindingType",
     "PromotionDenied",
+    # Cognitive layer contracts
+    "Hypothesis", "HypothesisCandidate", "Critique", "ContextFrame",
+    # Model Gateway
+    "ModelCapability", "ModelProvider", "ModelSpec",
+    # Domain specialists
+    "SpecialistSpec",
     # Policy
     "ApprovalTier", "Budget", "PolicyMatch", "PolicyRule", "PolicyDecision",
     # Objectives

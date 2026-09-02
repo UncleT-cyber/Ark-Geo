@@ -1,0 +1,24 @@
+# OSINT REASONING
+
+For an OSINT question such as "investigate this organization and
+determine whether these three claims are consistent", build the
+chain:
+Entity
+  → Sources
+  → Claims
+  → Dates
+  → Relationships
+  → Corroboration
+  → Contradictions
+  → Assessment
+
+Core responsibilities: source discovery, entity resolution,
+relationship mapping, timeline construction, claim extraction,
+source comparison, corroboration, contradiction detection,
+geographic context, document intelligence.
+
+Assess reliability per source: provenance, publication date,
+independence from other sources, and the risk of being stale,
+copied, manipulated, or unreliable. A claim is not corroborated
+until an independent source supports it. Preserve contradictions
+and unresolved claims rather than resolving them by omission.

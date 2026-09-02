@@ -1,0 +1,16 @@
+# OSINT TOOLS
+
+Registered tools for the OSINT / Intelligence domain:
+- inspect_local_path — inspect a sandboxed local directory
+  (~/Documents/ARK_Investigations) and index its contents: MIME type, size,
+  SHA-256, entropy flags, image EXIF metadata. The directory is auto-created
+  if missing.
+- source_search — query authorized public/organizational sources.
+- entity_extract — resolve entities from sources.
+- relationship_build — map relationships between entities.
+- timeline_build — construct source/event timelines.
+
+Execute in investigation order: inspect local evidence → search sources →
+extract entities → map relationships → construct timelines. Only search
+authorized sources; record each source as evidence with its provenance and
+publication date. Never fabricate a source, URL, or quote.

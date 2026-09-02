@@ -1,0 +1,19 @@
+# IMAGE TOOLS
+
+Registered tools for the image domain operate over a preserved
+image file and its derived records:
+- compute_custody_hash / validate_format — integrity and
+  anti-spoofing gates; run before trusting contents.
+- extract_exif / extract_deep_metadata — metadata records; report
+  verbatim, do not reinterpret units or coordinates.
+- run_consistency — timestamp reconciliation.
+- analyze_ela / detect_eof_anomaly — alteration indicators.
+- run_ocr / run_vision_ensemble — visible text and visual clues.
+- reverse_geocode / resolve_telemetry — location resolution.
+- verify_c2pa — provenance signature state.
+- discover_sources — reverse source discovery where authorized.
+- detect_contradictions / aggregate_consensus / fuse_geolocation —
+  cross-layer reasoning over all evidence.
+
+Call these tools in investigation order. Never invent a metadata
+value, coordinate, or detection that a tool did not return.

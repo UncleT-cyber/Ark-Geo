@@ -21,10 +21,11 @@ interface CommandPaletteProps {
   onOpenTool: (toolId: ToolTabId) => void;
   onExportPdf: () => void;
   onUpload: () => void;
+  onOpenAdmin: () => void;
   hasResult: boolean;
 }
 
-export function CommandPalette({ open, onClose, onOpenTool, onExportPdf, onUpload, hasResult }: CommandPaletteProps) {
+export function CommandPalette({ open, onClose, onOpenTool, onExportPdf, onUpload, onOpenAdmin, hasResult }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -39,6 +40,7 @@ export function CommandPalette({ open, onClose, onOpenTool, onExportPdf, onUploa
     { id: 'vision', label: 'Open OCR & Visual Intelligence', action: () => onOpenTool('vision'), disabled: !hasResult },
     { id: 'report', label: 'Open Case Report & Evidence Log', action: () => onOpenTool('report'), disabled: !hasResult },
     { id: 'pdf', label: 'Generate PDF Report', action: onExportPdf, disabled: !hasResult },
+    { id: 'admin', label: 'Open Admin Console', action: onOpenAdmin },
   ];
 
   const filtered = commands.filter(c => c.label.toLowerCase().includes(query.toLowerCase()));

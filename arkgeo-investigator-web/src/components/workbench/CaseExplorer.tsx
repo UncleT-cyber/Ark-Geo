@@ -12,13 +12,30 @@
  */
 import React from 'react';
 import { FolderKanban, Clock, Shield, ArrowRight, Search } from 'lucide-react';
-import { useInvestigation, type SavedCase } from './useInvestigation';
+import { useInvestigation, type SavedCase, type SavedCaseDomain } from './useInvestigation';
 
 const RISK_COLOR: Record<SavedCase['risk'], string> = {
   critical: '#EF4444',
   medium: '#F59E0B',
   low: '#22C55E',
 };
+
+const DOMAIN_LABEL: Record<SavedCaseDomain, string> = {
+  image: 'IMAGE',
+  network: 'NETWORK',
+  secops: 'SECOPS',
+  telecom: 'TELECOM',
+};
+
+type DomainFilter = 'all' | SavedCaseDomain;
+
+const FILTERS: { id: DomainFilter; label: string }[] = [
+  { id: 'all', label: 'ALL' },
+  { id: 'image', label: 'IMAGE' },
+  { id: 'network', label: 'NETWORK' },
+  { id: 'secops', label: 'SECOPS' },
+  { id: 'telecom', label: 'TELECOM' },
+];
 
 interface CaseExplorerProps {
   onRestoreCase: (saved: SavedCase) => void;
@@ -27,11 +44,21 @@ interface CaseExplorerProps {
 export function CaseExplorer({ onRestoreCase }: CaseExplorerProps) {
   const inv = useInvestigation();
   const [query, setQuery] = React.useState('');
+  const [domainFilter, setDomainFilter] = React.useState<DomainFilter>('all');
+
+  const counts = React.useMemo(() => {
+    const c: Record<DomainFilter, number> = { all: inv.history.length, image: 0, network: 0, secops: 0, telecom: 0 };
+    for (const h of inv.history) c[h.domain ?? 'image'] = (c[h.domain ?? 'image'] ?? 0) + 1;
+    return c;
+  }, [inv.history]);
 
   const filtered = inv.history.filter(h =>
-    h.caseId.toLowerCase().includes(query.toLowerCase()) ||
-    h.filename.toLowerCase().includes(query.toLowerCase()) ||
-    h.source.toLowerCase().includes(query.toLowerCase()),
+    (domainFilter === 'all' || (h.domain ?? 'image') === domainFilter) &&
+    (h.caseId.toLowerCase().includes(query.toLowerCase()) ||
+     h.filename.toLowerCase().includes(query.toLowerCase()) ||
+     h.source.toLowerCase().includes(query.toLowerCase()) ||
+     (h.caseName ?? '').toLowerCase().includes(query.toLowerCase()) ||
+     (h.tags ?? []).some(t => t.toLowerCase().includes(query.toLowerCase()))),
   );
 
   return (
@@ -46,11 +73,24 @@ export function CaseExplorer({ onRestoreCase }: CaseExplorerProps) {
           <Search className="w-4 h-4 case-explorer-search-icon" />
           <input
             className="case-explorer-search-input"
-            placeholder="Search by case ID, filename, or source..."
+            placeholder="Search by case ID, name, filename, source, or tag..."
             value={query}
             onChange={e => setQuery(e.target.value)}
           />
         </div>
+      </div>
+
+      <div className="case-explorer-filters">
+        {FILTERS.map(f => (
+          <button
+            key={f.id}
+            className={`case-explorer-filter ${domainFilter === f.id ? 'case-explorer-filter-active' : ''}`}
+            onClick={() => setDomainFilter(f.id)}
+          >
+            {f.label}
+            <span className="case-explorer-filter-count">{counts[f.id] ?? 0}</span>
+          </button>
+        ))}
       </div>
 
       {inv.activeCase && (
@@ -94,13 +134,20 @@ export function CaseExplorer({ onRestoreCase }: CaseExplorerProps) {
             <button key={h.caseId} className="case-explorer-card" onClick={() => onRestoreCase(h)}>
               <div className="case-explorer-card-main">
                 <span className="case-explorer-card-id mono">{h.caseId}</span>
-                <span className="case-explorer-card-filename">{h.filename}</span>
+                <span className="case-explorer-card-filename">
+                  {h.caseName || h.filename}
+                  {h.caseName && <em className="case-explorer-card-file">{h.filename}</em>}
+                </span>
                 <div className="case-explorer-card-tags">
+                  <span className="case-explorer-tag case-explorer-tag-domain">{DOMAIN_LABEL[h.domain ?? 'image']}</span>
                   <span className="case-explorer-tag">{h.source}</span>
                   <span className="case-explorer-tag">{h.tier}</span>
                   <span className="case-explorer-tag" style={{ color: RISK_COLOR[h.risk], borderColor: RISK_COLOR[h.risk] + '55' }}>
                     {h.risk}
                   </span>
+                  {(h.tags ?? []).map(t => (
+                    <span key={t} className="case-explorer-tag case-explorer-tag-custom">#{t}</span>
+                  ))}
                 </div>
               </div>
               <div className="case-explorer-card-side">

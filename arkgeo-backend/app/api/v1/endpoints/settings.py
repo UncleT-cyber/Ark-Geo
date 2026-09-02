@@ -121,15 +121,13 @@ async def update_admin_config(
     """
     if update.api_keys:
         keys_dict = {
-            "geospy_api_key": update.api_keys.geospy_api_key,
-            "geoinfer_api_key": update.api_keys.geoinfer_api_key,
-            "llm_api_key": update.api_keys.llm_api_key,
-            "twilio_account_sid": update.api_keys.twilio_account_sid,
-            "twilio_auth_token": update.api_keys.twilio_auth_token,
-            "twilio_from_number": update.api_keys.twilio_from_number,
+            name: value
+            for name, value in update.api_keys.model_dump().items()
+            if value is not None
         }
-        settings_store.update_api_keys(keys_dict)
-        logger.info("Admin '%s' updated API keys", admin)
+        if keys_dict:
+            settings_store.update_api_keys(keys_dict)
+            logger.info("Admin '%s' updated API keys", admin)
 
     if update.thresholds:
         t = {}
@@ -157,6 +155,8 @@ async def update_admin_config(
 class TestConnectionResponse(BaseModel):
     key_name: str
     configured: bool
+    valid: bool = False
+    detail: str = ""
 
 
 @router.post("/config/test-connection", response_model=TestConnectionResponse)
@@ -164,9 +164,27 @@ async def test_api_connection(
     key_name: str,
     admin: str = Depends(require_admin_token),
 ):
-    """Test whether a given API key is configured (does not make external calls)."""
-    configured = bool(settings_store.get_key(key_name))
-    return TestConnectionResponse(key_name=key_name, configured=configured)
+    """Probe whether the stored admin key actually connects to its provider."""
+    from app.services.key_probe import KEY_TO_PROVIDER, live_probe
+
+    provider = KEY_TO_PROVIDER.get(key_name)
+    if not provider:
+        return TestConnectionResponse(
+            key_name=key_name,
+            configured=bool(settings_store.get_key(key_name)),
+            valid=False,
+            detail="No probe mapped for this key field",
+        )
+    key = settings_store.get_key(key_name)
+    if not key:
+        return TestConnectionResponse(key_name=key_name, configured=False, detail="No key configured")
+    result = await live_probe(provider, key)
+    return TestConnectionResponse(
+        key_name=key_name,
+        configured=True,
+        valid=bool(result.get("valid")),
+        detail=str(result.get("detail", "")),
+    )
 
 
 # --------------------------------------------------------------------------- #

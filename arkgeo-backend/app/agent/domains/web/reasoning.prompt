@@ -1,0 +1,20 @@
+# WEB / APP SECURITY REASONING
+
+For an investigation such as "investigate this authorized web
+application", plan:
+1. Identify the application surface.
+2. Observe HTTP traffic.
+3. Map endpoints.
+4. Identify APIs.
+5. Analyze session flow.
+6. Inspect authentication behavior.
+7. Identify relevant security controls.
+8. Correlate observations.
+9. Produce findings.
+
+Key distinction: the Network specialist asks what is happening
+across the infrastructure; the Web/App specialist asks how this
+application behaves and what security-relevant behavior can be
+established. Observe behavior and controls; the execution layer
+controls which active tools are actually permitted. Never test a
+target outside the authorized scope.

@@ -5,15 +5,21 @@
  *
  * When new coordinates arrive the map performs an animated camera transition
  * (flyTo) with a zoom level chosen by the source tier:
- *   NATIVE_EXIF_HARDWARE → zoom 16
- *   AI_VISION            → zoom 12
- *   TELEMETRY            → zoom 8
+ *   NATIVE_EXIF_HARDWARE → zoom 18
+ *   AI_VISION            → zoom 14
+ *   TELEMETRY            → zoom 9
+ * The map runs at maxZoom 22 with tiles capped at maxNativeZoom 18 (Leaflet
+ * auto-upscales past it) plus a tile-error fallback that swaps failed high-zoom
+ * tiles for upscaled lower-zoom imagery — so the map never shows "map data not
+ * yet available" grey placeholders. A multi-provider basemap switcher
+ * (LayerControl) provides satellite / hybrid / street providers.
  */
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { LayerControl } from '../map/LayerControl';
 
-interface MapPoint {
+export interface MapPoint {
   lat: number;
   lon: number;
   radius: number;
@@ -22,6 +28,12 @@ interface MapPoint {
   label?: string;
   thumbnailUrl?: string;
   isHighRisk?: boolean;
+  /** Render a pulsing radar / coverage footprint (cell telemetry console). */
+  pulse?: boolean;
+  /** Render a wide country bounding circle (Tier-1 telecom footprint). */
+  bounding?: boolean;
+  /** Render a spinning cell-sector radar sweep (Tier-2 unlocked). */
+  sector?: boolean;
 }
 
 interface GeofencePolygon {
@@ -33,6 +45,8 @@ interface GeofencePolygon {
 interface Props {
   points: MapPoint[];
   history?: MapPoint[];
+  /** Secondary OCR / IMINT candidate pins (amber diamonds) plotted on the map. */
+  candidatePoints?: MapPoint[];
   onCopyCoords?: () => void;
   onGeofenceViolation?: (point: MapPoint) => void;
 }
@@ -77,13 +91,17 @@ function pointInPolygon(lat: number, lon: number, polygon: [number, number][]): 
 function zoomForSource(source?: string): number {
   switch (source) {
     case 'NATIVE_EXIF_HARDWARE':
-      return 16;
+      return 18;
     case 'AI_VISION':
-      return 12;
-    case 'TELEMETRY':
-      return 8;
-    default:
       return 14;
+    case 'TELEMETRY':
+      return 9;
+    case 'CELL_TELEMETRY':
+      return 13;
+    case 'COUNTRY_TIER1':
+      return 5;
+    default:
+      return 15;
   }
 }
 
@@ -202,11 +220,47 @@ function createThreatBeaconMarker(lat: number, lon: number): L.Marker {
   return L.marker([lat, lon], { icon });
 }
 
-export function MapWorkspace({ points, history, onCopyCoords, onGeofenceViolation }: Props) {
+// Pulsing radar marker — cyan expanding rings over a coverage footprint,
+// used by the Telecom & Phone console cell-reveal animation.
+function createCellPulseMarker(lat: number, lon: number): L.Marker {
+  const icon = L.divIcon({
+    className: 'arkgeo-cell-pulse',
+    html: `<div class="cell-radar-wrapper">
+      <div class="cell-radar-ring"></div>
+      <div class="cell-radar-ring cell-radar-ring-2"></div>
+      <div class="cell-radar-ring cell-radar-ring-3"></div>
+      <div class="cell-radar-core"></div>
+    </div>`,
+    iconSize: [64, 64],
+    iconAnchor: [32, 32],
+    popupAnchor: [0, -32],
+  });
+  return L.marker([lat, lon], { icon });
+}
+
+// Spinning cell-sector radar footprint — sweeping wedge over a tight
+// neighborhood grid (Tier-2 unlocked control-plane intersection).
+function createSectorRadarMarker(lat: number, lon: number): L.Marker {
+  const icon = L.divIcon({
+    className: 'arkgeo-sector-radar',
+    html: `<div class="sector-radar-wrapper">
+      <div class="sector-radar-ring"></div>
+      <div class="sector-radar-sweep"></div>
+      <div class="sector-radar-core"></div>
+    </div>`,
+    iconSize: [72, 72],
+    iconAnchor: [36, 36],
+    popupAnchor: [0, -36],
+  });
+  return L.marker([lat, lon], { icon });
+}
+
+export function MapWorkspace({ points, history, candidatePoints, onCopyCoords, onGeofenceViolation }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
   const currentPointRef = useRef<MapPoint | null>(null);
+  const [mapReady, setMapReady] = useState(false);
 
   // Initialize map once
   useEffect(() => {
@@ -218,22 +272,17 @@ export function MapWorkspace({ points, history, onCopyCoords, onGeofenceViolatio
       worldCopyJump: true,
       zoomControl: true,
       attributionControl: true,
+      zoomSnap: 0.25,
+      zoomDelta: 0.5,
+      // Hard ceiling at z22; every tile layer runs maxNativeZoom 18 so Leaflet
+      // upscales beyond that instead of requesting non-existent tiles.
+      maxZoom: 22,
+      minZoom: 2,
     });
-
-    // Satellite base layer
-    L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      { attribution: 'Esri', maxZoom: 19 },
-    ).addTo(map);
-
-    // Labels overlay
-    L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-      { maxZoom: 19, opacity: 0.6 },
-    ).addTo(map);
 
     mapRef.current = map;
     layerRef.current = L.layerGroup().addTo(map);
+    setMapReady(true);
 
     // ResizeObserver — keep the Leaflet canvas in sync with panel width changes
     // (triggered by the resizable sidebars) to prevent black borders / distortion.
@@ -247,6 +296,7 @@ export function MapWorkspace({ points, history, onCopyCoords, onGeofenceViolatio
       map.remove();
       mapRef.current = null;
       layerRef.current = null;
+      setMapReady(false);
     };
   }, []);
 
@@ -257,7 +307,30 @@ export function MapWorkspace({ points, history, onCopyCoords, onGeofenceViolatio
     if (!map || !layer) return;
 
     layer.clearLayers();
-    if (points.length === 0) return;
+
+    // OCR / IMINT candidate pins — amber diamonds (Feature 2). Drawn even when
+    // there are no telemetry-confirmed points so a fallback search still shows.
+    (candidatePoints || []).forEach((pt) => {
+      L.circleMarker([pt.lat, pt.lon], {
+        radius: 7,
+        color: '#F59E0B',
+        weight: 2,
+        fillColor: '#0B0C10',
+        fillOpacity: 1,
+      })
+        .bindTooltip(`CANDIDATE · ${pt.label || pt.source || 'OCR'}\n${pt.lat.toFixed(4)}, ${pt.lon.toFixed(4)}`)
+        .addTo(layer);
+    });
+
+    if (points.length === 0) {
+      const cands = candidatePoints || [];
+      if (cands.length > 0) {
+        const lat = cands.reduce((s, p) => s + p.lat, 0) / cands.length;
+        const lon = cands.reduce((s, p) => s + p.lon, 0) / cands.length;
+        map.flyTo([lat, lon], 5, { animate: true, duration: 2.5, easeLinearity: 0.25 });
+      }
+      return;
+    }
 
     // Draw geofence polygons
     DEFAULT_GEOFENCES.forEach((fence) => {
@@ -280,15 +353,23 @@ export function MapWorkspace({ points, history, onCopyCoords, onGeofenceViolatio
       (f) => f.severity === 'high' && pointInPolygon(activePoint.lat, activePoint.lon, f.coords),
     );
 
-    // Draw uncertainty circle (cyan, semi-transparent)
-    L.circle([activePoint.lat, activePoint.lon], {
+    // Draw uncertainty / coverage circle (cyan, semi-transparent)
+    const isPulse = activePoint.pulse === true || activePoint.source === 'CELL_TELEMETRY';
+    const isBounding = activePoint.bounding === true;
+    const isSector = activePoint.sector === true;
+    const circle = L.circle([activePoint.lat, activePoint.lon], {
       radius: activePoint.radius,
-      color: inHighRisk ? '#EF4444' : '#38BDF8',
-      fillColor: inHighRisk ? '#EF4444' : '#38BDF8',
-      fillOpacity: 0.12,
-      weight: 2,
-      opacity: 0.7,
-    }).addTo(layer);
+      color: inHighRisk ? '#EF4444' : isBounding ? '#38BDF8' : isPulse ? '#22D3EE' : '#38BDF8',
+      fillColor: inHighRisk ? '#EF4444' : isBounding ? '#38BDF8' : isPulse ? '#22D3EE' : '#38BDF8',
+      fillOpacity: isBounding ? 0.08 : isPulse ? 0.18 : 0.12,
+      weight: isBounding ? 1.5 : 2,
+      opacity: isBounding ? 0.55 : 0.7,
+      dashArray: isBounding ? '6, 6' : undefined,
+    });
+    if (isPulse) {
+      (circle as unknown as { options: Record<string, unknown> }).options.className = 'cell-coverage-circle';
+    }
+    circle.addTo(layer);
 
     // Drop marker — threat beacon if in high-risk geofence, otherwise tactical
     if (inHighRisk) {
@@ -308,6 +389,45 @@ export function MapWorkspace({ points, history, onCopyCoords, onGeofenceViolatio
       if (onGeofenceViolation) {
         onGeofenceViolation({ ...activePoint, isHighRisk: true });
       }
+    } else if (isBounding) {
+      // Country bounding circle — no tight marker, just a soft center dot.
+      L.circleMarker([activePoint.lat, activePoint.lon], {
+        radius: 4,
+        color: '#38BDF8',
+        fillColor: '#0B0C10',
+        fillOpacity: 1,
+        weight: 2,
+      }).addTo(layer);
+    } else if (isSector) {
+      const sectorMarker = createSectorRadarMarker(activePoint.lat, activePoint.lon);
+      sectorMarker.bindPopup(
+        `<div class="arkgeo-blueprint-popup" style="font-family:'JetBrains Mono',monospace;min-width:220px;background:#0B0C10;border:1px solid #22D3EE;border-radius:6px;padding:10px;">
+          <div style="color:#22D3EE;font-weight:700;font-size:11px;letter-spacing:1px;">CELL SECTOR RADAR FOOTPRINT</div>
+          <div style="color:#7DD3FC;font-size:12px;margin-top:6px;font-family:monospace;">
+            ${activePoint.lat.toFixed(5)}°, ${activePoint.lon.toFixed(5)}°
+          </div>
+          <div style="color:#94A3B8;font-size:11px;margin-top:4px;">
+            control-plane intersection · r ≈ ${Math.round(activePoint.radius)} m${activePoint.label ? ` · ${activePoint.label}` : ''}
+          </div>
+        </div>`,
+        { className: 'arkgeo-popup-wrapper', maxWidth: 300 },
+      );
+      sectorMarker.addTo(layer);
+    } else if (isPulse) {
+      const cellMarker = createCellPulseMarker(activePoint.lat, activePoint.lon);
+      cellMarker.bindPopup(
+        `<div class="arkgeo-blueprint-popup" style="font-family:'JetBrains Mono',monospace;min-width:220px;background:#0B0C10;border:1px solid #22D3EE;border-radius:6px;padding:10px;">
+          <div style="color:#22D3EE;font-weight:700;font-size:11px;letter-spacing:1px;">CELL COVERAGE FOOTPRINT</div>
+          <div style="color:#7DD3FC;font-size:12px;margin-top:6px;font-family:monospace;">
+            ${activePoint.lat.toFixed(5)}°, ${activePoint.lon.toFixed(5)}°
+          </div>
+          <div style="color:#94A3B8;font-size:11px;margin-top:4px;">
+            radius ≈ ${Math.round(activePoint.radius)} m${activePoint.label ? ` · ${activePoint.label}` : ''}
+          </div>
+        </div>`,
+        { className: 'arkgeo-popup-wrapper', maxWidth: 300 },
+      );
+      cellMarker.addTo(layer);
     } else {
       const markerColor = confidenceColor(activePoint.confidence);
       const marker = createTacticalMarker(
@@ -349,12 +469,15 @@ export function MapWorkspace({ points, history, onCopyCoords, onGeofenceViolatio
       duration: 2.5,
       easeLinearity: 0.25,
     });
-  }, [points, history, onCopyCoords, onGeofenceViolation]);
+  }, [points, history, candidatePoints, onCopyCoords, onGeofenceViolation]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{ width: '100%', height: '100%', background: 'var(--bg-darkest)' }}
-    />
+    <div style={{ position: 'relative', width: '100%', height: '100%', background: 'var(--bg-darkest)' }}>
+      <div
+        ref={containerRef}
+        style={{ width: '100%', height: '100%', background: 'var(--bg-darkest)' }}
+      />
+      {mapReady && <LayerControl map={mapRef.current} />}
+    </div>
   );
 }

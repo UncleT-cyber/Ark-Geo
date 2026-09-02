@@ -10,9 +10,11 @@ parsed decimal coordinates into a human-readable address.
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import logging
 import math
+from datetime import datetime, timezone
 from typing import Optional
 
 import piexif
@@ -23,6 +25,16 @@ from geopy.geocoders import Nominatim
 from app.models import Coordinates, AddressInfo
 
 logger = logging.getLogger(__name__)
+
+# --------------------------------------------------------------------------- #
+# EXIF tag ids missing from piexif's constant tables (numeric, from the EXIF
+# 2.32 / TIFF spec) so the IMINT engine can address every forensic tag it needs.
+# --------------------------------------------------------------------------- #
+_TAG_SUBSEC_TIME_ORIGINAL = 37521
+_TAG_SUBSEC_TIME_DIGITIZED = 37522
+_TAG_BODY_SERIAL_NUMBER = 42033  # ExifIFD SerialNumber
+_TAG_OWNER_NAME = 42032  # ExifIFD CameraOwnerName
+_TAG_IMAGE_UNIQUE_ID = 42016  # ExifIFD ImageUniqueID
 
 # Single shared geocoder instance (Nominatim usage policy requires a
 # persistent User-Agent and 1 req/s max).
@@ -333,16 +345,195 @@ def _decode_image(image_bytes: bytes) -> Image.Image:
         raise MetadataExtractionError("Image format not recognised") from exc
 
 
-def _dms_to_decimal(dms, ref: str) -> float:
-    """Convert EXIF rational DMS tuple to a signed decimal degree."""
-    d, m, s = dms
-    d_val = float(d[0]) / float(d[1]) if isinstance(d, tuple) else float(d)
-    m_val = float(m[0]) / float(m[1]) if isinstance(m, tuple) else float(m)
-    s_val = float(s[0]) / float(s[1]) if isinstance(s, tuple) else float(s)
-    decimal = d_val + m_val / 60.0 + s_val / 3600.0
-    if ref in ("S", "W"):
-        decimal = -decimal
-    return decimal
+def _rational_val(val) -> Optional[float]:
+    """Convert an EXIF rational ((num, den)) to a float, or None."""
+    if val is None:
+        return None
+    try:
+        if isinstance(val, tuple) and len(val) == 2:
+            num, den = val
+            return float(num) / float(den) if float(den) != 0 else None
+        return float(val)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def _dms_to_decimal(dms, ref: str = "") -> Optional[float]:
+    """Convert a DMS coordinate to signed decimal degrees.
+
+    Handles both standard and non-standard device formats:
+
+    * EXIF rational triple ``[(d,1), (m,1), (s,10000)]`` (standard)
+    * plain numeric triples / tuples ``[d, m, s]`` or ``[d, m]``
+    * a single rational or float (already decimal)
+    * strings ``"48 51 23.76"``, ``"48 51.3958"``, or ``"48.8566"``
+    * bytes (decoded first)
+
+    ``ref`` may be ``"N"/"S"/"E"/"W"`` (or bytes) — southern/western
+    coordinates are negated. Returns ``None`` on any malformed input rather
+    than raising (a stripped or corrupt tag must never crash the parser).
+    """
+    if dms is None:
+        return None
+
+    # Bytes → string (some cameras/tools write ASCII DMS).
+    if isinstance(dms, bytes):
+        try:
+            dms = dms.decode("utf-8", errors="replace").strip()
+        except Exception:
+            return None
+
+    # String forms: "48.8566" | "48 51 23.76" | "48 51.3958"
+    if isinstance(dms, str):
+        parts = dms.split()
+        nums: list[float] = []
+        for p in parts:
+            try:
+                nums.append(float(p))
+            except ValueError:
+                return None
+        if not nums:
+            return None
+        if len(nums) == 1:
+            decimal = nums[0]
+        elif len(nums) == 2:
+            decimal = nums[0] + nums[1] / 60.0
+        else:
+            decimal = nums[0] + nums[1] / 60.0 + nums[2] / 3600.0
+        return decimal * (-1.0 if str(ref).upper() in ("S", "W") else 1.0)
+
+    # Tuple/list forms: (d, m, s) or single rational.
+    if isinstance(dms, (tuple, list)):
+        nums = []
+        for item in dms:
+            if isinstance(item, (tuple, list)):
+                num = _rational_val(item)
+            elif isinstance(item, bytes):
+                try:
+                    num = float(item.decode("utf-8", errors="replace"))
+                except ValueError:
+                    num = None
+            else:
+                try:
+                    num = float(item)
+                except (TypeError, ValueError):
+                    num = None
+            if num is None:
+                return None
+            nums.append(num)
+        if not nums:
+            return None
+        if len(nums) == 1:
+            decimal = nums[0]
+        elif len(nums) == 2:
+            decimal = nums[0] + nums[1] / 60.0
+        else:
+            decimal = nums[0] + nums[1] / 60.0 + nums[2] / 3600.0
+        return decimal * (-1.0 if str(ref).upper() in ("S", "W") else 1.0)
+
+    try:
+        return float(dms) * (-1.0 if str(ref).upper() in ("S", "W") else 1.0)
+    except (TypeError, ValueError):
+        return None
+
+
+def _ifd_text(ifd: dict, tag: int) -> Optional[str]:
+    """Read a textual IFD tag, decoding bytes and stripping NUL padding."""
+    val = ifd.get(tag)
+    if val is None:
+        return None
+    if isinstance(val, bytes):
+        try:
+            text = val.decode("utf-8", errors="replace").rstrip("\x00").strip()
+        except Exception:
+            return None
+        return text or None
+    if isinstance(val, (tuple, list)):
+        return None  # rationals are read via _rational_val by callers
+    text = str(val).strip()
+    return text or None
+
+
+def _ifd_int(ifd: dict, tag: int) -> Optional[int]:
+    val = ifd.get(tag)
+    if val is None:
+        return None
+    if isinstance(val, (tuple, list)):
+        if not val:
+            return None
+        val = val[0]
+    try:
+        if isinstance(val, bytes):
+            return int.from_bytes(val, "little")
+        return int(val)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _flash_fired(flash_code: Optional[int]) -> Optional[bool]:
+    """EXIF Flash value bit 0 = flash fired (Boolean)."""
+    if flash_code is None:
+        return None
+    return bool(flash_code & 0x01)
+
+
+def _dop_quality(dop: Optional[float]) -> Optional[str]:
+    """Classify GPS Dilution of Precision into a confidence label."""
+    if dop is None:
+        return None
+    if dop < 1.0:
+        return "excellent"
+    if dop <= 2.0:
+        return "good"
+    if dop <= 5.0:
+        return "moderate"
+    return "poor"
+
+
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance between two points, in metres."""
+    r = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def _parse_exif_datetime(value: Optional[str]) -> Optional[datetime]:
+    """Parse ``YYYY:MM:DD HH:MM:SS[.ffffff]`` (or dash-separated) to a naive
+    :class:`datetime`, tolerating trailing sub-seconds."""
+    if not value:
+        return None
+    s = value.strip().replace("-", ":")
+    if "." in s:
+        base, frac = s.split(".", 1)
+        s = f"{base}.{frac[:6]}"
+    try:
+        if "." in s:
+            return datetime.strptime(s, "%Y:%m:%d %H:%M:%S.%f")
+        return datetime.strptime(s, "%Y:%m:%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return None
+
+
+def _apply_offset(naive: Optional[datetime], offset: Optional[str]) -> Optional[datetime]:
+    """Attach an EXIF ``+HH:MM``/``-HH:MM`` offset and return UTC, or None.
+
+    The naive datetime is device-local wall time; UTC is wall time minus the
+    local offset. Computed without touching the host machine's timezone.
+    """
+    if naive is None or not offset:
+        return None
+    try:
+        sign = 1 if offset[0] == "+" else -1
+        digits = offset[1:].replace(":", "")
+        hh, mm = int(digits[0:2]), int(digits[2:4])
+        total_s = sign * (hh * 3600 + mm * 60)
+        epoch = (naive - datetime(1970, 1, 1)).total_seconds()
+        return datetime.fromtimestamp(epoch - total_s, tz=timezone.utc)
+    except (ValueError, IndexError, TypeError, OSError):
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -426,6 +617,10 @@ class MetadataExtractor:
             "exif_missing": False,
             "file_format": None,
             "ela_heatmap": None,
+            # IMINT — 4-pillar unified Image Data Extraction payload.
+            # Every key below is always present; missing/stripped fields are
+            # structural None (contract: never drop the key, never crash).
+            "image_intelligence": None,
         }
 
         # Steganography / EOF anomaly scan (runs before decode for early flag)
@@ -473,6 +668,13 @@ class MetadataExtractor:
         software = str(result["raw"].get("Software", "")).lower()
         if software and any(t in software for t in ("photoshop", "gimp", "snapseed", "lightroom")):
             result["tamper_flags"].append(f"editing_software:{software}")
+
+        # IMINT — 4-pillar unified Image Data Extraction payload
+        result["image_intelligence"] = self._extract_imint(
+            exif_dict, result,
+            img_w=getattr(img, "width", None),
+            img_h=getattr(img, "height", None),
+        )
 
         return result
 
@@ -562,14 +764,382 @@ class MetadataExtractor:
     def _extract_gps(self, gps_ifd: dict) -> Optional[Coordinates]:
         if not gps_ifd:
             return None
-        try:
-            lat = _dms_to_decimal(gps_ifd[piexif.GPSIFD.GPSLatitude],
-                                  gps_ifd[piexif.GPSIFD.GPSLatitudeRef].decode())
-            lon = _dms_to_decimal(gps_ifd[piexif.GPSIFD.GPSLongitude],
-                                  gps_ifd[piexif.GPSIFD.GPSLongitudeRef].decode())
-            return Coordinates(lat=lat, lon=lon)
-        except (KeyError, ValueError, TypeError, AttributeError):
+        lat_ref = gps_ifd.get(piexif.GPSIFD.GPSLatitudeRef)
+        lon_ref = gps_ifd.get(piexif.GPSIFD.GPSLongitudeRef)
+        if isinstance(lat_ref, bytes):
+            lat_ref = lat_ref.decode("ascii", errors="replace")
+        if isinstance(lon_ref, bytes):
+            lon_ref = lon_ref.decode("ascii", errors="replace")
+        lat = _dms_to_decimal(
+            gps_ifd.get(piexif.GPSIFD.GPSLatitude), lat_ref or "")
+        lon = _dms_to_decimal(
+            gps_ifd.get(piexif.GPSIFD.GPSLongitude), lon_ref or "")
+        if lat is None or lon is None:
             return None
+        try:
+            return Coordinates(lat=lat, lon=lon)
+        except Exception:  # noqa: BLE001 — malformed GPS must degrade, not crash
+            return None
+
+    # ------------------------------------------------------------------ #
+    # IMINT — 4-pillar unified Image Data Extraction payload
+    #
+    # Every sub-object below carries a FIXED key set. A tag that is missing
+    # or stripped by an adversary yields a structural ``None`` for that
+    # explicit field — the key is never dropped and the parser never crashes
+    # (compliance contract #2).
+    # ------------------------------------------------------------------ #
+    def _extract_imint(
+        self, exif_dict: dict, result: dict,
+        img_w: Optional[int] = None, img_h: Optional[int] = None,
+    ) -> dict:
+        zeroth = exif_dict.get("0th") or {}
+        exif = exif_dict.get("Exif") or {}
+        gps = exif_dict.get("GPS") or {}
+
+        geospatial = self._pillar_geospatial(gps, result)
+        temporal = self._pillar_temporal(exif, gps)
+        device = self._pillar_device(zeroth, exif)
+        capture = self._pillar_capture(exif)
+        analysis = self._pillar_analysis(geospatial, temporal, device, capture)
+
+        # Asset-type intelligence — screenshot detection (messenger/app
+        # transfers strip metadata, but dimensions + container survive).
+        screenshot = self._screenshot_signal(
+            img_w, img_h, device, result.get("exif_missing"),
+            result.get("file_format"),
+        )
+        analysis["is_screenshot_likely"] = screenshot["is_screenshot_likely"]
+        analysis["screenshot_aspect_ratio"] = screenshot["aspect_ratio"]
+        analysis["screenshot_reasons"] = screenshot["reasons"]
+
+        return {
+            "geospatial": geospatial,
+            "temporal": temporal,
+            "device": device,
+            "capture": capture,
+            "analysis": analysis,
+        }
+
+    # -- Asset-type intelligence ------------------------------------------ #
+    @staticmethod
+    def _screenshot_signal(
+        img_w: Optional[int], img_h: Optional[int],
+        device: dict, exif_missing: Optional[bool], file_format: Optional[str],
+    ) -> dict:
+        """Heuristic for 'this is probably a screen capture, not a photo'.
+
+        Screenshots survive messenger / app re-encoding with their pixel
+        dimensions intact, so aspect ratio + container + missing camera
+        provenance combine into a high-signal, low-false-positive indicator.
+        """
+        if not img_w or not img_h or min(img_w, img_h) <= 0:
+            return {"is_screenshot_likely": False, "aspect_ratio": None, "reasons": []}
+
+        aspect = round(img_w / img_h, 4)
+        ratio = round(max(img_w, img_h) / min(img_w, img_h), 3)
+        reasons: list[str] = []
+
+        if 1.9 <= ratio <= 2.5:
+            reasons.append("phone_aspect_ratio")
+        elif 1.5 <= ratio < 1.9:
+            reasons.append("desktop_aspect_ratio")
+        if (file_format or "").lower() == "png":
+            reasons.append("png_container")
+        if not device.get("make") and not device.get("model"):
+            reasons.append("no_camera_provenance")
+        if exif_missing:
+            reasons.append("metadata_stripped")
+
+        distinctive_aspect = any(
+            r in ("phone_aspect_ratio", "desktop_aspect_ratio") for r in reasons
+        )
+        corroborating = any(
+            r in ("png_container", "no_camera_provenance", "metadata_stripped")
+            for r in reasons
+        )
+        verdict = bool(distinctive_aspect and corroborating)
+        return {
+            "is_screenshot_likely": verdict,
+            "aspect_ratio": aspect,
+            "reasons": reasons,
+        }
+
+    # -- Pillar 1: Geospatial Intelligence (Where) ----------------------- #
+    def _pillar_geospatial(self, gps: dict, result: dict) -> dict:
+        lat_ref = _ifd_text(gps, piexif.GPSIFD.GPSLatitudeRef)
+        lon_ref = _ifd_text(gps, piexif.GPSIFD.GPSLongitudeRef)
+        lat = _dms_to_decimal(gps.get(piexif.GPSIFD.GPSLatitude), lat_ref or "")
+        lon = _dms_to_decimal(gps.get(piexif.GPSIFD.GPSLongitude), lon_ref or "")
+
+        alt_raw = _rational_val(gps.get(piexif.GPSIFD.GPSAltitude))
+        alt_ref_raw = gps.get(piexif.GPSIFD.GPSAltitudeRef)
+        below_sea = isinstance(alt_ref_raw, bytes) and alt_ref_raw == b"\x01"
+        alt_m = (-alt_raw if below_sea else alt_raw) if alt_raw is not None else None
+
+        dest_lat_ref = _ifd_text(gps, piexif.GPSIFD.GPSDestLatitudeRef)
+        dest_lon_ref = _ifd_text(gps, piexif.GPSIFD.GPSDestLongitudeRef)
+        dest_lat = _dms_to_decimal(
+            gps.get(piexif.GPSIFD.GPSDestLatitude), dest_lat_ref or "")
+        dest_lon = _dms_to_decimal(
+            gps.get(piexif.GPSIFD.GPSDestLongitude), dest_lon_ref or "")
+
+        dop = _rational_val(gps.get(piexif.GPSIFD.GPSDOP))
+
+        processing = _ifd_text(gps, piexif.GPSIFD.GPSProcessingMethod)
+        if processing:
+            for prefix in ("ASCII", "UNICODE"):
+                if processing.startswith(prefix):
+                    processing = processing[len(prefix):].lstrip("\x00").strip()
+                    break
+
+        has_coords = lat is not None and lon is not None
+        coords_plausible = has_coords and _is_plausible_gps(lat, lon)
+        if has_coords and not coords_plausible and result is not None:
+            result.setdefault("tamper_flags", []).append(
+                f"imint_implausible_gps:{lat},{lon}"
+            )
+
+        return {
+            "latitude": f"{lat:.6f}" if lat is not None else None,
+            "latitude_ref": lat_ref,
+            "latitude_decimal": lat,
+            "longitude": f"{lon:.6f}" if lon is not None else None,
+            "longitude_ref": lon_ref,
+            "longitude_decimal": lon,
+            "gps_altitude": alt_raw,
+            "altitude_meters": alt_m,
+            "altitude_ref": ("below_sea_level" if below_sea
+                             else "above_sea_level"
+                             if alt_ref_raw is not None else None),
+            "gps_img_direction": _rational_val(
+                gps.get(piexif.GPSIFD.GPSImgDirection)),
+            "gps_img_direction_ref": _ifd_text(
+                gps, piexif.GPSIFD.GPSImgDirectionRef),
+            "gps_speed": _rational_val(gps.get(piexif.GPSIFD.GPSSpeed)),
+            "gps_speed_ref": _ifd_text(gps, piexif.GPSIFD.GPSSpeedRef),
+            "gps_processing_method": processing,
+            "gps_dest_latitude": f"{dest_lat:.6f}" if dest_lat is not None else None,
+            "gps_dest_latitude_ref": dest_lat_ref,
+            "dest_latitude_decimal": dest_lat,
+            "gps_dest_longitude": f"{dest_lon:.6f}" if dest_lon is not None else None,
+            "gps_dest_longitude_ref": dest_lon_ref,
+            "dest_longitude_decimal": dest_lon,
+            "gps_dop": dop,
+            "dop_quality": _dop_quality(dop),
+            "gps_satellites": _ifd_text(gps, piexif.GPSIFD.GPSSatellites),
+            "gps_status": _ifd_text(gps, piexif.GPSIFD.GPSStatus),
+            "gps_measure_mode": _ifd_text(gps, piexif.GPSIFD.GPSMeasureMode),
+            "has_coordinates": has_coords,
+            "coords_plausible": coords_plausible,
+        }
+
+    # -- Pillar 2: Chronological & Temporal Integrity (When) ------------- #
+    def _pillar_temporal(self, exif: dict, gps: dict) -> dict:
+        dto = _ifd_text(exif, piexif.ExifIFD.DateTimeOriginal)
+        dtd = _ifd_text(exif, piexif.ExifIFD.DateTimeDigitized)
+        offset = _ifd_text(exif, piexif.ExifIFD.OffsetTime)
+        offset_orig = _ifd_text(exif, piexif.ExifIFD.OffsetTimeOriginal)
+        offset_dig = _ifd_text(exif, piexif.ExifIFD.OffsetTimeDigitized)
+        subsec_o = _ifd_text(exif, _TAG_SUBSEC_TIME_ORIGINAL)
+        subsec_d = _ifd_text(exif, _TAG_SUBSEC_TIME_DIGITIZED)
+
+        gps_date = _ifd_text(gps, piexif.GPSIFD.GPSDateStamp)
+        gps_time = None
+        ts = gps.get(piexif.GPSIFD.GPSTimeStamp)
+        if ts:
+            parts = ([_rational_val(p) for p in ts]
+                     if isinstance(ts, (tuple, list)) else [_rational_val(ts)])
+            if all(p is not None for p in parts) and len(parts) >= 2:
+                gps_time = (
+                    f"{int(parts[0]):02d}:{int(parts[1]):02d}:"
+                    f"{int(parts[2]):02d}" if len(parts) >= 3
+                    else f"{int(parts[0]):02d}:{int(parts[1]):02d}:00"
+                )
+
+        # Device local clock → UTC (requires an OffsetTime to be unambiguous).
+        device_utc = _apply_offset(
+            _parse_exif_datetime(dto), offset_orig or offset)
+        # Satellite clock: GPS date+time are UTC by spec.
+        sat_utc = None
+        if gps_date and gps_time:
+            sat_utc = _parse_exif_datetime(f"{gps_date} {gps_time}")
+
+        clock_delta = None
+        if device_utc is not None and sat_utc is not None:
+            clock_delta = int(
+                (device_utc - sat_utc.replace(tzinfo=timezone.utc)).total_seconds())
+        drift = clock_delta is not None and abs(clock_delta) > 300
+
+        has_ts = any(
+            v is not None for v in (dto, dtd, gps_date, gps_time, subsec_o, subsec_d)
+        )
+        return {
+            "datetime_original": dto,
+            "datetime_digitized": dtd,
+            "offset_time": offset,
+            "offset_time_original": offset_orig,
+            "offset_time_digitized": offset_dig,
+            "subsec_time_original": subsec_o,
+            "subsec_time_digitized": subsec_d,
+            "gps_date_stamp": gps_date,
+            "gps_time_stamp": gps_time,
+            "device_clock_utc": (
+                device_utc.isoformat() if device_utc is not None else None),
+            "satellite_clock_utc": (
+                sat_utc.isoformat() + "Z" if sat_utc is not None else None),
+            "clock_delta_seconds": clock_delta,
+            "clock_drift_detected": drift,
+            "has_timestamps": has_ts,
+        }
+
+    # -- Pillar 3: Hardware Provenance & Digital Fingerprinting ---------- #
+    def _pillar_device(self, zeroth: dict, exif: dict) -> dict:
+        make = _ifd_text(zeroth, piexif.ImageIFD.Make)
+        model = _ifd_text(zeroth, piexif.ImageIFD.Model)
+        software = _ifd_text(zeroth, piexif.ImageIFD.Software)
+        artist = _ifd_text(zeroth, piexif.ImageIFD.Artist)
+        copyright_ = _ifd_text(zeroth, piexif.ImageIFD.Copyright)
+
+        lens_make = _ifd_text(exif, piexif.ExifIFD.LensMake)
+        lens_model = _ifd_text(exif, piexif.ExifIFD.LensModel)
+        lens_serial = _ifd_text(exif, piexif.ExifIFD.LensSerialNumber)
+        body_serial = _ifd_text(exif, _TAG_BODY_SERIAL_NUMBER)
+        owner = _ifd_text(exif, _TAG_OWNER_NAME)
+        image_unique_id = _ifd_text(exif, _TAG_IMAGE_UNIQUE_ID)
+
+        profile_strings = {
+            k: v for k, v in {
+                "owner_name": owner,
+                "artist": artist,
+                "copyright": copyright_,
+            }.items() if v is not None
+        } or None
+        has_prov = any(
+            v is not None for v in (
+                make, model, body_serial, lens_model, lens_serial,
+                image_unique_id, software, owner, artist, copyright_,
+            )
+        )
+        return {
+            "make": make,
+            "model": model,
+            "lens_make": lens_make,
+            "lens_model": lens_model,
+            "body_serial_number": body_serial,
+            "lens_serial_number": lens_serial,
+            "software": software,
+            "image_unique_id": image_unique_id,
+            "owner_name": owner,
+            "artist": artist,
+            "copyright": copyright_,
+            "profile_strings": profile_strings,
+            "has_provenance": has_prov,
+        }
+
+    # -- Pillar 4: Photographic Capture Diagnostics (How) ---------------- #
+    def _pillar_capture(self, exif: dict) -> dict:
+        exposure = _rational_val(exif.get(piexif.ExifIFD.ExposureTime))
+        fnum = _rational_val(exif.get(piexif.ExifIFD.FNumber))
+        aper = _rational_val(exif.get(piexif.ExifIFD.ApertureValue))
+        shutter = _rational_val(exif.get(piexif.ExifIFD.ShutterSpeedValue))
+        iso = _ifd_int(exif, piexif.ExifIFD.ISOSpeedRatings)
+        flash = _ifd_int(exif, piexif.ExifIFD.Flash)
+        focal = _rational_val(exif.get(piexif.ExifIFD.FocalLength))
+        focal35 = _ifd_int(exif, piexif.ExifIFD.FocalLengthIn35mmFilm)
+        metering = _ifd_int(exif, piexif.ExifIFD.MeteringMode)
+        light = _ifd_int(exif, piexif.ExifIFD.LightSource)
+        sensing = _ifd_int(exif, piexif.ExifIFD.SensingMethod)
+        program = _ifd_int(exif, piexif.ExifIFD.ExposureProgram)
+
+        exposure_str = None
+        if exposure:
+            try:
+                n = round(1.0 / exposure)
+                exposure_str = (
+                    f"1/{n}" if abs(1.0 / exposure - n) < 0.05
+                    else f"{exposure:.6f}s")
+            except (ZeroDivisionError, ValueError):
+                exposure_str = None
+
+        has_cap = any(
+            v is not None for v in (
+                exposure, fnum, aper, shutter, iso, flash, focal, focal35,
+                metering, light, sensing, program,
+            )
+        )
+        return {
+            "exposure_time": exposure,
+            "exposure_time_str": exposure_str,
+            "f_number": fnum,
+            "aperture_value": aper,
+            "shutter_speed_value": shutter,
+            "iso": iso,
+            "flash": flash,
+            "flash_fired": _flash_fired(flash),
+            "focal_length": focal,
+            "focal_length_35mm": focal35,
+            "metering_mode": metering,
+            "light_source": light,
+            "sensing_method": sensing,
+            "exposure_program": program,
+            "has_capture": has_cap,
+        }
+
+    # -- Derived intelligence over the 4 pillars ------------------------- #
+    @staticmethod
+    def _pillar_analysis(geospatial: dict, temporal: dict,
+                         device: dict, capture: dict) -> dict:
+        conflicts: list[str] = []
+        if (geospatial.get("has_coordinates")
+                and geospatial.get("dest_latitude_decimal") is not None
+                and geospatial.get("dest_longitude_decimal") is not None
+                and geospatial.get("latitude_decimal") is not None
+                and geospatial.get("longitude_decimal") is not None):
+            d = _haversine_m(
+                geospatial["latitude_decimal"], geospatial["longitude_decimal"],
+                geospatial["dest_latitude_decimal"],
+                geospatial["dest_longitude_decimal"],
+            )
+            if d > 1000:
+                conflicts.append(f"dest_coordinates_differ:{d:.0f}m")
+        if geospatial.get("has_coordinates") and not geospatial.get(
+                "coords_plausible"):
+            conflicts.append("implausible_coordinates")
+
+        subsec_reasons: list[str] = []
+        so = temporal.get("subsec_time_original")
+        sd = temporal.get("subsec_time_digitized")
+        if so is not None and so.strip("0") == "":
+            subsec_reasons.append("all_zero_subsec_original")
+        if sd is not None and sd.strip("0") == "":
+            subsec_reasons.append("all_zero_subsec_digitized")
+        if so and sd and so == sd:
+            subsec_reasons.append("identical_subsec_both_clocks")
+
+        fingerprint = None
+        profile = [str(device.get(k)).lower().strip() for k in (
+            "make", "model", "body_serial_number", "lens_model",
+            "lens_serial_number", "software", "owner_name",
+        ) if device.get(k)]
+        if profile:
+            fingerprint = hashlib.sha256(
+                "|".join(profile).encode()).hexdigest()[:32]
+
+        return {
+            "pillars_present": {
+                "geospatial": bool(geospatial.get("has_coordinates")),
+                "temporal": bool(temporal.get("has_timestamps")),
+                "device": bool(device.get("has_provenance")),
+                "capture": bool(capture.get("has_capture")),
+            },
+            "clock_drift_detected": bool(temporal.get("clock_drift_detected")),
+            "dop_quality": geospatial.get("dop_quality"),
+            "subsec_anomaly_detected": bool(subsec_reasons),
+            "subsec_anomaly_reasons": subsec_reasons,
+            "geospatial_conflicts": conflicts,
+            "unique_fingerprint": fingerprint,
+        }
 
     @staticmethod
     def decode_base64_image(b64: str) -> bytes:

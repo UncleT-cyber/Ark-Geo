@@ -41,6 +41,14 @@ import {
   Crosshair,
   Radar,
   FolderSearch,
+  Cpu,
+  Bug,
+  ShieldAlert,
+  Wifi,
+  PackageSearch,
+  Frown,
+  GitBranch,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -79,6 +87,17 @@ export const FOOTER_ICONS = {
   profile: User,
 } as const;
 
+/** Vulnerability Assessment 7-track module icons (VULN domain rail). */
+export const VULN_ICONS = {
+  nuclei: Zap,
+  openvas: ShieldAlert,
+  nmap: Network,
+  owasp: PackageSearch,
+  proton: Bug,
+  shadow: GitBranch,
+  aegis: Cpu,
+} as const;
+
 /** Image investigation sub-view icons (sidebar navigation within IMAGE domain). */
 export const SUBVIEW_ICONS = {
   overview: Microscope,
@@ -101,6 +120,8 @@ export const SIDEBAR_ICONS = {
 export const CONSOLE_ICONS = {
   problems: AlertTriangle,
   log: Activity,
+  plan: ClipboardList,
+  agent: Cpu,
   evidence: FileSearch,
   audit: ShieldCheck,
   terminal: Terminal,

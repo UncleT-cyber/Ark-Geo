@@ -10,9 +10,9 @@
  * Every major finding is clickable and opens the relevant forensic sub-view.
  */
 import React from 'react';
-import { Check, HelpCircle, AlertTriangle, ArrowRight, MapPin } from 'lucide-react';
+import { Check, HelpCircle, AlertTriangle, ArrowRight, MapPin, PlayCircle } from 'lucide-react';
 import { MapWorkspace } from '../../MapWorkspace/MapWorkspace';
-import type { AnalyzeResponse } from '../../../types';
+import type { AnalyzeResponse, NextStep } from '../../../types';
 import type { ToolTabId } from '../TabBar';
 
 interface InvestigationOverviewProps {
@@ -21,6 +21,8 @@ interface InvestigationOverviewProps {
   thumbnailUrl?: string;
   onCopyCoords?: () => void;
   onGeofenceViolation?: (point: { lat: number; lon: number }) => void;
+  /** Launch a real ARK AI investigation for a recommended next step. */
+  onInvestigateNext?: (step: NextStep) => void;
 }
 
 function confidenceColor(conf: number): string {
@@ -40,13 +42,24 @@ function stateColor(state: string): string {
   }
 }
 
-export function InvestigationOverview({ result, onOpenTool, thumbnailUrl, onCopyCoords, onGeofenceViolation }: InvestigationOverviewProps) {
+export function InvestigationOverview({ result, onOpenTool, thumbnailUrl, onCopyCoords, onGeofenceViolation, onInvestigateNext }: InvestigationOverviewProps) {
   const summary = result.evidence_summary;
   if (!summary) return null;
   const confColor = confidenceColor(summary.confidence);
   const provColor = stateColor(result.provenance?.state || 'UNAVAILABLE');
   const integColor = stateColor(summary.integrity);
   const coords = result.coordinates;
+
+  const imint = result.image_intelligence;
+  const screenshotLikely = imint?.analysis?.is_screenshot_likely;
+  const visionUnconfigured = result.source === 'EXIF_MISSING_NO_AI_KEY';
+  const tags = result.consensus?.visual_evidence_tags || [];
+  const ocrClues = tags.filter((t) => t.category === 'ocr').length;
+  const objectClues = tags.filter((t) => t.category === 'infrastructure').length;
+  const pillars = imint?.analysis?.pillars_present;
+  const pillarCount = pillars
+    ? Object.values(pillars).filter(Boolean).length
+    : 0;
 
   const mapPoints = coords
     ? [{
@@ -67,6 +80,13 @@ export function InvestigationOverview({ result, onOpenTool, thumbnailUrl, onCopy
         <div className="overview-case-id mono">Case {result.request_id.slice(0, 8).toUpperCase()}</div>
       </div>
 
+      {summary.image_classification && (
+        <div className="overview-class-badge">
+          <span className="overview-class-label">ASSET TYPE</span>
+          <span className="overview-class-value">{summary.image_classification}</span>
+        </div>
+      )}
+
       {/* MAP-FIRST: the spatial workspace is always visible at the top. */}
       <div className="overview-map-container">
         <MapWorkspace
@@ -80,9 +100,40 @@ export function InvestigationOverview({ result, onOpenTool, thumbnailUrl, onCopy
             <div className="location-not-established-card">
               <div className="location-not-established-icon"><MapPin className="w-8 h-8" /></div>
               <div className="location-not-established-title">Location Not Established</div>
+              {screenshotLikely && (
+                <div className="location-recovery-badges">
+                  <span className="location-recovery-badge">SCREENSHOT LIKELY</span>
+                  <span className="location-recovery-badge">METADATA STRIPPED</span>
+                </div>
+              )}
               <div className="location-not-established-text">
                 {result.message || 'No GPS coordinates or AI-derived location for this image.'}
               </div>
+
+              <div className="location-recovery-signals">
+                <div className="location-recovery-signal-title">RECOVERY SIGNALS</div>
+                <div className="location-recovery-signal-row">
+                  <span className="location-recovery-signal-key">EXIF Pillars</span>
+                  <span className="location-recovery-signal-val">{pillarCount}/4 present</span>
+                </div>
+                <div className="location-recovery-signal-row">
+                  <span className="location-recovery-signal-key">OCR Text Clues</span>
+                  <span className="location-recovery-signal-val">{ocrClues + objectClues}</span>
+                </div>
+                {visionUnconfigured && (
+                  <div className="location-recovery-signal-row">
+                    <span className="location-recovery-signal-key">Vision Geolocation</span>
+                    <span className="location-recovery-signal-val location-recovery-signal-warn">NO AI KEYS CONFIGURED</span>
+                  </div>
+                )}
+                {!visionUnconfigured && (
+                  <div className="location-recovery-signal-row">
+                    <span className="location-recovery-signal-key">Vision Geolocation</span>
+                    <span className="location-recovery-signal-val">RUN — no candidate found</span>
+                  </div>
+                )}
+              </div>
+
               <button className="location-not-established-action" onClick={() => onOpenTool('spatial')}>
                 Open Spatial Workspace →
               </button>
@@ -102,6 +153,43 @@ export function InvestigationOverview({ result, onOpenTool, thumbnailUrl, onCopy
         )}
       </div>
 
+      {summary.location_hypothesis && (
+        <div className="overview-location-hypothesis">
+          <div className="overview-section-title">LOCATION HYPOTHESIS (GPS-OFF)</div>
+          <div className="location-hyp-note">{summary.location_hypothesis.note}</div>
+          {summary.location_hypothesis.hypothesis && (
+            <div className="location-hyp-coords mono">
+              {summary.location_hypothesis.hypothesis.lat.toFixed(5)}, {summary.location_hypothesis.hypothesis.lon.toFixed(5)}
+              <span className="location-hyp-conf">{Math.round(summary.location_hypothesis.confidence * 100)}% hypothesis</span>
+            </div>
+          )}
+          {summary.location_hypothesis.clues.length > 0 && (
+            <div className="location-hyp-clues">
+              <span className="location-hyp-subtitle">GEOGRAPHIC CLUES</span>
+              {summary.location_hypothesis.clues.slice(0, 5).map((c, i) => (
+                <div key={i} className="location-hyp-clue"><MapPin className="w-3 h-3" /> {c}</div>
+              ))}
+            </div>
+          )}
+          {summary.location_hypothesis.supporting.length > 0 && (
+            <div className="location-hyp-sup">
+              <span className="location-hyp-subtitle">SUPPORTING</span>
+              {summary.location_hypothesis.supporting.map((s, i) => (
+                <span key={i} className="location-hyp-badge location-hyp-sup-badge">{s.label}</span>
+              ))}
+            </div>
+          )}
+          {summary.location_hypothesis.contradicting.length > 0 && (
+            <div className="location-hyp-sup">
+              <span className="location-hyp-subtitle">CONTRADICTING</span>
+              {summary.location_hypothesis.contradicting.map((s, i) => (
+                <span key={i} className="location-hyp-badge location-hyp-con-badge">{s.label}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="overview-tiles">
         <button className="overview-tile" onClick={() => onOpenTool('spatial')}>
           <div className="overview-tile-label">LOCATION</div>
@@ -114,7 +202,7 @@ export function InvestigationOverview({ result, onOpenTool, thumbnailUrl, onCopy
         <button className="overview-tile" onClick={() => onOpenTool('fileforensics')}>
           <div className="overview-tile-label">INTEGRITY</div>
           <div className="overview-tile-value" style={{ color: integColor }}>{summary.integrity}</div>
-          <div className="overview-tile-sub">{result.exif_missing ? 'EXIF stripped' : 'EXIF present'}</div>
+          <div className="overview-tile-sub">{result.exif_missing ? 'EXIF stripped' : 'EXIF present'}{screenshotLikely ? ' · screenshot' : ''}</div>
         </button>
 
         <button className="overview-tile" onClick={() => onOpenTool('provenance')}>
@@ -168,8 +256,18 @@ export function InvestigationOverview({ result, onOpenTool, thumbnailUrl, onCopy
 
         <div className="overview-section overview-next">
           <div className="overview-section-title">INVESTIGATE NEXT</div>
+          {summary.next_steps.length === 0 && <div className="overview-item-muted">No further steps recommended</div>}
           {summary.next_steps.map((k, i) => (
-            <div key={i} className="overview-item overview-item-next"><ArrowRight className="w-3.5 h-3.5" /> {k}</div>
+            <div key={i} className="overview-next-row">
+              <span className="overview-item overview-item-next"><ArrowRight className="w-3.5 h-3.5" /> {k.action}</span>
+              <button
+                className="investigate-next-btn"
+                onClick={() => onInvestigateNext?.(k)}
+                title={k.reason}
+              >
+                <PlayCircle className="w-3.5 h-3.5" /> Investigate
+              </button>
+            </div>
           ))}
         </div>
       </div>

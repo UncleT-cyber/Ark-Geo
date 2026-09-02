@@ -24,6 +24,14 @@ logger = logging.getLogger("arkgeo")
 async def lifespan(app: FastAPI):
     deadman.start()
     logger.info("ArkGeo backend started (v%s)", settings.app_version)
+    # Synchronise THE ARK forensic suite with 100% of native CAI tools/roles
+    # and print the ARK-CAI initialisation banner in the terminal.
+    try:
+        from app.engine.cai.registry import print_startup_report
+
+        print_startup_report()
+    except Exception as exc:  # pragma: no cover - never block startup
+        logger.warning("ARK-CAI startup report skipped: %s", exc)
     yield
     deadman.stop()
     logger.info("ArkGeo backend stopped")

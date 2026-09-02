@@ -17,10 +17,9 @@ import uuid
 from fastapi import APIRouter, File, Header, HTTPException, UploadFile, Request
 
 from app.brain.metadata_extractor import MetadataExtractor
-from app.brain.pipeline import brain
 from app.core.config import settings
 from app.core.security import validate_magic_bytes
-from app.models import AnalyzeResponse, AnalyzeRequest, CustodyCertificate
+from app.models import AnalyzeResponse, AnalyzeRequest, CustodyCertificate, ReverseSearchRequest
 from app.services.storage_service import storage
 
 router = APIRouter()
@@ -51,12 +50,13 @@ async def _run_cascade(
     # ---- Storage (skipped entirely in zero-retention RAM-only mode) -------
     stored = storage.store_image(image_bytes, zero_retention=retention)
 
-    # ---- Run the full cascade pipeline ------------------------------------
-    cascade = await brain.analyze(
-        image_bytes,
-        run_indoor=run_indoor,
-        request_id=request_id,
-    )
+    # ---- Run the full cascade pipeline (unified ARK-CAI engine) -----------
+    # The IMAGE workspace analysis is executed through the agent/tool_registry
+    # substrate's ``brain_analyze`` tool, so image intelligence flows through the
+    # same single engine as every other workspace.
+    from app.agent.unified_registry import unified_registry as _agent_registry
+
+    cascade = await _agent_registry.acall("brain_analyze", image_bytes=image_bytes)
 
     # ---- Zero-retention cleanup -------------------------------------------
     if retention:
@@ -81,8 +81,12 @@ async def _run_cascade(
         steganography_detected=cascade.steganography_detected,
         trailing_bytes_count=cascade.trailing_bytes_count,
         exif_missing=cascade.exif_missing,
+        metadata_status=getattr(cascade, "metadata_status", None),
+        geo_candidates=getattr(cascade, "geo_candidates", []),
+        candidate_regions=getattr(cascade, "candidate_regions", []),
         file_format=cascade.file_format or detected_format,
         ela_heatmap=cascade.ela_heatmap,
+        image_intelligence=cascade.image_intelligence,
         gps_spoofing_detected=cascade.gps_spoofing_detected,
         anomaly_score=cascade.anomaly_score,
         sanity_mismatches=cascade.sanity_mismatches,
@@ -96,6 +100,19 @@ async def _run_cascade(
         contradictions=getattr(cascade, "contradictions", []),
         evidence_summary=getattr(cascade, "evidence_summary", None),
         analysis_log=getattr(cascade, "analysis_log", []),
+        streetview=getattr(cascade, "streetview", None),
+        ai_evidence=getattr(cascade, "ai_evidence", None),
+        evidence_graph=getattr(cascade, "evidence_graph", None),
+        search_radius_meters=getattr(cascade, "search_radius_meters", None),
+        observations=getattr(cascade, "observations", []),
+        image_classification=getattr(cascade, "image_classification", None),
+        # ---- Step 1 / Step 3 surfaced for the investigation report --------
+        recovered_original=getattr(cascade, "recovered_original", None),
+        probability_surface=getattr(cascade, "probability_surface", None),
+        credible_interval_radius=getattr(cascade, "credible_interval_radius", None),
+        satellite_crossref=getattr(cascade, "satellite_crossref", None),
+        # ---- AI Intelligence Layer ----------------------------------------
+        ai_intelligence=getattr(cascade, "ai_intelligence", None),
     )
 
 
@@ -143,3 +160,27 @@ async def analyze_base64(
     return await _run_cascade(
         image_bytes, request_id, zero_retention, request.run_indoor_prompt,
     )
+
+
+@router.post("/analyze/reverse-search", response_model=dict)
+async def reverse_search(request: ReverseSearchRequest):
+    """On-demand reverse source search (the ``[ 🌐 Search Visual Identifiers ]``
+    button in the Metadata Panel).
+
+    Computes the local perceptual hash and queries any configured reverse-source
+    provider (TinEye / Serper).  Honest-by-design: when no provider is configured
+    it returns the structured ``UNAVAILABLE`` result — never fabricated matches.
+    """
+    from app.agent.unified_registry import unified_registry as _tool_registry
+
+    try:
+        image_bytes = MetadataExtractor.decode_base64_image(request.image_base64)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid image_base64: {exc}")
+
+    result = await _tool_registry.acall(
+        "search_reverse_source",
+        image_bytes=image_bytes,
+        search_query=request.search_query,
+    )
+    return result if isinstance(result, dict) else {"state": "UNAVAILABLE", "detail": "Reverse search unavailable."}

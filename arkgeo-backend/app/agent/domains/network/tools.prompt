@@ -1,0 +1,16 @@
+# NETWORK TOOLS
+
+Registered tools for the network domain:
+- discover_hosts — enumerate hosts/services within the authorized
+  scope (low risk, read-only).
+- fingerprint_service — identify service versions on discovered
+  hosts (elevated risk, read-only).
+- port_scan — probe exposure on discovered hosts (high risk;
+  step-confirm required before execution).
+- tls_inspect — inspect TLS certificates on exposed services
+  (elevated risk, read-only).
+
+Execute in investigation order: discover → fingerprint → (on
+approval) probe → inspect. High-risk tools are proposed to the
+analyst and executed only after step confirmation. Never run a
+tool against a target outside the authorized scope.

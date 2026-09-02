@@ -1,0 +1,267 @@
+/* ==========================================================================
+   CLIENT SETTINGS & BYOK DASHBOARD — Tactical Cyber / Dark Operations
+   Theme: deep void #090D11 · surface #11161B · border #1E2630
+   Accent: Cyan / Tactical Blue #06B6D4 primary, #0891B2 secondary with
+   glowing pill borders (border-cyan-500/20 = rgba(6,182,212,0.2),
+   shadow-cyan-500/5 = rgba(6,182,212,0.05)).  Inter + JetBrains Mono,
+   rounded-2xl cards, left-bordered active nav tabs.
+   ========================================================================== */
+
+.ark-settings {
+  --cs-bg: #090D11;
+  --cs-surface: #11161B;
+  --cs-surface-2: #161D26;
+  --cs-border: #1E2630;
+  --cs-border-soft: rgba(30, 38, 48, 0.6);
+  --cs-accent: #06B6D4;
+  --cs-accent-2: #0891B2;
+  --cs-accent-glow: rgba(6, 182, 212, 0.2);
+  --cs-accent-soft: rgba(6, 182, 212, 0.08);
+  --cs-success: #10B981;
+  --cs-danger: #EF4444;
+  --cs-warning: #F59E0B;
+  --cs-text: #F9FAFB;
+  --cs-text-2: #9CA3AF;
+  --cs-text-3: #6B7280;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* ---------------- Modal shell ---------------- */
+.ark-settings-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(4, 6, 8, 0.72);
+  backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+}
+.ark-settings-modal {
+  width: min(980px, 94vw); height: min(680px, 92vh);
+  background: var(--cs-bg);
+  border: 1px solid var(--cs-border);
+  border-radius: 18px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6), 0 0 50px rgba(6, 182, 212, 0.05);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+/* ---------------- Header ---------------- */
+.ark-settings-header {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 20px;
+  background: var(--cs-surface);
+  border-bottom: 1px solid var(--cs-border);
+}
+.ark-settings-header-title { display: flex; flex-direction: column; gap: 2px; }
+.ark-settings-title {
+  font-size: 15px; font-weight: 700; letter-spacing: 1.5px; color: var(--cs-text);
+  font-family: 'JetBrains Mono', monospace;
+}
+.ark-settings-subtitle { font-size: 11px; color: var(--cs-text-3); font-family: 'JetBrains Mono', monospace; }
+.ark-settings-plan-badge {
+  font-size: 9.5px; letter-spacing: 1.5px; font-family: 'JetBrains Mono', monospace;
+  color: #A5F3FC; background: var(--cs-accent-soft);
+  border: 1px solid var(--cs-accent-glow);
+  padding: 4px 12px; border-radius: 999px;
+  box-shadow: 0 0 14px rgba(6, 182, 212, 0.12);
+  white-space: nowrap;
+}
+.ark-settings-header-spacer { flex: 1; }
+.ark-settings-close {
+  background: transparent; border: 1px solid var(--cs-border); color: var(--cs-text-2);
+  width: 32px; height: 32px; border-radius: 10px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s;
+}
+.ark-settings-close:hover { color: var(--cs-danger); border-color: rgba(239, 68, 68, 0.5); }
+
+/* ---------------- Body: sidebar + panel ---------------- */
+.ark-settings-body { display: flex; flex: 1; min-height: 0; }
+.ark-settings-tabs {
+  width: 228px; flex-shrink: 0;
+  background: var(--cs-surface);
+  border-right: 1px solid var(--cs-border);
+  padding: 12px 10px; overflow-y: auto;
+}
+.ark-settings-tab {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 10px 12px; margin-bottom: 2px;
+  background: transparent; border: none; border-left: 3px solid transparent;
+  border-radius: 10px; color: var(--cs-text-2); font-size: 13px;
+  text-align: left; cursor: pointer; transition: all 0.15s;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+.ark-settings-tab:hover { background: var(--cs-surface-2); color: var(--cs-text); }
+.ark-settings-tab-active {
+  background: var(--cs-accent-soft);
+  border-left-color: var(--cs-accent);
+  color: var(--cs-text);
+  box-shadow: inset 0 0 0 1px var(--cs-accent-glow), 0 0 16px rgba(6, 182, 212, 0.06);
+}
+.ark-settings-tab svg { flex-shrink: 0; }
+.ark-settings-tab-active svg { color: var(--cs-accent); }
+
+.ark-settings-panel { flex: 1; padding: 20px 24px; overflow-y: auto; min-width: 0; }
+.ark-settings-panel-title { font-size: 16px; font-weight: 700; color: var(--cs-text); margin: 0 0 2px; }
+.ark-settings-panel-desc { font-size: 12.5px; color: var(--cs-text-2); margin: 0 0 18px; }
+
+/* ---------------- Cards ---------------- */
+.ark-cs-card {
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-border);
+  border-radius: 16px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ark-cs-card:hover { border-color: var(--cs-accent-glow); box-shadow: 0 0 18px rgba(6, 182, 212, 0.05); }
+.ark-cs-card-title {
+  font-size: 11px; letter-spacing: 1.8px; text-transform: uppercase;
+  color: var(--cs-accent); font-family: 'JetBrains Mono', monospace;
+  margin: 0 0 12px; display: flex; align-items: center; gap: 8px;
+}
+
+/* ---------------- BYOK key rows ---------------- */
+.ark-byok-row {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 0; border-bottom: 1px solid var(--cs-border-soft);
+}
+.ark-byok-row:last-child { border-bottom: none; }
+.ark-byok-head { display: flex; align-items: center; gap: 10px; }
+.ark-byok-label { font-size: 13px; font-weight: 600; color: var(--cs-text); }
+.ark-byok-hint { font-size: 11px; color: var(--cs-text-3); margin-left: 2px; }
+.ark-byok-input-row { display: flex; align-items: center; gap: 8px; }
+.ark-byok-input-wrap { position: relative; flex: 1; }
+.ark-byok-input {
+  width: 100%; padding: 9px 38px 9px 12px;
+  background: var(--cs-surface-2); border: 1px solid var(--cs-border);
+  border-radius: 10px; color: var(--cs-text); font-size: 13px;
+  font-family: 'JetBrains Mono', monospace; outline: none; transition: border-color 0.15s;
+}
+.ark-byok-input:focus { border-color: var(--cs-accent); box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.1); }
+.ark-byok-eye {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  background: transparent; border: none; color: var(--cs-text-3); cursor: pointer; padding: 4px;
+}
+.ark-byok-eye:hover { color: var(--cs-accent); }
+
+.ark-byok-test {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 10px; font-size: 11.5px; font-weight: 600;
+  font-family: 'JetBrains Mono', monospace; cursor: pointer;
+  background: var(--cs-surface-2); border: 1px solid var(--cs-border); color: var(--cs-text-2);
+  transition: all 0.15s;
+}
+.ark-byok-test:hover:not(:disabled) { border-color: var(--cs-accent); color: var(--cs-accent); }
+.ark-byok-test:disabled { opacity: 0.5; cursor: wait; }
+
+.ark-key-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 10px; letter-spacing: 1px; font-family: 'JetBrains Mono', monospace;
+  padding: 3px 10px; border-radius: 999px; border: 1px solid transparent; white-space: nowrap;
+}
+.ark-key-valid { color: #6EE7B7; background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.3); box-shadow: 0 0 12px rgba(16, 185, 129, 0.08); }
+.ark-key-invalid { color: #FCA5A5; background: rgba(239, 68, 68, 0.1); border-color: rgba(239, 68, 68, 0.3); }
+.ark-key-testing { color: #FCD34D; background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.3); }
+.ark-key-detail { font-size: 10px; color: var(--cs-text-3); font-family: 'JetBrains Mono', monospace; }
+
+/* ---------------- Override toggle ---------------- */
+.ark-byok-override {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 11.5px; color: var(--cs-text-2); cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+}
+.ark-check-cs { width: 16px; height: 16px; accent-color: var(--cs-accent); cursor: pointer; }
+.ark-source-tag {
+  font-size: 9px; letter-spacing: 1px; font-family: 'JetBrains Mono', monospace;
+  padding: 2px 8px; border-radius: 999px; border: 1px solid var(--cs-border); color: var(--cs-text-3);
+}
+.ark-source-byok { color: #A5F3FC; border-color: var(--cs-accent-glow); background: var(--cs-accent-soft); }
+.ark-source-system { color: #FCD34D; border-color: rgba(245, 158, 11, 0.25); background: rgba(245, 158, 11, 0.08); }
+.ark-source-env { color: #C4B5FD; border-color: rgba(139, 92, 246, 0.25); background: rgba(139, 92, 246, 0.08); }
+
+/* ---------------- Radio groups ---------------- */
+.ark-radio-group { display: flex; flex-direction: column; gap: 8px; }
+.ark-radio {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 14px; border-radius: 12px;
+  background: var(--cs-surface-2); border: 1px solid var(--cs-border); cursor: pointer;
+  transition: all 0.15s;
+}
+.ark-radio:hover { border-color: var(--cs-accent-glow); }
+.ark-radio-active { border-color: var(--cs-accent); box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.08); }
+.ark-radio input { accent-color: var(--cs-accent); margin-top: 2px; }
+.ark-radio-label { font-size: 13px; font-weight: 600; color: var(--cs-text); }
+.ark-radio-desc { font-size: 11px; color: var(--cs-text-3); margin-top: 1px; }
+
+/* ---------------- Inputs ---------------- */
+.ark-cs-input, .ark-cs-select {
+  background: var(--cs-surface-2); border: 1px solid var(--cs-border);
+  color: var(--cs-text); border-radius: 10px; padding: 9px 12px; font-size: 13px;
+  font-family: 'JetBrains Mono', monospace; outline: none; width: 100%;
+  transition: border-color 0.15s;
+}
+.ark-cs-input:focus, .ark-cs-select:focus { border-color: var(--cs-accent); box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.1); }
+.ark-cs-field { display: flex; flex-direction: column; gap: 6px; }
+.ark-cs-field-label { font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--cs-text-3); font-family: 'JetBrains Mono', monospace; }
+.ark-cs-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* ---------------- Vault (saved cases) ---------------- */
+.ark-vault-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 12px; border-radius: 12px;
+  background: var(--cs-surface-2); border: 1px solid var(--cs-border);
+  margin-bottom: 8px; transition: all 0.15s;
+}
+.ark-vault-row:hover { border-color: var(--cs-accent-glow); }
+.ark-vault-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ark-vault-id { font-size: 11px; color: var(--cs-accent); font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+.ark-vault-file { font-size: 12px; color: var(--cs-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ark-vault-meta { font-size: 10px; color: var(--cs-text-3); font-family: 'JetBrains Mono', monospace; }
+.ark-vault-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.ark-vault-clear-confirm {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 12px; padding: 11px 12px; border-radius: 10px;
+  background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.35);
+  font-size: 12px; color: var(--cs-text-2);
+}
+.ark-vault-clear-confirm > span { flex: 1; min-width: 180px; }
+
+/* ---------------- Gauge ---------------- */
+.ark-cs-gauge { height: 9px; border-radius: 999px; background: var(--cs-surface-2); border: 1px solid var(--cs-border); overflow: hidden; }
+.ark-cs-gauge-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--cs-accent-2), var(--cs-accent)); box-shadow: 0 0 12px rgba(6, 182, 212, 0.4); transition: width 0.4s ease; }
+.ark-cs-gauge-row { display: flex; justify-content: space-between; font-size: 11px; color: var(--cs-text-2); font-family: 'JetBrains Mono', monospace; margin-bottom: 6px; }
+.ark-cs-gauge-cap { color: var(--cs-accent); font-weight: 700; }
+
+/* ---------------- Support ---------------- */
+.ark-support-heart { width: 44px; height: 44px; border-radius: 14px; background: rgba(255, 160, 122, 0.1); border: 1px solid rgba(255, 160, 122, 0.3); display: inline-flex; align-items: center; justify-content: center; color: #FDA4AF; }
+.ark-link-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 9px 16px; border-radius: 12px; font-size: 12.5px; font-weight: 600;
+  border: 1px solid var(--cs-border); background: var(--cs-surface-2); color: var(--cs-text-2);
+  cursor: pointer; text-decoration: none; transition: all 0.15s;
+}
+.ark-link-btn:hover { border-color: var(--cs-accent); color: var(--cs-accent); }
+
+/* ---------------- Toast inside modal ---------------- */
+.ark-settings-footer {
+  padding: 12px 20px; border-top: 1px solid var(--cs-border);
+  background: var(--cs-surface);
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 10.5px; color: var(--cs-text-3); font-family: 'JetBrains Mono', monospace;
+}
+
+/* ---------------- Buttons ---------------- */
+.ark-cs-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 14px; border-radius: 10px; font-size: 12px; font-weight: 600;
+  font-family: 'JetBrains Mono', monospace; cursor: pointer;
+  border: 1px solid var(--cs-border); background: var(--cs-surface-2); color: var(--cs-text);
+  transition: all 0.15s;
+}
+.ark-cs-btn:hover:not(:disabled) { border-color: var(--cs-accent); color: var(--cs-accent); }
+.ark-cs-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.ark-cs-btn-primary {
+  background: var(--cs-accent); border-color: var(--cs-accent); color: #052E33; font-weight: 700;
+  box-shadow: 0 0 18px rgba(6, 182, 212, 0.25);
+}
+.ark-cs-btn-primary:hover:not(:disabled) { background: #22D3EE; border-color: #22D3EE; color: #052E33; }
+.ark-cs-btn-danger { border-color: rgba(239, 68, 68, 0.5); color: #FCA5A5; }
+.ark-cs-btn-danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.12); color: #FECACA; }
+.ark-cs-btn-sm { padding: 4px 10px; font-size: 10.5px; border-radius: 8px; }

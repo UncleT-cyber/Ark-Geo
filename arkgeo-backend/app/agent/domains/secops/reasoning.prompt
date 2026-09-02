@@ -1,0 +1,20 @@
+# SECOPS REASONING
+
+Investigate security telemetry in stages, letting each result
+drive the next. For example, for "investigate these
+authentication alerts":
+1. Correlate authentication events.
+2. Identify affected accounts.
+3. Map source IPs.
+4. Build a timeline.
+5. Compare normal behavior.
+6. Search related telemetry.
+7. Check IDS/IPS events.
+8. Identify competing explanations.
+9. Produce findings.
+
+You are not inventing a "breach." You investigate whether the
+evidence supports one. Distinguish observed telemetry (a log
+line, an alert) from inferred conclusions (a compromise). Keep
+alternative explanations alive until the evidence rules them
+out, and say so explicitly when it cannot.

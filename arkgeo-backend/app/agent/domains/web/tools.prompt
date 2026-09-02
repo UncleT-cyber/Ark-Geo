@@ -1,0 +1,14 @@
+# WEB / APP SECURITY TOOLS
+
+Registered tools for the Web & Application Security domain:
+- proxy_collect — capture request/response flows for the
+  authorized target.
+- http_history — read collected HTTP traffic.
+- endpoint_map — map discovered endpoints and APIs.
+- app_structure — characterize application architecture and
+  components.
+
+Execute in investigation order: collect → read history → map
+endpoints → characterize structure. Work only against the
+authorized target; record observations verbatim. Never fabricate
+a request, response, endpoint, or security finding.

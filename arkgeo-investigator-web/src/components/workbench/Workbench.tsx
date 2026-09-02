@@ -1,16 +1,16 @@
 /**
- * Workbench — the main THE ARK investigation workstation.
+ * Workbench — the main THE ARK ISE investigation workstation.
  *
- * Information architecture is organized by INVESTIGATION DOMAINS:
+ * Information architecture is organized by INVESTIGATION WORKSPACES:
  *   THE ARK
- *   ├── IMAGE   — complete image-intelligence lifecycle (primary)
+ *   ├── IMAGE   — Image Intelligence Workspace (primary)
  *   │     Upload → Scan → Investigation (map-first) → Forensics → OCR/Vision
  *   │     → Source Discovery → Provenance → Evidence/Audit/Output → Report
- *   ├── NETWORK — network telemetry (structural placeholder)
- *   ├── SECOPS  — Threat & Security Operations (structural placeholder)
+ *   ├── NETWORK — Network Workspace (structural placeholder)
+ *   ├── SECOPS  — Threat & SecOps Workspace (structural placeholder)
  *   │     SIEM · IDS/IPS · Threat Hunting · Detection & Correlation
  *   │     · Incident Management · Security Operations
- *   └── CASES   — cross-domain case layer (saved sessions & audit vault)
+ *   └── CASES   — Case Workspace (cross-domain saved sessions & audit vault)
  *
  * The PROFILE icon (TopBar + ActivityBar footer) opens the Investigator
  * Profile Modal — it NEVER links to Admin. Admin is a protected control
@@ -24,8 +24,8 @@
  * and NETWORK later without being rewritten.
  */
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { api } from '../../api';
-import type { AnalyzeResponse } from '../../types';
+import { api, ensureBaseUrl, type AiStatusResponse } from '../../api';
+import type { AnalyzeResponse, NextStep } from '../../types';
 import { TopBar, type ApiKeyStatus } from './TopBar';
 import { ActivityBar } from './ActivityBar';
 import type { ToolTabId } from './TabBar';
@@ -35,25 +35,28 @@ import { BottomPanel } from './BottomPanel';
 import { StatusBar } from './StatusBar';
 import { CommandPalette } from './CommandPalette';
 import { DashboardView, recordSession, classifyRisk } from './DashboardView';
+import { ArkBusProvider } from './ArkBusContext';
 import { SpatialTool } from './tools/SpatialTool';
 import { FileForensicsTool } from './tools/FileForensicsTool';
 import { DiscoveryTool } from './tools/DiscoveryTool';
 import { ProvenanceTool } from './tools/ProvenanceTool';
 import { VisionTool } from './tools/VisionTool';
 import { CaseReportView } from './tools/CaseReportView';
-import { NetworkPlaceholder } from './NetworkPlaceholder';
+import { NetworkWorkbench, NETWORK_TABS, type NetworkTabId } from './NetworkWorkbench';
 import { SecOpsPlaceholder } from './SecOpsPlaceholder';
 import { CaseExplorer } from './CaseExplorer';
 import { InvestigatorProfileModal } from './InvestigatorProfileModal';
-import { SettingsModal } from './SettingsModal';
+import { ClientSettingsModal } from '../settings/ClientSettingsModal';
 import { IngestionSweep } from '../IngestionSweep';
 import { useToast, ToastContainer } from '../Toast';
 import { exportCasePdf } from '../../pdfExport';
-import { InvestigationProvider, useInvestigation, type SavedCase } from './useInvestigation';
+import { InvestigationProvider, useInvestigation, type SavedCase, type SavedCaseDomain } from './useInvestigation';
+import { ByokProvider } from '../settings/ByokContext';
+import { byokStore } from '../../core/byok/byokStore';
+import type { ByokProviderId } from '../../types';
 import { SUBVIEW_ICONS, SIDEBAR_ICONS, type LucideIcon } from './icons';
 import type { DomainId } from './entities';
-import { Upload, ChevronDown, ChevronRight, PanelLeft } from 'lucide-react';
-import { type SessionRecord } from './DashboardView';
+import { Upload, ChevronDown, ChevronRight, PanelLeft, Save, Tag } from 'lucide-react';
 
 /** Ordered IMAGE investigation sub-views — one continuous workflow. */
 const IMAGE_SUBVIEWS: { id: ToolTabId; title: string; icon: LucideIcon; hint: string }[] = [
@@ -70,9 +73,22 @@ const IMAGE_SUBVIEWS: { id: ToolTabId; title: string; icon: LucideIcon; hint: st
 const ADMIN_ROUTE_SLUG = (import.meta as any).env?.VITE_ADMIN_ROUTE_SLUG || 'console-auth';
 const ADMIN_LOGIN_PATH = `/${ADMIN_ROUTE_SLUG}`;
 
+/** TopBar provider dots — unified admin + user (BYOK) API key status. */
+const API_INDICATORS: { label: string; title: string; service: string; byok: ByokProviderId[] }[] = [
+  { label: 'GS', title: 'GeoSpy Vision API', service: 'vision_geospy', byok: ['geospy'] },
+  { label: 'GI', title: 'GeoInfer Vision API', service: 'vision_geoinfer', byok: ['geoinfer'] },
+  { label: 'LLM', title: 'LLM / Vision Ensemble', service: 'llm', byok: ['openai'] },
+  { label: 'GM', title: 'Gemini Vision API', service: 'gemini', byok: ['gemini'] },
+  { label: 'AN', title: 'Anthropic Claude', service: 'anthropic', byok: ['anthropic'] },
+  { label: 'MB', title: 'Mapbox Geocoding Token', service: 'mapbox', byok: ['mapbox'] },
+  { label: 'RS', title: 'Reverse Source Search (TinEye/Serper)', service: 'reverse_search', byok: ['serper', 'tineye'] },
+  { label: 'SV', title: 'Google Street View', service: 'streetview', byok: ['google_maps'] },
+];
+
 function WorkbenchInner() {
   const inv = useInvestigation();
   const [activeSubview, setActiveSubview] = useState<ToolTabId>('overview');
+  const [networkTab, setNetworkTab] = useState<NetworkTabId>('discovery');
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [zeroRetention, setZeroRetention] = useState(false);
@@ -89,30 +105,73 @@ function WorkbenchInner() {
   const [apiStatuses, setApiStatuses] = useState<ApiKeyStatus[]>([]);
   const [sessionTick, setSessionTick] = useState(0);
   const [dashRefresh, setDashRefresh] = useState(0);
+  const [cascadePhase, setCascadePhase] = useState<string | null>(null);
+  const [savePromptOpen, setSavePromptOpen] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [saveTags, setSaveTags] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const lastFileRef = useRef<File | null>(null);
   const { toasts, showToast, dismiss } = useToast();
 
   const result = inv.result;
 
-  // Health check + API key status
-  useEffect(() => {
-    const check = async () => {
-      try {
-        const h = await api.health();
-        setConnected(true);
-        setApiStatuses([
-          { configured: h.services?.vision_geospy === 'configured', label: 'GS', title: 'GeoSpy Vision API' },
-          { configured: h.services?.vision_geoinfer === 'configured', label: 'GI', title: 'GeoInfer Vision API' },
-          { configured: h.services?.llm === 'configured', label: 'LLM', title: 'LLM / Vision Ensemble' },
-        ]);
-      } catch {
-        setConnected(false);
+  // TopBar API provider indicators — unified single source of truth. A dot is
+  // "configured" when the ADMIN system key is set server-side (health), OR the
+  // unified AI gateway route (GET /api/v1/ai/status) is live — the LLM badge
+  // lights on cloud/local_ollama, the GS/GI vision badges on vision availability —
+  // OR the user has an active BYOK override / env token in the client key store.
+  // All three write/read the same chain, so keys saved in User Settings light up
+  // across every module immediately (the ByokContext dispatches 'ark:byok-changed').
+  const buildApiStatuses = useCallback((services: Record<string, string>, ai?: AiStatusResponse): ApiKeyStatus[] =>
+    API_INDICATORS.map(({ label, title, service, byok }) => {
+      const aiRoute = ai?.route?.status;
+      let configured = service === 'reverse_search'
+        ? services.tineye === 'configured' || services.serper === 'configured'
+        : services[service] === 'configured';
+      if (!configured) {
+        // Unified AI gateway route state.
+        if (service === 'llm') {
+          configured = aiRoute === 'cloud' || aiRoute === 'local_ollama';
+        } else if (service === 'vision_geospy' || service === 'vision_geoinfer') {
+          configured = Boolean(ai?.vision);
+        }
       }
-    };
+      if (!configured) {
+        configured = byok.some(id => {
+          const k = byokStore.resolveKey(id);
+          return k.source === 'byok' || (id === 'mapbox' && k.source === 'env');
+        });
+      }
+      return { configured, label, title };
+    }), []);
+
+  // Health check + API key status
+  const check = useCallback(async () => {
+    try {
+      await ensureBaseUrl(); // resolve Electron port before first request
+      const [h, ai] = await Promise.all([
+        api.health(),
+        api.aiStatus().catch(() => null),
+      ]);
+      setConnected(true);
+      setApiStatuses(buildApiStatuses(h.services || {}, ai ?? undefined));
+    } catch {
+      setConnected(false);
+    }
+  }, [buildApiStatuses]);
+
+  useEffect(() => {
     check();
     const interval = setInterval(check, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [check]);
+
+  // Reflect BYOK changes from User Settings immediately (save/clear/override).
+  useEffect(() => {
+    const onByok = () => check();
+    window.addEventListener('ark:byok-changed', onByok);
+    return () => window.removeEventListener('ark:byok-changed', onByok);
+  }, [check]);
 
   // Command palette hotkey: Cmd/Ctrl+K (Shift+P is the stealth admin hotkey
   // handled globally in App.tsx and never opens anything here).
@@ -136,11 +195,17 @@ function WorkbenchInner() {
   const analyzeFile = useCallback(async (file: File) => {
     setAnalyzing(true);
     setError(null);
+    setCascadePhase(null);
     const thumbUrl = URL.createObjectURL(file);
     setThumbnailUrl(thumbUrl);
+    lastFileRef.current = file;
     try {
       const resp = await api.analyzeFile(file, zeroRetention);
       inv.loadFromAnalysis(resp, file.name);
+      // Continuous image-intelligence cascade: classification → hashing/source
+      // discovery → OCR/telemetry → visual geolocation → evidence fusion. Runs
+      // client-side so every asset (even metadata-stripped) yields evidence.
+      await inv.runPipeline(file, resp);
       const anomalyCount =
         (resp.steganography_detected ? 1 : 0) +
         (resp.gps_spoofing_detected ? 1 : 0) +
@@ -165,6 +230,7 @@ function WorkbenchInner() {
       showToast('Analysis failed', 'error');
     } finally {
       setAnalyzing(false);
+      setCascadePhase(null);
     }
   }, [zeroRetention, showToast, inv]);
 
@@ -207,6 +273,25 @@ function WorkbenchInner() {
     } catch { /* non-blocking */ }
   }, [showToast]);
 
+  /** Launch an ARK AI investigation from an "Investigate Next" recommendation.
+   *  Builds the objective from the recommendation, runs plan → tools → evidence
+   *  via the shared investigation context, and surfaces the console. */
+  const handleInvestigateNext = useCallback(async (step: NextStep) => {
+    const file = lastFileRef.current;
+    if (!file) {
+      showToast('Evidence file unavailable — re-ingest to investigate', 'warning');
+      return;
+    }
+    await inv.startInvestigation(file, {
+      goal: step.goal,
+      subject: file.name,
+      domain: 'image',
+      claims_to_verify: step.claim ? [{ field: step.claim }] : [],
+      natural_language: `Investigate next: ${step.action} — ${step.reason}`,
+    });
+    setBottomCollapsed(false);
+  }, [inv, showToast]);
+
   const handleExportPdf = useCallback(() => {
     if (!result) { showToast('No analysis to export', 'warning'); return; }
     try {
@@ -221,11 +306,11 @@ function WorkbenchInner() {
     if (!result) return null;
     switch (subview) {
       case 'overview':
-        return <InvestigationOverview result={result} onOpenTool={openTool} thumbnailUrl={thumbnailUrl} onCopyCoords={handleCopyCoords} onGeofenceViolation={handleGeofenceViolation} />;
+        return <InvestigationOverview result={result} onOpenTool={openTool} thumbnailUrl={thumbnailUrl} onCopyCoords={handleCopyCoords} onGeofenceViolation={handleGeofenceViolation} onInvestigateNext={handleInvestigateNext} />;
       case 'spatial':
         return <SpatialTool result={result} thumbnailUrl={thumbnailUrl} onCopyCoords={handleCopyCoords} onGeofenceViolation={handleGeofenceViolation} />;
       case 'fileforensics':
-        return <FileForensicsTool result={result} thumbnailUrl={thumbnailUrl} />;
+        return <FileForensicsTool result={result} thumbnailUrl={thumbnailUrl} file={lastFileRef.current} />;
       case 'discovery':
         return <DiscoveryTool result={result} />;
       case 'provenance':
@@ -241,6 +326,7 @@ function WorkbenchInner() {
 
   const newSession = useCallback(() => {
     inv.clear();
+    lastFileRef.current = null;
     setError(null);
     setThumbnailUrl(undefined);
     setActiveSubview('overview');
@@ -260,27 +346,38 @@ function WorkbenchInner() {
     showToast(`Restored case ${saved.caseId}`, 'success');
   }, [inv, showToast]);
 
-  /** Reload a past target session from the dashboard's Recent Sessions list.
-   *  Matches the session's request_id to a saved cross-domain case and restores
-   *  it into the active image workspace. */
-  const handleSelectSession = useCallback((s: SessionRecord) => {
-    const match = inv.history.find(h => h.caseId.endsWith(s.request_id.replace(/[^a-f0-9]/gi, '').slice(0, 8).toUpperCase()) || h.sha256 === s.sha256_short || h.filename === s.filename);
-    inv.setDomain('image');
-    if (match) {
-      inv.restoreCase(match);
-      setActiveSubview('overview');
-      setThumbnailUrl(undefined);
-      setError(null);
-      showToast(`Restored session ${s.filename}`, 'success');
-    } else {
-      // No matching saved case entity — surface a toast and switch to the
-      // image domain so the analyst can re-ingest if needed.
-      inv.clear();
-      setThumbnailUrl(undefined);
-      setActiveSubview('overview');
-      showToast(`Session ${s.filename} metadata only — re-ingest to restore full analysis`, 'warning');
+  /** Save the current workspace observations into the unified Case Vault.
+   *  Domain is inferred from the active workspace (Telecom tab → 'telecom'). */
+  const handleSaveInvestigation = useCallback((name: string, tags: string) => {
+    if (!inv.activeCase && !inv.activeEvidence && !inv.activeRun && inv.findings.length === 0) {
+      showToast('Nothing to save — open a workspace first', 'warning');
+      return;
     }
-    setDashRefresh(n => n + 1);
+    const domain: SavedCaseDomain =
+      inv.domain === 'network'
+        ? (networkTab === 'telecom' ? 'telecom' : 'network')
+        : inv.domain === 'secops' ? 'secops' : 'image';
+    const saved = inv.saveCase({
+      domain,
+      caseName: name.trim() || undefined,
+      tags: tags.trim() ? tags.split(/[\s,]+/).filter(Boolean) : undefined,
+    });
+    inv.pushTerminal('ok', `investigation saved — ${saved.caseId} → ${domain.toUpperCase()} vault (${inv.findings.length} findings · ${inv.auditTrail.length} audit)`);
+    showToast(`Investigation saved ${saved.caseId} — now in Case Explorer`, 'success');
+    inv.setDomain('cases');
+    setSavePromptOpen(false);
+    setSaveName('');
+    setSaveTags('');
+  }, [inv, networkTab, showToast]);
+
+  const openSavePrompt = useCallback(() => {
+    if (!inv.activeCase && !inv.activeEvidence && !inv.activeRun && inv.findings.length === 0) {
+      showToast('Nothing to save — open a workspace first', 'warning');
+      return;
+    }
+    setSaveName(inv.activeCase?.title ?? '');
+    setSaveTags('');
+    setSavePromptOpen(true);
   }, [inv, showToast]);
 
   const CollapseIcon = sidebarCollapsed ? SIDEBAR_ICONS.expand : SIDEBAR_ICONS.collapse;
@@ -294,6 +391,7 @@ function WorkbenchInner() {
         connected={connected}
         onOpenPalette={() => setShowPalette(true)}
         onOpenProfile={() => setShowProfile(true)}
+        onSaveInvestigation={openSavePrompt}
       />
 
       <div className="workbench-body">
@@ -318,7 +416,7 @@ function WorkbenchInner() {
                 <>
                   {!sidebarCollapsed && (
                     <div className="sidebar-content">
-                      <div className="sidebar-header">IMAGE INTELLIGENCE</div>
+                      <div className="sidebar-header">IMAGE INTELLIGENCE WORKSPACE</div>
 
                       {!result && !analyzing && (
                         <>
@@ -444,14 +542,48 @@ function WorkbenchInner() {
                 </>
               )}
 
-              {/* ---- NETWORK domain sidebar (placeholder) ---- */}
+              {/* ---- NETWORK domain sidebar ---- */}
               {inv.domain === 'network' && !sidebarCollapsed && (
                 <div className="sidebar-content">
-                  <div className="sidebar-header">NETWORK TELEMETRY</div>
+                  <div className="sidebar-header">NETWORK INTELLIGENCE WORKSPACE</div>
                   <div className="sidebar-hint">
-                    The network-security investigation domain is reserved for
-                    future tooling. No tools are configured yet.
+                    Passive OSINT tools for network, web, endpoint, traffic and
+                    telecom investigation. Active security-testing engines are
+                    risk-gated.
                   </div>
+                  <div className="sidebar-subnav">
+                    {NETWORK_TABS.map(t => {
+                      const Icon = t.icon;
+                      return (
+                        <button
+                          key={t.id}
+                          className={`subnav-item ${networkTab === t.id ? 'subnav-item-active' : ''}`}
+                          onClick={() => setNetworkTab(t.id)}
+                          title={t.hint}
+                        >
+                          <span className="subnav-icon"><Icon className="w-4 h-4" /></span>
+                          <span className="subnav-label">{t.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {inv.domain === 'network' && sidebarCollapsed && (
+                <div className="sidebar-collapsed-nav">
+                  {NETWORK_TABS.map(t => {
+                    const Icon = t.icon;
+                    return (
+                      <button
+                        key={t.id}
+                        className={`subnav-icon-btn ${networkTab === t.id ? 'subnav-icon-btn-active' : ''}`}
+                        onClick={() => setNetworkTab(t.id)}
+                        title={t.label}
+                      >
+                        <Icon className="w-5 h-5" />
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
@@ -487,12 +619,19 @@ function WorkbenchInner() {
         <div className="workbench-main">
           <div className="workbench-viewport">
             {inv.domain === 'image' && (
-              result ? renderSubview(activeSubview) : <DashboardView key={sessionTick} onUpload={triggerUpload} onSelectSession={handleSelectSession} refreshKey={dashRefresh} />
+              result ? renderSubview(activeSubview) : <DashboardView key={sessionTick} onUpload={triggerUpload} onRestoreCase={handleRestoreCase} refreshKey={dashRefresh} />
             )}
-            {inv.domain === 'network' && <NetworkPlaceholder />}
+            {inv.domain === 'network' && <NetworkWorkbench activeTab={networkTab} onTabChange={setNetworkTab} />}
             {inv.domain === 'secops' && <SecOpsPlaceholder />}
             {inv.domain === 'cases' && <CaseExplorer onRestoreCase={handleRestoreCase} />}
-            <IngestionSweep active={analyzing} />
+            <IngestionSweep
+              active={analyzing}
+              phase={
+                inv.pipelineProgress
+                  ? `CASCADE STEP ${inv.pipelineProgress.currentStep}/${inv.pipelineProgress.totalSteps} — ${inv.pipelineProgress.name}`
+                  : cascadePhase
+              }
+            />
           </div>
 
           <BottomPanel result={result} collapsed={bottomCollapsed} onToggle={() => setBottomCollapsed(!bottomCollapsed)} />
@@ -507,6 +646,7 @@ function WorkbenchInner() {
         onOpenTool={openTool}
         onExportPdf={handleExportPdf}
         onUpload={() => { inv.setDomain('image'); fileInputRef.current?.click(); }}
+        onOpenAdmin={() => { window.location.hash = '/console-auth'; }}
         hasResult={!!result}
       />
 
@@ -524,21 +664,66 @@ function WorkbenchInner() {
         apiStatuses={apiStatuses}
         onRestoreCase={handleRestoreCase}
       />
-      <SettingsModal
+      <ClientSettingsModal
         open={showSettings}
         onClose={() => setShowSettings(false)}
         apiStatuses={apiStatuses}
         connected={connected}
       />
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
+
+      {savePromptOpen && (
+        <div className="save-prompt-overlay" onClick={() => setSavePromptOpen(false)}>
+          <div className="save-prompt" onClick={e => e.stopPropagation()}>
+            <div className="save-prompt-title-row">
+              <Save className="w-4 h-4 save-prompt-icon" />
+              <div className="save-prompt-title">SAVE INVESTIGATION TO CASE VAULT</div>
+            </div>
+            <div className="save-prompt-hint">
+              Compiles current workspace observations ({inv.findings.length} findings · {inv.auditTrail.length} audit events) into a persistent case in the Explorer.
+            </div>
+            <label className="save-prompt-field">
+              <span className="save-prompt-label">Case Name <em>optional</em></span>
+              <input
+                className="save-prompt-input mono"
+                value={saveName}
+                onChange={e => setSaveName(e.target.value)}
+                placeholder="e.g. Suspicious CCTV frame — Mall carpark"
+                autoFocus
+                onKeyDown={e => { if (e.key === 'Enter') handleSaveInvestigation(saveName, saveTags); if (e.key === 'Escape') setSavePromptOpen(false); }}
+              />
+            </label>
+            <label className="save-prompt-field">
+              <span className="save-prompt-label">Tags <em>optional · comma / space separated</em></span>
+              <input
+                className="save-prompt-input mono"
+                value={saveTags}
+                onChange={e => setSaveTags(e.target.value)}
+                placeholder="e.g. high-priority gps-spoof"
+                onKeyDown={e => { if (e.key === 'Enter') handleSaveInvestigation(saveName, saveTags); if (e.key === 'Escape') setSavePromptOpen(false); }}
+              />
+            </label>
+            <div className="save-prompt-actions">
+              <button className="save-prompt-btn save-prompt-cancel" onClick={() => setSavePromptOpen(false)}>Cancel</button>
+              <button className="save-prompt-btn save-prompt-confirm" onClick={() => handleSaveInvestigation(saveName, saveTags)}>
+                <Tag className="w-3 h-3" /> Save &amp; Open Case Explorer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 export function Workbench() {
   return (
-    <InvestigationProvider>
-      <WorkbenchInner />
-    </InvestigationProvider>
+    <ByokProvider>
+      <InvestigationProvider>
+        <ArkBusProvider>
+          <WorkbenchInner />
+        </ArkBusProvider>
+      </InvestigationProvider>
+    </ByokProvider>
   );
 }

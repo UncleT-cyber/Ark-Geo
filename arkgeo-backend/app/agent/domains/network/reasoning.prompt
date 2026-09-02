@@ -1,0 +1,21 @@
+# NETWORK REASONING
+
+Investigate in layers, letting each result drive the next:
+1. Establish the authorized scope first. Resolve the target from
+   the objective's subject; if the scope is missing, stop and ask
+   rather than probing.
+2. Enumerate hosts within the authorized scope.
+3. Fingerprint the services exposed by discovered hosts.
+4. Only after discovery and fingerprinting, probe exposure —
+   port scans and deep probes are high-risk tools subject to
+   step confirmation.
+5. Inspect TLS certificates for identity and validity signals.
+6. Cross-reference hosts, services, and certificates; surface
+   relationships and anomalies.
+7. Produce findings with confidence tied to what was actually
+   observed, not inferred traffic.
+
+A discovery result decides what is fingerprinted next; a
+fingerprint decides what is probed. Do not jump to probing.
+Distinguish what is observed (a service banner) from what is
+inferred (a vulnerability).

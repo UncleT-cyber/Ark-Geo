@@ -1,12 +1,14 @@
 """Integration tests for the full Brain pipeline & API."""
 import io
 import base64
+from unittest.mock import patch
 
 import piexif
 import pytest
 from PIL import Image
 from fastapi.testclient import TestClient
 
+from app.services.ai_gateway import ai_gateway
 from main import app
 
 
@@ -57,7 +59,9 @@ class TestBrainPipeline:
         assert result.image_sha256 == result.custody_certificate["sha256"]
 
     @pytest.mark.asyncio
-    async def test_no_metadata_no_keys_returns_low_confidence(self):
+    @patch.object(ai_gateway, "is_configured", return_value=False)
+    @patch.object(ai_gateway, "has_vision_llm", return_value=False)
+    async def test_no_metadata_no_keys_returns_low_confidence(self, _v, _c):
         """Without API keys, vision & extractors are skipped → low confidence."""
         from app.brain.pipeline import brain
         img = _make_plain_image()

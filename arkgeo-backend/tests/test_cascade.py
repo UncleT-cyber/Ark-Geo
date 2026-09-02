@@ -20,6 +20,7 @@ from app.brain.metadata_extractor import MetadataExtractor, reverse_geocode
 from app.brain.pipeline import brain, CascadeResult
 from app.core.security import custody_certificate, md5_hex, sha256_hex
 from app.models import AddressInfo, Coordinates, DeviceTelemetry, GpsFix
+from app.services.ai_gateway import ai_gateway
 
 
 # --------------------------------------------------------------------------- #
@@ -253,7 +254,9 @@ class TestCascadePipeline:
         assert result.consensus.tier_used == "telemetry"
 
     @pytest.mark.asyncio
-    async def test_tier5_graceful_degradation_no_metadata_no_keys(self):
+    @patch.object(ai_gateway, "is_configured", return_value=False)
+    @patch.object(ai_gateway, "has_vision_llm", return_value=False)
+    async def test_tier5_graceful_degradation_no_metadata_no_keys(self, _v, _c):
         """No EXIF, no telemetry, no AI keys → PARTIAL_SUCCESS with message."""
         img = _make_plain_image()
         result = await brain.analyze(img)

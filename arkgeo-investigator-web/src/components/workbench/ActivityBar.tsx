@@ -1,13 +1,13 @@
 /**
- * ActivityBar — narrow far-left DOMAIN navigation bar.
+ * ActivityBar — narrow far-left WORKSPACE navigation bar.
  *
- * THE ARK is organized by investigation domains, not tools. The top-level
- * navigation represents the investigation domains themselves:
- *   - IMAGE   — complete image-intelligence lifecycle (primary)
- *   - NETWORK — network telemetry (structural placeholder)
- *   - SECOPS  — Threat & Security Operations (SIEM, IDS/IPS, threat hunting,
+ * THE ARK ISE is organized by investigation workspaces, not tools. The
+ * top-level navigation represents the workspaces themselves:
+ *   - IMAGE   — Image Intelligence Workspace (primary)
+ *   - NETWORK — Network Workspace (structural placeholder)
+ *   - SECOPS  — Threat & SecOps Workspace (SIEM, IDS/IPS, threat hunting,
  *               detection & correlation, incident management, SecOps dashboard)
- *   - CASES   — cross-domain case layer (saved sessions & audit vault)
+ *   - CASES   — Case Workspace (cross-domain saved sessions & audit vault)
  *
  * The footer holds a SETTINGS gear (System & API Provider Configuration:
  * GeoSpy, OpenAI Vision, Mapbox, ExifTool pathing). The investigator's
@@ -37,10 +37,10 @@ interface ActivityBarProps {
 }
 
 const DOMAINS: ActivityItem[] = [
-  { id: 'image', icon: DOMAIN_ICONS.image, label: 'Image Intelligence' },
-  { id: 'network', icon: DOMAIN_ICONS.network, label: 'Network Telemetry' },
-  { id: 'secops', icon: DOMAIN_ICONS.secops, label: 'Threat & SecOps' },
-  { id: 'cases', icon: DOMAIN_ICONS.cases, label: 'Case Explorer' },
+  { id: 'image', icon: DOMAIN_ICONS.image, label: 'Image Intelligence Workspace' },
+  { id: 'network', icon: DOMAIN_ICONS.network, label: 'Network Workspace' },
+  { id: 'secops', icon: DOMAIN_ICONS.secops, label: 'Threat & SecOps Workspace' },
+  { id: 'cases', icon: DOMAIN_ICONS.cases, label: 'Case Workspace' },
 ];
 
 export function ActivityBar({ active, onNavigate, onOpenSettings }: ActivityBarProps) {

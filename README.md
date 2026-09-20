@@ -23,6 +23,13 @@ into a multi-domain security control plane while retaining its deterministic for
 inspired by and integrated with the
 [CAI (Cybersecurity AI) Robotics Framework](https://github.com/0x4rn0s/CAI).
 
+### Status: Work in Progress
+
+THE ARK is an active project being developed alongside a cybersecurity course at
+[MIVA University](https://www.miva.university). The core forensic pipeline and AI orchestration
+substrate are functional, but new investigation domains, tool integrations, and capabilities are
+being added as the course progresses. Expect frequent updates.
+
 ---
 
 ## Screenshots

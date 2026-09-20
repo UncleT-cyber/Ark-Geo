@@ -1,184 +1,138 @@
-THE ARK — Integrated Security Environment
-<div align="center">
-AI-Native Security Investigation Platform
-THE ARK unifies deterministic forensic analysis, evidence management, security operations, agentic reasoning, and controlled tool execution into a single operational control plane.
-</div>
-> Core Principle: The human operator determines what to investigate. THE ARK determines what can be trusted, what can be safely executed, and how the investigation is recorded with cryptographic integrity.
-> 
-Originating as ArkGeo (an image-forensics and visual intelligence platform), THE ARK has evolved into a multi-domain security control plane while retaining its deterministic forensic foundations.
-🏛️ Tripartite Investigation Model
-THE ARK strictly separates responsibilities between three distinct entities to maintain epistemic rigor and operational safety:
-| Entity | Role | System Outputs |
+# THE ARK (ArkGeo)
+
+An **AI-native security investigation platform** — not "an app with some AI."
+The AI is the investigation conductor; the deterministic forensic core is the
+trusted machinery it orchestrates.
+
+> "The user decides what to investigate. The system guarantees what can be
+> trusted and what can be executed. The AI figures out how to investigate it
+> efficiently."
+
+## The three investigators
+
+The system is designed as three complementary roles — never competing:
+
+| Investigator | Role | Outputs |
 |---|---|---|
-| Operator (Human) | Intent, judgment, policy authorization, final assessment | Objectives, gating approvals, case disposition |
-| ARK Core | Deterministic analysis, evidence preservation, cryptographic hashing, tool runtime | Verified facts, sensor readings, raw logs, tool execution outputs |
-| ARK AI / CAI Engine | Tactical planning, tool orchestration, multi-step reasoning, cross-domain correlation | Investigation plans, hypothesis generation, execution graph |
-       FACTS & LOGS                  HYPOTHESES & PLANS             OBJECTIVES & GATING
-┌─────────────────────────┐     ┌─────────────────────────┐     ┌─────────────────────────┐
-│        ARK CORE         │     │     ARK AI / CAI        │     │     HUMAN OPERATOR      │
-│  Deterministic Engine   │ ──► │   Agentic Orchestrator  │ ──► │    Final Assessment     │
-└─────────────────────────┘     └─────────────────────────┘     └─────────────────────────┘
+| **Human** | Intent, judgment, authorization, final assessment | Objectives, approvals, findings review |
+| **ARK Core** | Evidence preservation, deterministic analysis, integrity, execution | Facts (cryptographic hashes, ExifTool, OCR, C2PA, consensus) |
+| **ARK AI** | Planning, orchestration, correlation, hypothesis generation | Hypotheses, plans, explanations |
 
-> Epistemic Constraint: An AI hypothesis is never automatically elevated to a finding. Evidence must corroborate AI-generated inferences through the Evidence Graph before case promotion.
-> 
-🤖 Integration of the CAI Robotics Framework
-THE ARK integrates a customized fork of the CAI (Cybernetic AI / Robotics) Framework directly into its agent substrate (arkgeo-backend/app/engine/cai/).
-Originally architected around autonomous agent loops, active perception, and tool execution under strict safety boundaries, the CAI framework provides THE ARK with a high-reliability ReAct (Reasoning + Acting) runtime.
-Why CAI Robotics for Cybersecurity?
- * Deterministic Tool Binding: Security capabilities (nmap, extract_exif, fuse_geolocation) are exposed to agents as structured, schema-defined tools with controlled execution boundaries.
- * Closed-Loop Perception: Tool outputs feed directly back into the agent's cognitive state, enabling dynamic multi-step re-planning when new evidence is discovered.
- * Hardened Safety Boundaries: CAI agent actions pass through THE ARK's Policy Guard, ensuring tool execution remains subject to configured permissions and Human-In-The-Loop (HITL) authorization requirements.
- ┌──────────────────────────────────────────────────────────────────────────┐
- │                         THE ARK CONTROL PLANE                            │
- │                                                                          │
- │   ┌──────────────────────────────────────────────────────────────────┐   │
- │   │                    CAI ROBOTICS ENGINE (FORK)                    │   │
- │   │                                                                  │   │
- │   │   ┌───────────────┐     ┌───────────────┐     ┌───────────────┐  │   │
- │   │   │ Active        │ ──► │ Closed-Loop   │ ──► │ ReAct Tool    │  │   │
- │   │   │ Perception    │     │ Re-Planner    │     │ Dispatcher    │  │   │
- │   │   └───────────────┘     └───────────────┘     └───────┬───────┘  │   │
- │   └───────────────────────────────────────────────────────┼──────────┘   │
- └───────────────────────────────────────────────────────────┼──────────────┘
-                                                             │
-                                                             ▼
-                                                    ┌─────────────────┐
-                                                    │  POLICY GUARD   │
-                                                    │  (HITL Gating)  │
-                                                    └─────────────────┘
+**Epistemic separation is structural, not by prompt.** ARK Core outputs are
+facts; ARK AI outputs are hypotheses. A hypothesis **cannot be promoted to a
+finding** without corroboration from a higher epistemic tier
+(cryptographic → tool inference → AI hypothesis) — enforced in the evidence
+graph, so a contradiction always resolves in favor of the higher tier.
 
-🔄 Dual Investigation Workflows
-THE ARK bridges deterministic forensic workflows with dynamic agentic investigation loops.
-1. Direct Evidence Workflow (Deterministic)
-Designed for analysts conducting direct artifact inspections.
-[Upload Artifact] ──► [SHA-256 Hash] ──► [EXIF/XMP/IPTC] ──► [ELA / Forensic Analysis]
-                                                                      │
-[Case File] ◄── [Evidence Graph] ◄── [Consensus Engine] ◄── [OCR / Geolocation]
+## Two entry modes
 
-2. Autonomous Agentic Workflow (Goal-Driven)
-Designed for goal-driven, multi-step investigations.
-[Operator Objective] ──► [CAI ReAct Planner] ──► [Policy Guard Validation]
-                                                           │
-[Case Disposition] ◄── [Evidence Correlation] ◄── [Tool Execution Stream]
+### 1. Direct Evidence Mode (deterministic)
+The traditional workflow stays. Upload → hash → EXIF/XMP/IPTC → JPEG/ELA →
+OCR → vision → GPS → C2PA → consensus → investigation workspace.
+Predictable, reproducible, court-ready. For analysts who already know what
+they want to examine.
 
-🏗️ System Architecture
-                                HUMAN OPERATOR
-                                      │
-                              intent / objectives
-                                      │
-                                      ▼
-             ┌─────────────────────────────────────────────────┐
-             │                ARK AI LAYER                     │
-             │                                                 │
-             │   CAI Robotics Runtime (ReAct Engine)           │
-             │   Specialist Agents (IMINT, Net, SecOps)        │
-             │   Hypothesis Generation & Correlation           │
-             └────────────────────────┬────────────────────────┘
-                                      │
-                            policy / tool invocations
-                                      │
-              ┌───────────────────────┼───────────────────────┐
-              ▼                       ▼                       ▼
-      ┌───────────────┐       ┌───────────────┐       ┌───────────────┐
-      │ TOOL REGISTRY │       │ POLICY GUARD  │       │ EVIDENCE GRAPH│
-      │ (Capabilities)│       │ (HITL Gating) │       │  (Lineage)    │
-      └───────┬───────┘       └───────┬───────┘       └───────┬───────┘
-              │                       │                       │
-              └───────────────────────┼───────────────────────┘
-                                      ▼
-             ┌─────────────────────────────────────────────────┐
-             │                   ARK CORE                      │
-             │                                                 │
-             │   Deterministic Forensic Engines                │
-             │   Central Config Vault & Provider Gateways      │
-             │   Audit & Chain-of-Custody Emissions            │
-             └─────────────────────────────────────────────────┘
+### 2. AI Investigation Mode (agentic)
+Start with an *objective*, not a file:
 
-🔒 Security Architecture & Guardrails
-Policy Guard & HITL Gating
-Every agent tool request emitted by the CAI runtime must pass through the Policy Guard before hitting the execution subsystem:
-CAI Agent Proposal ──► [Policy Guard] ──► ┬──► [Auto-Approve] ──► Execute & Log
-                                          ├──► [Confirm Once] ──► Operator Approval Overlay
-                                          └──► [Step Confirm]  ──► HITL Interactive Prompt
+> "Determine whether the image's claimed capture location and date are credible."
 
-Evidence Graph Lineage
-Every investigative result is explicitly classified into an epistemic tier to prevent unsupported deductions from being treated as established facts:
-FACT ──► OBSERVATION ──► INFERENCE ──► HYPOTHESIS ──► ASSESSMENT
+ARK proposes a plan, the analyst approves or modifies it ("skip external
+source discovery", "prioritize device attribution"), then ARK executes it via
+the tool registry. The plan adapts to what it learns — if EXIF GPS exists it
+corroborates coordinates instead of spending budget on visual geolocation.
 
- * FACT: Deterministic outputs such as cryptographic hashes, EXIF tags, tool measurements, and raw system results.
- * OBSERVATION: Extracted patterns such as OCR tokens, visual indicators, or detected artifacts.
- * INFERENCE: Corroborated deductions derived from available evidence.
- * HYPOTHESIS: AI-proposed explanations, spatial models, threat models, or investigative directions (tagged as ai_hypothesis).
- * ASSESSMENT: Final disposition reviewed and accepted by the human operator.
-🌐 Security Investigation Domains
-| Domain | Focus & Capabilities | Status |
-|---|---|---|
-| Image Intelligence (IMINT) | EXIF/XMP parsing, Error Level Analysis (ELA), OCR, visual clue extraction, geolocation fusion, C2PA provenance | ACTIVE |
-| Network Security | Active/passive scanning (nmap), topology mapping, traffic inspection, PCAP analysis | ACTIVE |
-| Threat & SecOps | SIEM ingestion, log correlation, IDS/IPS rule evaluation, alert triage | IN PROGRESS |
-| OSINT | Open-source discovery, reverse visual search, domain and perceptual-hash matching | ACTIVE |
-| Cases & Vault | Immutable evidence storage, chain-of-custody logging, formal audit bundle generation | ACTIVE |
-📂 Repository Layout
-.
-├── arkgeo-backend/                  # FastAPI core engine & deterministic pipelines
-│   ├── app/
-│   │   ├── agent/                   # Specialist agent declarations & tool registries
-│   │   ├── brain/                   # Deterministic forensic engines
-│   │   ├── core/                    # Application configuration & security controls
-│   │   └── engine/
-│   │       └── cai/                 # Integrated CAI Robotics framework & ReAct runtime
-│   └── tests/                       # Backend test suite
-│
-├── arkgeo-investigator-web/         # Unified React/Vite Investigation Workbench
-│   ├── src/
-│   │   ├── components/              # Workspace views
-│   │   └── hooks/                   # SSE event streams & state synchronization
-│
-└── docs/                            # Architecture specifications & system design
+```
+User → Objective → Plan → Approval → Tools → Evidence → Correlation → Findings → User review → Case
+```
 
-⚡ Quick Start
-Prerequisites
- * Python 3.11+
- * Node.js 18+
- * Local Ollama instance or supported external LLM API credentials (Gemini, OpenAI, HuggingFace)
-1. Backend Engine Setup
-# Navigate to backend directory
-cd arkgeo-backend
+The upload workflow and the AI workflow are complementary entry points to the
+same evidence graph, not competing systems.
 
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+## Architecture
 
-# Install dependencies
-pip install -r requirements.txt
+```
+                    HUMAN
+                      │  intent / objective
+                      ▼
+              ARK AI ORCHESTRATOR
+              (plan · route · correlate)
+                      │
+          ┌───────────┼───────────┐
+          ▼           ▼           ▼
+      ANALYSIS     EVIDENCE    PROVIDERS
+      ENGINES      GRAPH       / APIS
+          │           │           │
+          └───────────┼───────────┘
+                      ▼
+              ARK CORE (deterministic)
+              + ARK TOOL REGISTRY
+```
 
-# Run backend unit & integration tests
+- **Tool Registry** — every capability the AI can call is registered:
+  tool id, name, description, domain, input/output schema, permissions,
+  risk level, provider, timeout, cost, availability, audit requirement.
+  The AI sees tools, not scattered functions.
+- **Evidence Graph** — the spine. Tamper-evident, hash-validated nodes and
+  edges (corroborate/contradict/derived-from). Plans and tool calls are
+  audited onto the graph.
+- **Policy Guard** — the authorization surface. Capability permissions,
+  risk→approval tiers (auto / confirm_once / step_confirm), budgets, and
+  availability gating sit between planner and execution.
+- **Investigation Console** — the bottom panel is an execution surface for
+  both analyst and agent: PLAN · AGENT · ANALYSIS · EVIDENCE · AUDIT ·
+  OUTPUT · TERMINAL, under controlled permissions.
+
+## Repository
+
+| Directory | What |
+|---|---|
+| `arkgeo-backend` | FastAPI "Brain" — 4-tier deterministic pipeline + `app/agent/` orchestration substrate |
+| `arkgeo-investigator-web` | React/Vite forensic OSINT workbench (THE ARK) |
+| `arkgeo-mobile` | React Native/Expo companion — **de-prioritized**. Desktop/web are the primary investigation surfaces; mobile is a future optional companion |
+
+## Implemented today
+
+- **4-tier pipeline** — EXIF metadata → vision ensemble → clue extractors →
+  Bayesian consensus (all deterministic)
+- **Phase A** — tool registry + tamper-evident evidence graph (18 tests)
+- **Phase B** — policy/permission guard + audit emission (24 tests)
+- **THE ARK ISE** — Integrated Security Environment, workspace-based IA
+  (IMAGE / NETWORK / SECOPS / CASES)
+- **154 backend tests passing**, `tsc --noEmit` clean, clean production build
+
+## Roadmap
+
+| Phase | Scope |
+|---|---|
+| C | Smallest orchestrator loop: planner + executor for one goal (`verify_location_credibility`), one re-plan, `/investigate` endpoint |
+| D | Investigation Console: PLAN / AGENT / EVIDENCE tabs |
+| E | Adaptive re-planning, contradiction loops, cost budgets |
+| F | Cross-domain reuse: register network/secops tools |
+| G–J | Case engine unification, model routing, court-ready bundles, analyst productivity |
+
+Master plan (integrated security environment, phases C–J):
+[`docs/ARK_INTEGRATED_SECURITY_ENVIRONMENT.md`](docs/ARK_INTEGRATED_SECURITY_ENVIRONMENT.md).
+Contracts (registry / graph / policy / objectives):
+[`docs/ARK_AI_ORCHESTRATION_SPEC.md`](docs/ARK_AI_ORCHESTRATION_SPEC.md).
+
+## Quick start
+
+```bash
+# Backend (port 8000)
+cd arkgeo-backend && pip install -r requirements.txt
 python -m pytest tests/ -q
+python -m uvicorn main:app --reload
 
-# Launch backend server (API Gateway at http://localhost:8000)
-python -m uvicorn main:app --reload --port 8000
-
-2. Web Workbench Setup
-# Navigate to web application directory
-cd arkgeo-investigator-web
-
-# Install packages
-npm install
-
-# Launch Vite development server (Interface at http://localhost:5173)
+# Web workbench (port 12001, proxies /api → :8000)
+cd arkgeo-investigator-web && npm install
 npm run dev
+```
 
-📖 Documentation
- * Integrated Security Environment Specification
- * AI Orchestration & CAI Integration Architecture
-🛡️ Design Principles
- * Evidence Before Assertion: Claims must be traceable to evidence, observations, or explicitly identified hypotheses.
- * Human Authorization: The human operator remains strictly responsible for objectives, approvals, and final assessment.
- * Controlled Execution: AI capabilities operate exclusively through registered tools and policy controls.
- * Auditability: Every investigation action leaves an immutable, inspectable audit trail.
- * Deterministic Foundations: Where deterministic tools can establish a fact, the system always prefers tool execution over LLM reasoning.
- * Least Privilege: Agents receive only the tools and permissions strictly required for the given investigation task.
-<div align="center">
-THE ARK — Investigate. Correlate. Preserve.
-A security investigation environment where AI can reason and act without becoming the authority over the evidence.
-</div>
+## Security posture
+
+- AES-256-GCM encryption, JWT + bcrypt auth, SHA-256 chain-of-custody
+- Zero-retention mode for forensic uploads
+- Every tool call audited; secrets hashed, never stored raw
+- AI never runs outside the policy guard; high-risk actions require
+  explicit human confirmation

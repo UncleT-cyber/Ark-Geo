@@ -30,20 +30,13 @@ inspired by and integrated with the
 <!-- Replace the placeholders below with your actual screenshot files.
      Suggested captures:
      1. The ARK Workbench — IMAGE domain with an investigation loaded
-     2. AI Investigation Mode — plan approval flow
-     3. BottomPanel terminal with CAI streaming output
-     4. Admin Console command center
-     5. Mobile tactical safety HUD
-     6. Network Intelligence workspace
+     2. AI Investigation Mode or Terminal Agent streaming
+     3. Admin Console or Mobile HUD
 -->
 
-| The ARK Workbench | AI Investigation Mode | Terminal Agent |
+| The ARK Workbench | AI Investigation | Terminal Agent |
 |---|---|---|
 | ![Workbench](docs/screenshots/workbench.png) | ![Investigation](docs/screenshots/investigation.png) | ![Terminal](docs/screenshots/terminal.png) |
-
-| Admin Console | Mobile HUD | Network Intelligence |
-|---|---|---|
-| ![Admin](docs/screenshots/admin.png) | ![Mobile](docs/screenshots/mobile.png) | ![Network](docs/screenshots/network.png) |
 
 > **To add screenshots:** Place your images in `docs/screenshots/` and update the paths above.
 

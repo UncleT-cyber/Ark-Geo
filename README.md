@@ -38,8 +38,6 @@ inspired by and integrated with the
 |---|---|---|
 | ![Workbench](docs/screenshots/workbench.png) | ![Investigation](docs/screenshots/investigation.png) | ![Terminal](docs/screenshots/terminal.png) |
 
-> **To add screenshots:** Place your images in `docs/screenshots/` and update the paths above.
-
 ---
 
 ## The Three Investigators

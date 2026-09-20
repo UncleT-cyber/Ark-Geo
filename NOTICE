@@ -1,0 +1,25 @@
+THE ARK — Integrated Security Environment
+Copyright (c) 2025 UncleT-cyber
+
+This product includes software developed by UncleT-cyber and contributors.
+
+This product includes a customized fork of the CAI (Cybersecurity AI) Robotics Framework,
+originally created by 0x4rn0s (https://github.com/0x4rn0s/CAI), used under the MIT License.
+
+All rights reserved. This software, its source code, architecture, documentation, and design
+assets are the intellectual property of UncleT-cyber and contributors.
+
+AUTHORSHIP ACKNOWLEDGMENT REQUIREMENT:
+
+Any fork, derivative work, or redistribution of this software — whether public or private,
+commercial or non-commercial — MUST retain:
+
+1. The original copyright notice (Copyright (c) 2025 UncleT-cyber)
+2. The MIT license text in the LICENSE file
+3. This NOTICE file with attribution
+4. A visible acknowledgment in the project's README or documentation stating:
+
+   "Based on / Derived from THE ARK (ArkGeo) by UncleT-cyber
+    https://github.com/UncleT-cyber/Ark-Geo"
+
+Failure to include these attributions constitutes a license violation.

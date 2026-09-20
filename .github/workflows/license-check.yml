@@ -1,0 +1,77 @@
+name: License & Attribution Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * 1'
+
+jobs:
+  license-check:
+    runs-on: ubuntu-latest
+    name: Verify license and attribution files
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check LICENSE exists and is MIT
+        run: |
+          if [ ! -f LICENSE ]; then
+            echo "::error::LICENSE file is missing — forks must retain the MIT license."
+            exit 1
+          fi
+          if ! grep -q "MIT License" LICENSE; then
+            echo "::error::LICENSE file does not contain 'MIT License'."
+            exit 1
+          fi
+          if ! grep -q "Copyright (c) 2025 UncleT-cyber" LICENSE; then
+            echo "::error::LICENSE file missing original copyright notice."
+            exit 1
+          fi
+          echo "LICENSE file: OK"
+
+      - name: Check NOTICE exists and has attribution
+        run: |
+          if [ ! -f NOTICE ]; then
+            echo "::error::NOTICE file is missing — forks must retain attribution."
+            exit 1
+          fi
+          if ! grep -q "UncleT-cyber" NOTICE; then
+            echo "::error::NOTICE file missing UncleT-cyber attribution."
+            exit 1
+          fi
+          echo "NOTICE file: OK"
+
+      - name: Check README has attribution
+        run: |
+          if ! grep -qi "UncleT-cyber\|Ark-Geo\|ArkGeo" README.md; then
+            echo "::error::README.md must contain attribution to UncleT-cyber / Ark-Geo."
+            exit 1
+          fi
+          echo "README attribution: OK"
+
+      - name: Block known attribution-stripping patterns
+        run: |
+          VIOLATIONS=0
+          for f in $(find . -name "*.md" -not -path "./node_modules/*" -not -path "./arkgeo-backend/cai/*"); do
+            if grep -qiE "remove.*(attribution|copyright|license)|strip.*(credit|author)" "$f" 2>/dev/null; then
+              echo "::warning file=$f::Possible attribution-stripping language found."
+              VIOLATIONS=$((VIOLATIONS + 1))
+            fi
+          done
+          if [ "$VIOLATIONS" -gt 0 ]; then
+            echo "::warning::Found $VIOLATIONS file(s) with possible attribution-stripping language."
+          fi
+
+      - name: Summary
+        run: |
+          echo "## License & Attribution Check Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| LICENSE (MIT, UncleT-cyber) | ✅ Present |" >> $GITHUB_STEP_SUMMARY
+          echo "| NOTICE (attribution) | ✅ Present |" >> $GITHUB_STEP_SUMMARY
+          echo "| README attribution | ✅ Present |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Forks that remove or alter these files will fail this check." >> $GITHUB_STEP_SUMMARY

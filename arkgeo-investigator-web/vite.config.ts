@@ -9,7 +9,7 @@ export default defineConfig({
     port: 12001,
     allowedHosts: true,
     proxy: {
-      '/api': 'http://127.0.0.1:8000',
+      '/api': 'http://127.0.0.1:12000',
     },
   },
   build: {

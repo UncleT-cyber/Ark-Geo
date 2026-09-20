@@ -34,7 +34,7 @@ inspired by and integrated with the
      3. Admin Console or Mobile HUD
 -->
 
-| The ARK Workbench | AI Investigation | Terminal Agent |
+| The ARK Workbench | Image Investigation | Terminal Agent |
 |---|---|---|
 | ![Workbench](docs/screenshots/workbench.png) | ![Investigation](docs/screenshots/investigation.png) | ![Terminal](docs/screenshots/terminal.png) |
 

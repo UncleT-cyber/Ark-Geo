@@ -27,13 +27,6 @@ inspired by and integrated with the
 
 ## Screenshots
 
-<!-- Replace the placeholders below with your actual screenshot files.
-     Suggested captures:
-     1. The ARK Workbench — IMAGE domain with an investigation loaded
-     2. AI Investigation Mode or Terminal Agent streaming
-     3. Admin Console or Mobile HUD
--->
-
 | The ARK Workbench | Image Investigation | Terminal Agent |
 |---|---|---|
 | ![Workbench](docs/screenshots/workbench.png) | ![Investigation](docs/screenshots/investigation.png) | ![Terminal](docs/screenshots/terminal.png) |

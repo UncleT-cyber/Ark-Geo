@@ -18,6 +18,10 @@ When forking this repository you **must** keep:
 
 Stripping or altering these attributions is a license violation and will be reported.
 
+**Note:** The CAI (Cybersecurity AI) Robotics Framework included in this project retains its
+own dual licensing terms (MIT + Research-Use). CAI components under the Research-Use License
+are not covered by this project's MIT license. See `arkgeo-backend/cai/LICENSE` for details.
+
 ## Code Contributions
 
 If you want to contribute back to this project:

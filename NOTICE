@@ -4,7 +4,11 @@ Copyright (c) 2025 UncleT-cyber
 This product includes software developed by UncleT-cyber and contributors.
 
 This product includes a customized fork of the CAI (Cybersecurity AI) Robotics Framework,
-originally created by 0x4rn0s (https://github.com/0x4rn0s/CAI), used under the MIT License.
+originally created by 0x4rn0s (https://github.com/0x4rn0s/CAI). CAI is dual-licensed:
+MIT (for OpenAI-derived components) and a Research-Use License (for proprietary
+Alias Robotics components). CAI retains its own licensing terms and is not
+relicensed under THE ARK's MIT license. See arkgeo-backend/cai/LICENSE and
+arkgeo-backend/cai/LICENSE-MIT for full details.
 
 All rights reserved. This software, its source code, architecture, documentation, and design
 assets are the intellectual property of UncleT-cyber and contributors.

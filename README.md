@@ -438,6 +438,19 @@ Master plan:
 
 ---
 
+## Third-Party Licenses
+
+### CAI (Cybersecurity AI) Robotics Framework
+
+THE ARK integrates [CAI](https://github.com/0x4rn0s/CAI), which retains its own licensing terms:
+
+- **CAI MIT components** — OpenAI-derived code, licensed under [MIT](arkgeo-backend/cai/LICENSE-MIT)
+- **CAI Research-Use components** — Proprietary additions by Alias Robotics S.L., licensed for non-commercial research and academic purposes only. Commercial use requires a separate license from [Alias Robotics](https://aliasrobotics.com)
+
+CAI is **not** relicensed under THE ARK's MIT license. See [`arkgeo-backend/cai/LICENSE`](arkgeo-backend/cai/LICENSE) for full CAI licensing details.
+
+---
+
 <div align="center">
 
 **THE ARK — Investigate. Correlate. Preserve.**

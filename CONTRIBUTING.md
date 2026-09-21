@@ -39,4 +39,3 @@ Open an issue on GitHub. Include:
 
 - Python: follow existing patterns in the codebase
 - TypeScript/React: match existing component conventions
-- No AI-generated attribution removals or license header changes

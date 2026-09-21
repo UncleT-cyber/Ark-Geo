@@ -12,7 +12,7 @@
 
 ## 1. TL;DR
 
-We built **the first of its kind: an integrated security environment** — an
+We built **an integrated security environment** — an
 AI-orchestrated forensic investigation platform ("THE ARK") that unifies
 image forensics, geolocation, reverse visual search, network intelligence,
 threat/SecOps, OSINT, certified signaling (SS7/Diameter), phone intelligence,

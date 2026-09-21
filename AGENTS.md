@@ -63,8 +63,6 @@ npx expo start                          # Expo dev server
 - Known non-blocking warning: httpx/TestClient deprecation in Starlette
 
 ## Conventions
-- Git: user.name=openhands, user.email=openhands@all-hands.dev
-- Commits include `Co-authored-by: openhands <openhands@all-hands.dev>`
 - No node_modules, .env, __pycache__, dist/ in version control
 
 ## Workbench Architecture (Integrated Security Environment Refactor)

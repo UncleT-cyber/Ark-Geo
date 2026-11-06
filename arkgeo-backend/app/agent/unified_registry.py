@@ -244,7 +244,7 @@ class UnifiedToolRegistry:
             count = 0
             for ark_tool in tool_adapter._CATALOGUE:
                 # Skip if already registered from substrate
-                if self._find(ark_tool.id):
+                if ark_tool.id in self._tools:
                     continue
 
                 handler = ark_tool.func
@@ -310,7 +310,7 @@ class UnifiedToolRegistry:
                 desc = getattr(tool, "description", "") or ""
 
                 # Skip if already registered
-                if self._find(tname):
+                if tname in self._tools:
                     continue
 
                 func = getattr(tool, "func", None)
@@ -380,17 +380,12 @@ class UnifiedToolRegistry:
                          tid, tool.source)
             return False
 
-        # Normalized match — skip
-        if ntid in self._by_norm:
-            existing = self._tools[self._by_norm[ntid]]
-            logger.debug(
-                "[Unified Registry] Dedup (norm): %s (%s) collides with %s (%s)",
-                tid, tool.source, existing.tool_id, existing.source
-            )
-            return False
-
         self._tools[tid] = tool
-        self._by_norm[ntid] = tid
+        if ntid in self._by_norm:
+            logger.warning("[Unified Registry] Ambiguous normalized alias: %s", ntid)
+            self._by_norm[ntid] = ""
+        else:
+            self._by_norm[ntid] = tid
         return True
 
     def _find(self, tool_id: str) -> Optional[UnifiedTool]:
@@ -399,7 +394,7 @@ class UnifiedToolRegistry:
             return self._tools[tool_id]
         ntid = _norm(tool_id)
         if ntid in self._by_norm:
-            return self._tools[self._by_norm[ntid]]
+            return self._tools.get(self._by_norm[ntid])
         return None
 
     # ------------------------------------------------------------------ #
@@ -431,9 +426,9 @@ class UnifiedToolRegistry:
     # ------------------------------------------------------------------ #
     # Schema generation — what the LLM sees
     # ------------------------------------------------------------------ #
-    def openai_tools(self, domain: str | None = None) -> list[dict]:
+    def openai_tools(self, domain: str | None = None, *, selected: list[UnifiedTool] | None = None) -> list[dict]:
         """Return OpenAI function-call schemas for all tools."""
-        tools = self.list(domain)
+        tools = self.list(domain) if selected is None else selected
         schemas = []
         for t in tools:
             if t.openai_schema:
@@ -449,6 +444,23 @@ class UnifiedToolRegistry:
                 })
         return schemas
 
+    def provider_tools(self, selected: list[UnifiedTool]):
+        """Build a request-local wire catalogue from the registered handlers."""
+        from app.agent.provider_tools import ProviderTools
+        from app.agent.tool_registry import registry
+        from app.services.agent.tools import schema_for_tool
+
+        definitions = []
+        for tool in selected:
+            if tool.source == "ark_substrate":
+                original = registry.get(tool.tool_id)
+                schema = schema_for_tool(original) if original else None
+                if schema is not None:
+                    definitions.append(schema)
+            else:
+                definitions.extend(self.openai_tools(selected=[tool]))
+        return ProviderTools(definitions)
+
     # ------------------------------------------------------------------ #
     # Execution — sync and async
     # ------------------------------------------------------------------ #
@@ -458,6 +470,13 @@ class UnifiedToolRegistry:
         if tool is None:
             return {"status": "error", "tool": tool_id,
                     "error": f"unknown tool: {tool_id}"}
+        # Engagement-scope enforcement — target-bearing calls are denied when
+        # no active scope fixture authorizes them.
+        from app.agent import engagement_scope
+        verdict = engagement_scope.check(tool_id, kwargs)
+        if not verdict.allowed:
+            return {"status": "error", "tool": tool_id, "error": verdict.reason,
+                    "code": "scope_denied"}
         return tool.handler(**kwargs)
 
     async def acall(self, tool_id: str, **kwargs) -> dict:
@@ -466,6 +485,13 @@ class UnifiedToolRegistry:
         if tool is None:
             return {"status": "error", "tool": tool_id,
                     "error": f"unknown tool: {tool_id}"}
+        # Engagement-scope enforcement — target-bearing calls are denied when
+        # no active scope fixture authorizes them.
+        from app.agent import engagement_scope
+        verdict = engagement_scope.check(tool_id, kwargs)
+        if not verdict.allowed:
+            return {"status": "error", "tool": tool_id, "error": verdict.reason,
+                    "code": "scope_denied"}
         if tool.async_capable:
             return await tool.handler(**kwargs)
         else:

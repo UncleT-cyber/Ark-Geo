@@ -130,23 +130,20 @@ export function DashboardView({ onUpload, onRestoreCase }: DashboardViewProps) {
 
   return (
     <div className="dashboard">
-      <div className="dashboard-header">
-        <div>
-          <div className="dashboard-title">System Overview</div>
-          <div className="dashboard-subtitle">
-            Forensic intelligence dashboard · {history.length} session{history.length === 1 ? '' : 's'} recorded
-          </div>
-        </div>
-      </div>
+      <dl className="workspace-metrics">
+        <div><dt>Saved investigations</dt><dd>{history.length}</dd></div>
+        <div><dt>Last 14 days</dt><dd>{trend.reduce((total, day) => total + day.count, 0)}</dd></div>
+        <div><dt>Critical risk</dt><dd>{riskBreakdown.critical}</dd></div>
+      </dl>
 
       <div className="dashboard-grid">
         {/* Card 1: Activity Trend */}
-        <div className="dash-card dash-card-wide">
+        <div className="dash-card">
           <div className="dash-card-header">
             <span className="dash-card-title">Investigation Volume</span>
             <span className="dash-card-sub">14-day activity trend</span>
           </div>
-          <div className="dash-chart">
+          {history.length > 0 ? <div className="dash-chart">
             {trend.map((d, i) => (
               <div key={i} className="dash-chart-col" title={`${d.label}: ${d.count}`}>
                 <div className="dash-chart-bar-wrap">
@@ -158,10 +155,7 @@ export function DashboardView({ onUpload, onRestoreCase }: DashboardViewProps) {
                 <div className="dash-chart-label">{d.label}</div>
               </div>
             ))}
-          </div>
-          {history.length === 0 && (
-            <div className="dash-empty">No investigations yet — upload an image to begin.</div>
-          )}
+          </div> : <div className="dash-empty">Upload an image to start an investigation.</div>}
         </div>
 
         {/* Card 2: Risk Breakdown */}

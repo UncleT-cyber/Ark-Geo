@@ -66,7 +66,7 @@ export function CaseExplorer({ onRestoreCase }: CaseExplorerProps) {
       <div className="case-explorer-header">
         <div className="case-explorer-title-row">
           <FolderKanban className="w-5 h-5 case-explorer-title-icon" />
-          <div className="case-explorer-title">CASE EXPLORER</div>
+          <div className="case-explorer-title">Saved cases</div>
           <span className="case-explorer-count">{inv.history.length} saved</span>
         </div>
         <div className="case-explorer-search">

@@ -1,0 +1,24 @@
+# ARK Lab Target B — minimal sshd for authorized identity-verification tests.
+Port 22
+Protocol 2
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_rsa_key
+
+# Test-only account policy
+PermitRootLogin no
+AllowUsers labuser
+PasswordAuthentication yes
+PubkeyAuthentication no
+KbdInteractiveAuthentication no
+AuthenticationMethods password
+
+# Least privilege — session is for identity verification only
+AllowTcpForwarding no
+X11Forwarding no
+AllowAgentForwarding no
+PermitTunnel no
+PrintMotd no
+UseDNS no
+ClientAliveInterval 30
+ClientAliveCountMax 2
+MaxSessions 2

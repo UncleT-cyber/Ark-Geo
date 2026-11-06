@@ -1,8 +1,7 @@
 /**
  * TopBar — 40px top application bar.
  *
- * Single subtle ARK identity on the left (one wordmark — no duplicate logos
- * elsewhere). Center: global command palette (Cmd/Ctrl+K). Right: status
+ * Center: global command palette (Cmd/Ctrl+K). Right: status
  * badges, API provider indicators, connection state, and the logged-in
  * investigator's profile/session icon.
  *
@@ -45,18 +44,9 @@ export function TopBar({
 
   return (
     <div className="topbar">
-      {/* Left: single subtle ARK identity + active case.
-          macOS/Electron safe zone: padding-left keeps ARK clear of native
-          traffic-light (Close/Minimize/Expand) window controls in desktop mode. */}
-      <div className="topbar-left">
-        <span className="topbar-ark">ARK</span>
-        {activeCaseId && (
-          <>
-            <span className="topbar-sep" />
-            <span className="topbar-case mono" title="Active case">{activeCaseId}</span>
-          </>
-        )}
-      </div>
+      {activeCaseId && <div className="topbar-left">
+        <span className="topbar-case mono" title="Active case">{activeCaseId}</span>
+      </div>}
 
       {/* Center: command palette search */}
       <div className="topbar-center">

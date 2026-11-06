@@ -1,37 +1,16 @@
-/**
- * Workbench — the main THE ARK ISE investigation workstation.
- *
- * Information architecture is organized by INVESTIGATION WORKSPACES:
- *   THE ARK
- *   ├── IMAGE   — Image Intelligence Workspace (primary)
- *   │     Upload → Scan → Investigation (map-first) → Forensics → OCR/Vision
- *   │     → Source Discovery → Provenance → Evidence/Audit/Output → Report
- *   ├── NETWORK — Network Workspace (structural placeholder)
- *   ├── SECOPS  — Threat & SecOps Workspace (structural placeholder)
- *   │     SIEM · IDS/IPS · Threat Hunting · Detection & Correlation
- *   │     · Incident Management · Security Operations
- *   └── CASES   — Case Workspace (cross-domain saved sessions & audit vault)
- *
- * The PROFILE icon (TopBar + ActivityBar footer) opens the Investigator
- * Profile Modal — it NEVER links to Admin. Admin is a protected control
- * plane reachable only via the stealth hotkey Cmd/Ctrl+Shift+P (handled in
- * App.tsx) plus server-side authorization at /console-auth.
- *
- * Every important entity has a stable ID and relationships
- * (Tenant → Workspace → Case → Evidence → AnalysisRun → Finding → Report →
- * AuditEvent). The shared investigation context (useInvestigation) holds these
- * and feeds the universal contextual bottom console, which works for IMAGE now
- * and NETWORK later without being rewritten.
- */
+/** The ARK investigation workbench and its shared workspace context. */
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
-import { api, ensureBaseUrl, type AiStatusResponse } from '../../api';
+import { adminAuth, api, ensureBaseUrl, type AiStatusResponse } from '../../api';
 import type { AnalyzeResponse, NextStep } from '../../types';
 import { TopBar, type ApiKeyStatus } from './TopBar';
-import { ActivityBar } from './ActivityBar';
+import { WorkspaceTabs, WorkspaceTabPanels } from './WorkspaceTabs';
+import { InvestigationNavigation, USE_CASES } from './InvestigationNavigation';
 import type { ToolTabId } from './TabBar';
 import { EvidenceExplorer } from './investigation/EvidenceExplorer';
 import { InvestigationOverview } from './investigation/InvestigationOverview';
-import { BottomPanel } from './BottomPanel';
+import { ArkControl } from './ArkControl';
+import { useImageReview } from './useImageReview';
+import './workspace.css';
 import { StatusBar } from './StatusBar';
 import { CommandPalette } from './CommandPalette';
 import { DashboardView, recordSession, classifyRisk } from './DashboardView';
@@ -54,9 +33,8 @@ import { InvestigationProvider, useInvestigation, type SavedCase, type SavedCase
 import { ByokProvider } from '../settings/ByokContext';
 import { byokStore } from '../../core/byok/byokStore';
 import type { ByokProviderId } from '../../types';
-import { SUBVIEW_ICONS, SIDEBAR_ICONS, type LucideIcon } from './icons';
-import type { DomainId } from './entities';
-import { Upload, ChevronDown, ChevronRight, PanelLeft, Save, Tag } from 'lucide-react';
+import { DOMAIN_ICONS, SUBVIEW_ICONS, type LucideIcon } from './icons';
+import { Upload, ChevronDown, ChevronRight, Save, Tag } from 'lucide-react';
 
 /** Ordered IMAGE investigation sub-views — one continuous workflow. */
 const IMAGE_SUBVIEWS: { id: ToolTabId; title: string; icon: LucideIcon; hint: string }[] = [
@@ -87,6 +65,21 @@ const API_INDICATORS: { label: string; title: string; service: string; byok: Byo
 
 function WorkbenchInner() {
   const inv = useInvestigation();
+  const imageReview = useImageReview();
+  const [dockWidth, setDockWidth] = useState(() => {
+    try { return Number(localStorage.getItem('ark.dockWidth')) || 420; }
+    catch { return 420; }
+  });
+  const [resizingDock, setResizingDock] = useState(false);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const resizeOrigin = useRef<{ x: number; width: number }>();
+  const updateDockWidth = (width: number) => {
+    const limit = Math.min(800, (bodyRef.current?.clientWidth ?? window.innerWidth) * .55);
+    setDockWidth(Math.round(Math.min(limit, Math.max(280, width))));
+  };
+  useEffect(() => {
+    try { localStorage.setItem('ark.dockWidth', String(dockWidth)); } catch { /* private storage */ }
+  }, [dockWidth]);
   const [activeSubview, setActiveSubview] = useState<ToolTabId>('overview');
   const [networkTab, setNetworkTab] = useState<NetworkTabId>('discovery');
   const [analyzing, setAnalyzing] = useState(false);
@@ -95,13 +88,11 @@ function WorkbenchInner() {
   const [dragOver, setDragOver] = useState(false);
   const [thumbnailUrl, setThumbnailUrl] = useState<string | undefined>(undefined);
   const [connected, setConnected] = useState(true);
-  const [bottomCollapsed, setBottomCollapsed] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [explorerExpanded, setExplorerExpanded] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.matchMedia('(max-width: 860px)').matches);
+  const [explorerExpanded, setExplorerExpanded] = useState(false);
   const [apiStatuses, setApiStatuses] = useState<ApiKeyStatus[]>([]);
   const [sessionTick, setSessionTick] = useState(0);
   const [dashRefresh, setDashRefresh] = useState(0);
@@ -114,6 +105,10 @@ function WorkbenchInner() {
   const { toasts, showToast, dismiss } = useToast();
 
   const result = inv.result;
+
+  useEffect(() => () => {
+    if (thumbnailUrl) URL.revokeObjectURL(thumbnailUrl);
+  }, [thumbnailUrl]);
 
   // TopBar API provider indicators — unified single source of truth. A dot is
   // "configured" when the ADMIN system key is set server-side (health), OR the
@@ -193,6 +188,7 @@ function WorkbenchInner() {
   }, []);
 
   const analyzeFile = useCallback(async (file: File) => {
+    const reviewId = imageReview.begin(file.name);
     setAnalyzing(true);
     setError(null);
     setCascadePhase(null);
@@ -201,11 +197,14 @@ function WorkbenchInner() {
     lastFileRef.current = file;
     try {
       const resp = await api.analyzeFile(file, zeroRetention);
-      inv.loadFromAnalysis(resp, file.name);
+      inv.loadFromAnalysis(resp, file.name, zeroRetention);
       // Continuous image-intelligence cascade: classification → hashing/source
       // discovery → OCR/telemetry → visual geolocation → evidence fusion. Runs
       // client-side so every asset (even metadata-stripped) yields evidence.
-      await inv.runPipeline(file, resp);
+      imageReview.stage(reviewId, 'ARK Core analysis received');
+      const pipeline = await inv.runPipeline(file, resp, progress => {
+        imageReview.stage(reviewId, `${progress.currentStep}/${progress.totalSteps} · ${progress.name}`);
+      });
       const anomalyCount =
         (resp.steganography_detected ? 1 : 0) +
         (resp.gps_spoofing_detected ? 1 : 0) +
@@ -225,25 +224,35 @@ function WorkbenchInner() {
       setSessionTick(t => t + 1);
       setActiveSubview('overview');
       showToast(`Analysis complete — ${resp.source}`, 'success');
+      void imageReview.report(reviewId, resp, pipeline, zeroRetention);
+      return resp;
     } catch (err) {
+      imageReview.fail(reviewId);
       setError(err instanceof Error ? err.message : 'Analysis failed');
       showToast('Analysis failed', 'error');
     } finally {
       setAnalyzing(false);
       setCascadePhase(null);
     }
-  }, [zeroRetention, showToast, inv]);
+  }, [zeroRetention, showToast, inv, imageReview]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) analyzeFile(file);
+    e.target.value = '';
+    if (file && !analyzing) {
+      if (['image/jpeg', 'image/png'].includes(file.type)) void analyzeFile(file);
+      else setError('Choose a JPEG or PNG image.');
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
     const file = e.dataTransfer.files?.[0];
-    if (file) analyzeFile(file);
+    if (file && !analyzing) {
+      if (['image/jpeg', 'image/png'].includes(file.type)) void analyzeFile(file);
+      else setError('Choose a JPEG or PNG image.');
+    }
   };
 
   /** Navigate to an image sub-view (the sidebar is the primary navigator). */
@@ -289,7 +298,6 @@ function WorkbenchInner() {
       claims_to_verify: step.claim ? [{ field: step.claim }] : [],
       natural_language: `Investigate next: ${step.action} — ${step.reason}`,
     });
-    setBottomCollapsed(false);
   }, [inv, showToast]);
 
   const handleExportPdf = useCallback(() => {
@@ -325,13 +333,14 @@ function WorkbenchInner() {
   };
 
   const newSession = useCallback(() => {
+    imageReview.clear();
     inv.clear();
     lastFileRef.current = null;
     setError(null);
     setThumbnailUrl(undefined);
     setActiveSubview('overview');
     inv.setDomain('image');
-  }, [inv]);
+  }, [inv, imageReview]);
 
   const triggerUpload = useCallback(() => {
     inv.setDomain('image');
@@ -339,12 +348,19 @@ function WorkbenchInner() {
   }, [inv]);
 
   const handleRestoreCase = useCallback((saved: SavedCase) => {
-    inv.restoreCase(saved);
+    imageReview.clear();
+    const snapshot = inv.restoreCase(saved);
+    if (!saved.domain || saved.domain === 'image') {
+      const id = imageReview.begin(saved.filename, true);
+      if (snapshot) void imageReview.report(id, snapshot.result, null, zeroRetention || !!saved.zeroRetention, snapshot);
+      else imageReview.fail(id, 'This saved case has no evidence snapshot to review.');
+    }
+    lastFileRef.current = null;
     setActiveSubview('overview');
     setThumbnailUrl(undefined);
     setError(null);
     showToast(`Restored case ${saved.caseId}`, 'success');
-  }, [inv, showToast]);
+  }, [inv, showToast, imageReview, zeroRetention]);
 
   /** Save the current workspace observations into the unified Case Vault.
    *  Domain is inferred from the active workspace (Telecom tab → 'telecom'). */
@@ -380,11 +396,46 @@ function WorkbenchInner() {
     setSavePromptOpen(true);
   }, [inv, showToast]);
 
-  const CollapseIcon = sidebarCollapsed ? SIDEBAR_ICONS.expand : SIDEBAR_ICONS.collapse;
+  const openUseCase = (id: typeof USE_CASES[number]['id']) => {
+    if (id === 'forensics') {
+      openTool(result ? 'fileforensics' : 'overview');
+    } else if (id === 'hunting') {
+      inv.setDomain('secops');
+    } else if (id === 'assessment' || id === 'discovery' || id === 'web') {
+      inv.setDomain('network');
+      setNetworkTab(id === 'web' ? 'webapp' : 'discovery');
+    }
+  };
+
   const activeCaseId = inv.activeCase?.id || null;
+  const imageView = IMAGE_SUBVIEWS.find(view => view.id === activeSubview);
+  const networkView = NETWORK_TABS.find(view => view.id === networkTab);
+  const workspace = {
+    image: {
+      label: 'Image intelligence',
+      title: result ? imageView?.title ?? 'Investigation' : 'System overview',
+      description: result ? imageView?.hint : 'Review investigation activity, risk, and saved sessions.',
+    },
+    network: {
+      label: 'Network intelligence',
+      title: networkView?.label ?? 'Network workspace',
+      description: networkView?.hint,
+    },
+    secops: {
+      label: 'Security operations',
+      title: 'Threat & SecOps',
+      description: 'Planned capabilities for detection, triage, and incident response.',
+    },
+    cases: {
+      label: 'Case vault',
+      title: 'Case explorer',
+      description: 'Find saved investigations and review the active case audit trail.',
+    },
+  }[inv.domain];
+  const WorkspaceIcon = DOMAIN_ICONS[inv.domain];
 
   return (
-    <div className="workbench">
+    <div className="workbench ark-command-center">
       <TopBar
         activeCaseId={activeCaseId}
         apiStatuses={apiStatuses}
@@ -394,234 +445,66 @@ function WorkbenchInner() {
         onSaveInvestigation={openSavePrompt}
       />
 
-      <div className="workbench-body">
-        <ActivityBar active={inv.domain} onNavigate={(d: DomainId) => inv.setDomain(d)} onOpenSettings={() => setShowSettings(true)} />
+      <div ref={bodyRef} className={`workbench-body ${resizingDock ? 'ark-dock-resizing' : ''}`}
+        style={{ '--ark-dock-width': `${dockWidth}px` } as React.CSSProperties}>
+        <InvestigationNavigation
+          collapsed={sidebarCollapsed}
+          domain={inv.domain}
+          activeCaseId={activeCaseId}
+          analyzing={analyzing}
+          history={inv.history}
+          onToggle={() => setSidebarCollapsed(value => !value)}
+          onNew={newSession}
+          onNavigate={inv.setDomain}
+          onRestore={handleRestoreCase}
+          onUseCase={openUseCase}
+          onTools={() => setShowPalette(true)}
+          onSettings={() => setShowSettings(true)}
+          onAdmin={adminAuth.isAuthenticated() ? () => { window.location.hash = `${ADMIN_LOGIN_PATH}/console`; } : undefined}
+        />
 
-        {sidebarVisible && (
-          <>
-            <div className={`workbench-sidebar ${sidebarCollapsed ? 'workbench-sidebar-collapsed' : ''}`}>
-              <div className="sidebar-collapse-bar">
-                <button
-                  className="sidebar-collapse-btn"
-                  onClick={() => setSidebarCollapsed(c => !c)}
-                  title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-                >
-                  <CollapseIcon className="w-4 h-4" />
-                </button>
-                {!sidebarCollapsed && <span className="sidebar-collapse-label">Collapse</span>}
-              </div>
-
-              {/* ---- IMAGE domain sidebar ---- */}
-              {inv.domain === 'image' && (
-                <>
-                  {!sidebarCollapsed && (
-                    <div className="sidebar-content">
-                      <div className="sidebar-header">IMAGE INTELLIGENCE WORKSPACE</div>
-
-                      {!result && !analyzing && (
-                        <>
-                          <div
-                            className={`dropzone ${dragOver ? 'dropzone-active' : ''} ${analyzing ? 'dropzone-busy' : ''}`}
-                            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-                            onDragLeave={() => setDragOver(false)}
-                            onDrop={handleDrop}
-                            onClick={() => fileInputRef.current?.click()}
-                          >
-                            <div className="dropzone-icon"><Upload className="w-7 h-7" /></div>
-                            <div className="dropzone-text">Drag & drop image here</div>
-                            <div className="dropzone-subtext">JPEG / PNG · high-res supported</div>
-                          </div>
-                          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png" onChange={handleFileSelect} style={{ display: 'none' }} />
-                          <div className="sidebar-options">
-                            <label className="toggle-row">
-                              <input type="checkbox" checked={zeroRetention} onChange={e => setZeroRetention(e.target.checked)} />
-                              <span className="toggle-label">Zero-Retention Mode</span>
-                            </label>
-                          </div>
-                          {error && (
-                            <div className="error-box">
-                              <div className="error-title">ANALYSIS ERROR</div>
-                              <div className="error-detail">{error}</div>
-                            </div>
-                          )}
-                          {!error && (
-                            <div className="sidebar-hint">
-                              Upload an image to begin. The full image investigation — map, forensics, OCR, source discovery, provenance, report — lives inside this one domain.
-                            </div>
-                          )}
-                        </>
-                      )}
-
-                      {result && (
-                        <>
-                          <div className="sidebar-case-header">
-                            <div className="sidebar-case-thumb">
-                              {thumbnailUrl ? (
-                                <img src={thumbnailUrl} alt="target" />
-                              ) : (
-                                <span className="sidebar-case-thumb-placeholder"><Upload className="w-4 h-4" /></span>
-                              )}
-                            </div>
-                            <div className="sidebar-case-meta">
-                              <div className="sidebar-case-id mono">{activeCaseId}</div>
-                              <div className="sidebar-case-source">{result.source}</div>
-                            </div>
-                          </div>
-
-                          <div className="sidebar-subnav">
-                            {IMAGE_SUBVIEWS.map(sv => {
-                              const Icon = sv.icon;
-                              return (
-                                <button
-                                  key={sv.id}
-                                  className={`subnav-item ${activeSubview === sv.id ? 'subnav-item-active' : ''}`}
-                                  onClick={() => openTool(sv.id)}
-                                  title={sv.hint}
-                                >
-                                  <span className="subnav-icon"><Icon className="w-4 h-4" /></span>
-                                  <span className="subnav-label">{sv.title}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-
-                          <button className="sidebar-new-session" onClick={newSession}>+ New Investigation</button>
-
-                          <div className="sidebar-explorer-section">
-                            <button
-                              className="sidebar-explorer-toggle"
-                              onClick={() => setExplorerExpanded(e => !e)}
-                            >
-                              <span className="explorer-chevron">{explorerExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
-                              <span className="explorer-section-label">Evidence Explorer</span>
-                            </button>
-                            {explorerExpanded && (
-                              <EvidenceExplorer result={result} onOpenTool={openTool} thumbnailUrl={thumbnailUrl} />
-                            )}
-                          </div>
-                        </>
-                      )}
-
-                      {analyzing && (
-                        <div className="sidebar-scanning">
-                          <div className="dropzone-scanning"><div className="radar-pulse" /><span>SCANNING...</span></div>
-                          <div className="sidebar-hint">Processing target asset through the cascade pipeline.</div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {sidebarCollapsed && result && (
-                    <div className="sidebar-collapsed-nav">
-                      {IMAGE_SUBVIEWS.map(sv => {
-                        const Icon = sv.icon;
-                        return (
-                          <button
-                            key={sv.id}
-                            className={`subnav-icon-btn ${activeSubview === sv.id ? 'subnav-icon-btn-active' : ''}`}
-                            onClick={() => openTool(sv.id)}
-                            title={sv.title}
-                          >
-                            <Icon className="w-5 h-5" />
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {sidebarCollapsed && !result && (
-                    <div className="sidebar-collapsed-nav">
-                      <button
-                        className="subnav-icon-btn subnav-icon-btn-active"
-                        onClick={() => fileInputRef.current?.click()}
-                        title="Upload image"
-                      >
-                        <Upload className="w-5 h-5" />
-                      </button>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* ---- NETWORK domain sidebar ---- */}
-              {inv.domain === 'network' && !sidebarCollapsed && (
-                <div className="sidebar-content">
-                  <div className="sidebar-header">NETWORK INTELLIGENCE WORKSPACE</div>
-                  <div className="sidebar-hint">
-                    Passive OSINT tools for network, web, endpoint, traffic and
-                    telecom investigation. Active security-testing engines are
-                    risk-gated.
-                  </div>
-                  <div className="sidebar-subnav">
-                    {NETWORK_TABS.map(t => {
-                      const Icon = t.icon;
-                      return (
-                        <button
-                          key={t.id}
-                          className={`subnav-item ${networkTab === t.id ? 'subnav-item-active' : ''}`}
-                          onClick={() => setNetworkTab(t.id)}
-                          title={t.hint}
-                        >
-                          <span className="subnav-icon"><Icon className="w-4 h-4" /></span>
-                          <span className="subnav-label">{t.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {inv.domain === 'network' && sidebarCollapsed && (
-                <div className="sidebar-collapsed-nav">
-                  {NETWORK_TABS.map(t => {
-                    const Icon = t.icon;
-                    return (
-                      <button
-                        key={t.id}
-                        className={`subnav-icon-btn ${networkTab === t.id ? 'subnav-icon-btn-active' : ''}`}
-                        onClick={() => setNetworkTab(t.id)}
-                        title={t.label}
-                      >
-                        <Icon className="w-5 h-5" />
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* ---- SECOPS domain sidebar (placeholder) ---- */}
-              {inv.domain === 'secops' && !sidebarCollapsed && (
-                <div className="sidebar-content">
-                  <div className="sidebar-header">THREAT &amp; SECOPS</div>
-                  <div className="sidebar-hint">
-                    Security-operations investigation domain. Sub-modules:
-                    SIEM, IDS/IPS, Threat Hunting, Detection &amp; Correlation,
-                    Incident Management, and the SecOps dashboard are reserved
-                    for future tooling.
-                  </div>
-                </div>
-              )}
-
-              {/* ---- CASES domain sidebar ---- */}
-              {inv.domain === 'cases' && !sidebarCollapsed && (
-                <div className="sidebar-content">
-                  <div className="sidebar-header">CASE EXPLORER</div>
-                  <div className="sidebar-hint">
-                    Cross-domain case layer. Saved investigations and the audit
-                    vault live here. Restore a past case to continue work.
-                  </div>
-                </div>
-              )}
+        {/* Investigation viewport */}
+        <main className="workbench-main" aria-labelledby="workspace-title">
+          <header className="workspace-heading">
+            <div className="workspace-heading-icon"><WorkspaceIcon size={20} aria-hidden="true" /></div>
+            <div className="workspace-heading-copy">
+              <div className="workspace-heading-domain">{workspace.label}</div>
+              <h1 id="workspace-title">{workspace.title}</h1>
+              <p>{workspace.description}</p>
             </div>
-            <div className="resize-handle resize-handle-v" />
-          </>
-        )}
-
-        {/* Main area: Viewport + BottomPanel */}
-        <div className="workbench-main">
+            {activeCaseId && <span className="workspace-heading-case mono">{activeCaseId}</span>}
+          </header>
+          {inv.domain === 'network' && <WorkspaceTabs scope="network" tabs={NETWORK_TABS.map(tab => ({
+            ...tab, label: ({ discovery: 'Discovery', webapp: 'HTTP / Web', testing: 'Security Testing' } as Partial<Record<NetworkTabId, string>>)[tab.id] ?? tab.label,
+          }))} active={networkTab} onSelect={setNetworkTab} />}
+          {inv.domain === 'image' && result && <WorkspaceTabs scope="image"
+            tabs={IMAGE_SUBVIEWS.map(tab => ({ ...tab, label: tab.title }))}
+            active={activeSubview} onSelect={openTool} />}
           <div className="workbench-viewport">
-            {inv.domain === 'image' && (
-              result ? renderSubview(activeSubview) : <DashboardView key={sessionTick} onUpload={triggerUpload} onRestoreCase={handleRestoreCase} refreshKey={dashRefresh} />
-            )}
-            {inv.domain === 'network' && <NetworkWorkbench activeTab={networkTab} onTabChange={setNetworkTab} />}
+            {inv.domain === 'image' && <>
+              <div className="workspace-image-intake">
+                {!analyzing && <button type="button" className={`dropzone ${dragOver ? 'dropzone-active' : ''}`}
+                  onDragOver={event => { event.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)} onDrop={handleDrop} onClick={triggerUpload}>
+                  <Upload size={16} /> {result ? 'Upload another image' : 'Upload or drop an image'} <small>JPEG / PNG</small>
+                </button>}
+                <label className="toggle-row">
+                  <input type="checkbox" checked={zeroRetention} disabled={analyzing} onChange={event => setZeroRetention(event.target.checked)} />
+                  <span className="toggle-label">Zero-Retention Mode</span>
+                </label>
+                {zeroRetention && <small className="retention-note">Automatic AI review is paused in this mode.</small>}
+                {error && <p className="error-detail" role="alert">{error}</p>}
+              </div>
+              {result && <details className="workspace-evidence" open={explorerExpanded}
+                onToggle={event => setExplorerExpanded(event.currentTarget.open)}>
+                <summary>Evidence Explorer</summary>
+                <EvidenceExplorer result={result} onOpenTool={openTool} thumbnailUrl={thumbnailUrl} />
+              </details>}
+              {result ? <WorkspaceTabPanels key={result.request_id} scope="image"
+                ids={IMAGE_SUBVIEWS.map(tab => tab.id)} active={activeSubview} render={renderSubview} />
+                : <DashboardView key={sessionTick} onUpload={triggerUpload} onRestoreCase={handleRestoreCase} refreshKey={dashRefresh} />}
+            </>}
+            {inv.domain === 'network' && <NetworkWorkbench activeTab={networkTab} />}
             {inv.domain === 'secops' && <SecOpsPlaceholder />}
             {inv.domain === 'cases' && <CaseExplorer onRestoreCase={handleRestoreCase} />}
             <IngestionSweep
@@ -634,8 +517,32 @@ function WorkbenchInner() {
             />
           </div>
 
-          <BottomPanel result={result} collapsed={bottomCollapsed} onToggle={() => setBottomCollapsed(!bottomCollapsed)} />
-        </div>
+        </main>
+        <div className="ark-dock-divider" role="separator" aria-label="Resize ARK-CAI dock" aria-orientation="vertical" tabIndex={0}
+          onPointerDown={event => {
+            if (event.button !== 0) return;
+            const dock = event.currentTarget.nextElementSibling;
+            if (!dock) return;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            resizeOrigin.current = { x: event.clientX, width: dock.getBoundingClientRect().width };
+            setResizingDock(true);
+          }}
+          onPointerMove={event => {
+            const origin = resizeOrigin.current;
+            if (origin && event.currentTarget.hasPointerCapture(event.pointerId)) {
+              updateDockWidth(origin.width + origin.x - event.clientX);
+            }
+          }}
+          onLostPointerCapture={() => { resizeOrigin.current = undefined; setResizingDock(false); }}
+          onKeyDown={event => {
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+            event.preventDefault();
+            const width = event.currentTarget.nextElementSibling?.getBoundingClientRect().width ?? dockWidth;
+            updateDockWidth(width + (event.key === 'ArrowLeft' ? 24 : -24));
+          }}
+          onDoubleClick={() => setDockWidth(420)}
+        />
+        <ArkControl workspaceTitle={workspace.title} imageReview={imageReview.review} onImage={file => { inv.setDomain('image'); return analyzeFile(file); }} analyzing={analyzing} onOpenTool={openTool} evidenceFile={lastFileRef.current} />
       </div>
 
       <StatusBar result={result} connected={connected} analyzing={analyzing} activeCaseId={activeCaseId} />
@@ -652,12 +559,6 @@ function WorkbenchInner() {
 
       <input ref={fileInputRef} type="file" accept="image/jpeg,image/png" onChange={handleFileSelect} style={{ display: 'none' }} />
 
-      {!sidebarVisible && (
-        <button className="sidebar-restore" onClick={() => setSidebarVisible(true)} title="Show sidebar">
-          <PanelLeft className="w-4 h-4" />
-        </button>
-      )}
-
       <InvestigatorProfileModal
         open={showProfile}
         onClose={() => setShowProfile(false)}
@@ -665,6 +566,7 @@ function WorkbenchInner() {
         onRestoreCase={handleRestoreCase}
       />
       <ClientSettingsModal
+        onRestoreCase={handleRestoreCase}
         open={showSettings}
         onClose={() => setShowSettings(false)}
         apiStatuses={apiStatuses}

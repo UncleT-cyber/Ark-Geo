@@ -1,0 +1,49 @@
+# THE ARK — Milestone A.2 disposable local laboratory
+#
+# Isolation properties (verified in the A.2 report):
+#   * private bridge network with `internal: true` -> NO outbound internet
+#     from either target container (verified: "Network unreachable" to 1.1.1.1)
+#   * NO published ports at all -> ARK (host) reaches the targets directly on
+#     the local bridge via pinned static IPs (172.30.250.10/.11), which are
+#     RFC1918 and not externally routable
+#   * no host filesystem mounts (no `volumes:` anywhere)
+#   * no privileged containers (privileged=false, CapAdd=[] verified);
+#     HTTP target additionally runs cap-drop ALL + read-only rootfs + no-new-privs
+#   * test-only credentials generated in-container at build (never host SSH keys)
+#
+# Provision:   docker compose -f arkgeo-lab/compose.yml up -d --build
+# Teardown:    docker compose -f arkgeo-lab/compose.yml down -v --rmi local
+
+services:
+  target-http:
+    build: ./target-http
+    container_name: ark-lab-http
+    networks:
+      ark-lab-net:
+        ipv4_address: 172.30.250.10   # approved Target A address
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+
+  target-ssh:
+    build: ./target-ssh
+    container_name: ark-lab-ssh
+    networks:
+      ark-lab-net:
+        ipv4_address: 172.30.250.11   # approved Target B address
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+
+networks:
+  ark-lab-net:
+    driver: bridge
+    internal: true               # blocks all outbound connectivity
+    ipam:
+      config:
+        - subnet: 172.30.250.0/24

@@ -162,6 +162,20 @@ export const api = {
   },
 
   /** AI gateway route status (public — powers the GS/GI/LLM header badges). */
+  async transcriptionAvailable(signal: AbortSignal): Promise<boolean> {
+    await ensureBaseUrl();
+    const { data } = await client.get<{ available: boolean }>('/ai/transcription', { signal });
+    return data.available;
+  },
+
+  async transcribeAudio(audio: Blob, signal: AbortSignal): Promise<string> {
+    await ensureBaseUrl();
+    const form = new FormData();
+    form.append('file', audio, 'recording');
+    const { data } = await client.post<{ text: string }>('/ai/transcription', form, { signal });
+    return data.text;
+  },
+
   async aiStatus(): Promise<AiStatusResponse> {
     const { data } = await client.get<AiStatusResponse>('/ai/status');
     return data;
@@ -999,13 +1013,13 @@ export const api = {
    */
   async caiStream(
     prompt: string,
-    opts: { sessionId?: string; role?: string; model?: string; caseId?: string },
+    opts: { sessionId?: string; role?: string; model?: string; caseId?: string; advisoryOnly?: boolean },
     onEvent: (ev: any) => void,
     onDone?: () => void,
     signal?: AbortSignal,
   ): Promise<void> {
     const url = await ensureBaseUrl();
-    const resp = await fetch(`${url}/cai/stream`, {
+    const resp = await fetch(`${url}/cai/${opts.advisoryOnly ? 'review/stream' : 'stream'}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1017,6 +1031,7 @@ export const api = {
       }),
       signal,
     });
+    if (!resp.ok) throw new Error(`ARK-CAI request failed (HTTP ${resp.status}).`);
     if (!resp.body) { onDone?.(); return; }
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -1066,6 +1081,7 @@ export const api = {
       }),
       signal,
     });
+    if (!resp.ok) throw new Error(`ARK-CAI request failed (HTTP ${resp.status}).`);
     if (!resp.body) { onDone?.(); return; }
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -1093,6 +1109,36 @@ export const api = {
    */
   async caiTerminalApprove(sessionId: string, decision: boolean, allowAlways: boolean = false, executionId?: string): Promise<any> {
     const { data } = await client.post('/cai/terminal/approve', { session_id: sessionId, decision, allow_always: allowAlways, execution_id: executionId ?? null });
+    return data;
+  },
+
+  /** List available AI models grouped by provider. */
+  async caiModels(): Promise<{ providers: Record<string, any[]>; active_model: string; active_provider: string }> {
+    const { data } = await client.get('/cai/models');
+    return data;
+  },
+
+  /** Get queue status for a session. */
+  async caiQueue(sessionId: string): Promise<{ session_id: string; queue: any[]; pending_count: number; delivered_count: number; cancelled_count: number }> {
+    const { data } = await client.get(`/cai/queue/${encodeURIComponent(sessionId)}`);
+    return data;
+  },
+
+  /** Submit a steering instruction for an active run. */
+  async caiSteer(body: { session_id: string; run_id: string; message: string; instruction_type?: string }): Promise<any> {
+    const { data } = await client.post('/cai/steer', body);
+    return data;
+  },
+
+  /** Stop or cancel an active run or queued messages. */
+  async caiStop(body: { session_id: string; run_id?: string; stop_type?: string }): Promise<any> {
+    const { data } = await client.post('/cai/stop', body);
+    return data;
+  },
+
+  /** Pin a model for a session. */
+  async caiModelSwitch(body: { session_id: string; model: string }): Promise<any> {
+    const { data } = await client.post('/cai/model/switch', body);
     return data;
   },
 

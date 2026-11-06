@@ -45,6 +45,10 @@ _AUTONOMOUS_VERBS = (
     r"\b(pentest|pen[- ]?test|penetration test|exploit|attack|breach|pivot|lateral)\b",
     r"\b(capture|fetch|download|exfil|dump|harvest|brute|bruteforce|brute-?force)\b",
     r"\b(assess|audit|harden|investigate|hunt|query|search|list|show|get|resolve|lookup)\b",
+    # Hands-on verification / session establishment (A.2 operational prompts:
+    # "inspect the service", "establish an authenticated session", "verify the
+    # account identity" must route to execution, not advisory prose).
+    r"\b(inspect|verify|establish|authenticate|access the|connect to)\b",
     r"\b(bypass|override|force)\b",
 )
 

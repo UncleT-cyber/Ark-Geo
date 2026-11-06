@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { ByokPanel } from './ByokPanel';
 import { ClientModelConfigPanel } from './ClientModelConfig';
+import type { SavedCase } from '../workbench/useInvestigation';
 import { ClientVaultManager } from './ClientVaultManager';
 import { NotificationsPanel } from './NotificationsPanel';
 import { SupportPanel } from './SupportPanel';
@@ -32,13 +33,14 @@ const TABS: { id: TabId; label: string; icon: React.ComponentType<{ className?: 
 ];
 
 interface ClientSettingsModalProps {
+  onRestoreCase: (saved: SavedCase) => void;
   open: boolean;
   onClose: () => void;
   apiStatuses: ApiKeyStatus[];
   connected: boolean;
 }
 
-export function ClientSettingsModal({ open, onClose, apiStatuses, connected }: ClientSettingsModalProps) {
+export function ClientSettingsModal({ open, onClose, apiStatuses, connected, onRestoreCase }: ClientSettingsModalProps) {
   const [tab, setTab] = useState<TabId>('keys');
 
   if (!open) return null;
@@ -103,7 +105,7 @@ export function ClientSettingsModal({ open, onClose, apiStatuses, connected }: C
                 <p className="ark-settings-panel-desc">
                   Local archive of completed evidence investigations.
                 </p>
-                <ClientVaultManager />
+                <ClientVaultManager onRestoreCase={saved => { onRestoreCase(saved); onClose(); }} />
               </>
             )}
             {tab === 'notifications' && (

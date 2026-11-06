@@ -49,6 +49,7 @@ interface SavedCase {
   risk: 'critical' | 'medium' | 'low';
   /** Workspace origin — legacy records (no field) are treated as 'image'. */
   domain?: SavedCaseDomain;
+  zeroRetention?: boolean;
   /** Optional analyst-supplied case name / label (Save Investigation prompt). */
   caseName?: string;
   /** Optional analyst-supplied tags. */
@@ -141,9 +142,9 @@ export interface InvestigationContextValue extends InvestigationContext {
   domain: DomainId;
   setDomain: (d: DomainId) => void;
   /** Hydrate the context from a backend analysis result (IMAGE upload). */
-  loadFromAnalysis: (resp: AnalyzeResponse, filename: string) => void;
+  loadFromAnalysis: (resp: AnalyzeResponse, filename: string, zeroRetention?: boolean) => void;
   /** Restore a previously saved case from history (CASES explorer). */
-  restoreCase: (saved: SavedCase) => void;
+  restoreCase: (saved: SavedCase) => CaseSnapshot | null;
   /** Remove a single saved case from the client vault (local-only). */
   removeCase: (saved: SavedCase) => void;
   /** Purge the entire saved-case vault (local-only). */
@@ -179,7 +180,7 @@ export interface InvestigationContextValue extends InvestigationContext {
   refreshInvestigation: () => Promise<void>;
   /** Run the continuous image-intelligence cascade over an ingested asset and
    *  fold its observations, verdicts, timeline and location into the case. */
-  runPipeline: (file: File, resp: AnalyzeResponse) => Promise<ImagePipelineResult>;
+  runPipeline: (file: File, resp: AnalyzeResponse, onProgress?: (progress: PipelineProgress) => void) => Promise<ImagePipelineResult>;
   /** The latest cascade result (classification, fusion verdicts, etc.). */
   pipeline: ImagePipelineResult | null;
   /** Progress of the in-flight cascade (null when idle). */
@@ -354,7 +355,7 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
     }
   }, [mergeInvestigation]);
 
-  const loadFromAnalysis = useCallback((resp: AnalyzeResponse, filename: string) => {
+  const loadFromAnalysis = useCallback((resp: AnalyzeResponse, filename: string, zeroRetention?: boolean) => {
     const caseId = caseIdFromRequest(resp.request_id);
     const evidenceId = evidenceIdFromSha(resp.image_sha256);
     const runId = runIdFromRequest(resp.request_id);
@@ -489,6 +490,7 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
       timestamp: now,
       anomalyCount,
       risk,
+      zeroRetention,
     };
     pushHistory(rec);
     setHistory(loadHistory());
@@ -592,10 +594,13 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
   }, []);
 
   /** Run the 5-step cascade over an ingested asset and fold it into the case. */
-  const runPipeline = useCallback(async (file: File, resp: AnalyzeResponse) => {
+  const runPipeline = useCallback(async (file: File, resp: AnalyzeResponse, onProgress?: (progress: PipelineProgress) => void) => {
     setPipelineProgress({ currentStep: 0, totalSteps: 5, name: 'Preparing cascade' });
     const p = await runImagePipeline(file, resp, {
-      onProgress: (prog) => setPipelineProgress(prog),
+      onProgress: prog => {
+        setPipelineProgress(prog);
+        onProgress?.(prog);
+      },
     });
     mergePipeline(p);
     return p;
@@ -628,7 +633,12 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
     }));
     if (snap) setResult(snap.result);
     else setResult(null);
+    setPipeline(null);
+    setPipelineProgress(null);
+    setSession(null);
+    setInvError(null);
     setDomain(activeCase.domain);
+    return snap;
   }, []);
 
   const removeCase = useCallback((saved: SavedCase) => {
@@ -680,6 +690,7 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
       anomalyCount: b.findings.length,
       risk,
       domain: opts.domain,
+      zeroRetention: loadHistory().find(item => item.caseId === caseId)?.zeroRetention,
       caseName: opts.caseName?.trim() || undefined,
       tags: opts.tags?.length ? opts.tags : undefined,
     };

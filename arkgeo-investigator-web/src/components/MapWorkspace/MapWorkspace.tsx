@@ -306,6 +306,15 @@ export function MapWorkspace({ points, history, candidatePoints, onCopyCoords, o
     const layer = layerRef.current;
     if (!map || !layer) return;
 
+    const moveCamera = (lat: number, lon: number, zoom: number) => {
+      const container = map.getContainer();
+      if (!container.clientWidth || !container.clientHeight) {
+        map.setView([lat, lon], zoom, { animate: false });
+        return;
+      }
+      map.flyTo([lat, lon], zoom, { animate: true, duration: 2.5, easeLinearity: 0.25 });
+    };
+
     layer.clearLayers();
 
     // OCR / IMINT candidate pins — amber diamonds (Feature 2). Drawn even when
@@ -327,7 +336,7 @@ export function MapWorkspace({ points, history, candidatePoints, onCopyCoords, o
       if (cands.length > 0) {
         const lat = cands.reduce((s, p) => s + p.lat, 0) / cands.length;
         const lon = cands.reduce((s, p) => s + p.lon, 0) / cands.length;
-        map.flyTo([lat, lon], 5, { animate: true, duration: 2.5, easeLinearity: 0.25 });
+        moveCamera(lat, lon, 5);
       }
       return;
     }
@@ -464,11 +473,7 @@ export function MapWorkspace({ points, history, candidatePoints, onCopyCoords, o
 
     // Animated camera transition
     const targetZoom = zoomForSource(activePoint.source);
-    map.flyTo([activePoint.lat, activePoint.lon], targetZoom, {
-      animate: true,
-      duration: 2.5,
-      easeLinearity: 0.25,
-    });
+    moveCamera(activePoint.lat, activePoint.lon, targetZoom);
   }, [points, history, candidatePoints, onCopyCoords, onGeofenceViolation]);
 
   return (

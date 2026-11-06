@@ -21,8 +21,8 @@ function fmtBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
-export function ClientVaultManager() {
-  const { history, restoreCase, removeCase, clearHistory } = useInvestigation();
+export function ClientVaultManager({ onRestoreCase }: { onRestoreCase: (saved: SavedCase) => void }) {
+  const { history, removeCase, clearHistory } = useInvestigation();
   const [confirmClear, setConfirmClear] = useState(false);
 
   const { bytes, pct } = useMemo(() => {
@@ -107,7 +107,7 @@ export function ClientVaultManager() {
                   </div>
                 </div>
                 <div className="ark-vault-actions">
-                  <button className="ark-cs-btn ark-cs-btn-sm" onClick={() => restoreCase(h)}>
+                  <button className="ark-cs-btn ark-cs-btn-sm" onClick={() => onRestoreCase(h)}>
                     <FolderOpen className="w-3 h-3" /> Restore
                   </button>
                   <button className="ark-cs-btn ark-cs-btn-sm ark-cs-btn-danger" onClick={() => removeCase(h)}>

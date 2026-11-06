@@ -14,6 +14,7 @@
  * tower coordinates onto the shared Leaflet MapWorkspace.
  */
 import React, { useEffect, useRef, useState } from 'react';
+import { WorkspaceTabPanels } from './WorkspaceTabs';
 import { api } from '../../api';
 import { useInvestigation, type CaseObservation } from './useInvestigation';
 import { parsePcap, type PcapResult } from '../../core/network/pcapReader';
@@ -564,33 +565,23 @@ function EndpointsTab() {
 // --------------------------------------------------------------------------- //
 interface NetworkWorkbenchProps {
   activeTab: NetworkTabId;
-  onTabChange: (t: NetworkTabId) => void;
 }
 
-export function NetworkWorkbench({ activeTab, onTabChange }: NetworkWorkbenchProps) {
-  return (
-    <div className="network-workbench">
-      <div className="tool-subtabs net-subtabs">
-        {NETWORK_TABS.map(t => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.id}
-              className={`tool-subtab ${activeTab === t.id ? 'tool-subtab-active' : ''}`}
-              onClick={() => onTabChange(t.id)}
-              title={t.hint}
-            >
-              <Icon className="w-3 h-3" /> {t.label}
-            </button>
-          );
-        })}
-      </div>
-      {activeTab === 'discovery' && <DiscoveryTab />}
-      {activeTab === 'traffic' && <TrafficTab />}
-      {activeTab === 'webapp' && <WebappTab />}
-      {activeTab === 'endpoints' && <EndpointsTab />}
-      {activeTab === 'testing' && <SecurityTestingTab />}
-      {activeTab === 'telecom' && <TelecomWorkspace />}
-    </div>
-  );
+const NETWORK_VIEWS = {
+  discovery: DiscoveryTab,
+  traffic: TrafficTab,
+  webapp: WebappTab,
+  endpoints: EndpointsTab,
+  testing: SecurityTestingTab,
+  telecom: TelecomWorkspace,
+} satisfies Record<NetworkTabId, React.ComponentType>;
+
+export function NetworkWorkbench({ activeTab }: NetworkWorkbenchProps) {
+  return <div className="network-workbench">
+    <WorkspaceTabPanels scope="network" ids={NETWORK_TABS.map(tab => tab.id)} active={activeTab}
+      remount="testing" render={id => {
+        const View = NETWORK_VIEWS[id];
+        return <View />;
+      }} />
+  </div>;
 }

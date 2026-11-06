@@ -67,16 +67,32 @@ def test_tool_schemas_generated_by_cai():
     for spec in ot:
         assert spec["type"] == "function"
         assert spec["function"]["name"].startswith(
-            ("imint.", "net.", "recon.", "siem.", "case.", "telecom.", "pentest.", "ot.", "evidence.")
+            ("imint.", "net.", "recon.", "siem.", "case.", "telecom.", "pentest.", "ot.", "evidence.", "system.")
         )
         assert "parameters" in spec["function"]
 
 
-def test_call_real_tool():
+def test_call_real_tool(tmp_path, monkeypatch):
     # Real local binary execution (dig), no network/mock required.
+    scope = {
+        "engagement_id": "test-eng",
+        "start": "2026-01-01T00:00:00Z",
+        "expiry": "2099-01-01T00:00:00Z",
+        "approved_addresses": ["localhost", "127.0.0.1"],
+        "approved_ports": [],
+        "targets": [],
+        "credentials": {},
+    }
+    scope_file = tmp_path / "scope.json"
+    scope_file.write_text(json.dumps(scope))
+    monkeypatch.setenv("ARKGEO_ENGAGEMENT_SCOPE", str(scope_file))
+
     res = tool_adapter.call_tool("net.dns_lookup", host="localhost")
     assert res["status"] == "ok"
-    assert "127.0.0.1" in res["result"]
+    # dig +short localhost may return 127.0.0.1, ::1, or nothing depending on system
+    result = json.loads(res["result"])
+    assert result["host"] == "localhost"
+    assert result["rc"] == 0
 
 
 def test_call_unknown_tool_errors():
@@ -159,11 +175,11 @@ def test_orchestrator_autonomous_runs_real_tool(monkeypatch):
 def test_orchestrator_hitl_denied_blocks_risky_tool(monkeypatch):
     monkeypatch.setattr(orch, "HITL_TIMEOUT", 0.2)
     monkeypatch.setattr(orch.litellm, "acompletion", _fake_completion([
-        {"tool": "net.nmap_scan", "args": {"target": "127.0.0.1"}},
+        {"tool": "net.nmap_scan", "args": {"target": "172.30.250.10", "ports": "8080"}},
         {"content": "No tools run — engagement closed."},
     ]))
     s = orch.get_session("hitl-1")
-    events = asyncio.get_event_loop().run_until_complete(_collect(s, "nmap scan 127.0.0.1"))
+    events = asyncio.get_event_loop().run_until_complete(_collect(s, "nmap scan 172.30.250.10"))
     assert any(e["type"] == "hitl" for e in events)
     assert any(e["type"] == "status" and e["stage"] == "tool_denied" for e in events)
 
@@ -171,7 +187,7 @@ def test_orchestrator_hitl_denied_blocks_risky_tool(monkeypatch):
 def test_orchestrator_hitl_approved_runs_tool(monkeypatch):
     monkeypatch.setattr(orch, "HITL_TIMEOUT", 5)
     monkeypatch.setattr(orch.litellm, "acompletion", _fake_completion([
-        {"tool": "net.nmap_scan", "args": {"target": "127.0.0.1"}},
+        {"tool": "net.nmap_scan", "args": {"target": "172.30.250.10", "ports": "8080"}},
         {"content": "Scan complete."},
     ]))
 
@@ -268,3 +284,25 @@ def test_http_terminal_stream_emits_events(client):
 def test_http_approve_endpoint(client):
     r = client.post("/api/v1/cai/terminal/approve", json={"session_id": "x", "decision": True})
     assert r.status_code == 200 and r.json()["ok"] is True
+
+
+def test_forced_advisory_review_ignores_operational_intent(monkeypatch):
+    async def complete(**kwargs):
+        assert kwargs["stream"] is True
+        assert "tools" not in kwargs
+        return await _fake_completion([{"content": "Image advisory report."}])(**kwargs)
+
+    async def review():
+        session = orch.SessionState(session_id="image-review")
+        return [
+            event
+            async for event in orch.run(session, "nmap scan 127.0.0.1", advisory_only=True)
+        ]
+
+    monkeypatch.setattr(orch.litellm, "acompletion", complete)
+    events = asyncio.run(review())
+    agent_events = [e for e in events if e["type"] == "agent_selected"]
+    assert agent_events[0]["path"] == "advisory"
+    final_events = [e for e in events if e["type"] == "final"]
+    assert final_events[-1] == {"type": "final", "text": "Image advisory report."}
+    assert not any(event["type"] in {"tool", "tool_call", "hitl"} for event in events)

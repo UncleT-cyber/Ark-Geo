@@ -12,6 +12,7 @@ deterministic-first cascade:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime
 from typing import Optional
@@ -749,7 +750,7 @@ class BrainPipeline:
             "anomaly_score": result.anomaly_score,
             "consensus": {
                 "confidence_score": result.consensus.confidence_score if result.consensus else 0,
-                "tier": result.consensus.tier if result.consensus else "none",
+                "tier": result.consensus.tier_used if result.consensus else "none",
                 "visual_evidence_tags": (result.consensus.visual_evidence_tags if result.consensus else [])[:10],
             },
             "consistency_findings": result.consistency_findings[:5],
@@ -782,7 +783,6 @@ class BrainPipeline:
         user_prompt = f"Image analysis fact sheet:\n{json.dumps(fact_sheet, indent=2, default=str)}"
 
         try:
-            import json as _json
             ai_result = await asyncio.wait_for(
                 asyncio.to_thread(llm_client.chat_json, system_prompt, user_prompt),
                 timeout=30.0,

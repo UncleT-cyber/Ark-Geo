@@ -185,7 +185,7 @@ function CaiBanner() {
   );
 }
 
-export function BottomPanel({ collapsed, onToggle, result }: BottomPanelProps) {
+export function BottomPanel({ collapsed, onToggle, result, docked = false }: BottomPanelProps & { docked?: boolean }) {
   const inv = useInvestigation();
   // The active bottom-console tab is shared via the investigation context so
   // the Investigation workspace can focus the console (e.g. PLAN after
@@ -1242,15 +1242,16 @@ export function BottomPanel({ collapsed, onToggle, result }: BottomPanelProps) {
 
   return (
     <div
-      className={`bottom-panel ${collapsed ? 'bottom-panel-collapsed' : ''} ${dragState.current ? 'bottom-panel-dragging' : ''}`}
-      style={collapsed ? undefined : { height: panelHeight }}
+      className={`bottom-panel ${docked ? 'bottom-panel-docked' : ''} ${collapsed ? 'bottom-panel-collapsed' : ''} ${dragState.current ? 'bottom-panel-dragging' : ''}`}
+      style={collapsed || docked ? undefined : { height: panelHeight }}
     >
-      {!collapsed && <div className="bottom-resize-handle" onMouseDown={startResize} title="Drag to resize terminal height" />}
+      {!collapsed && !docked && <div className="bottom-resize-handle" onMouseDown={startResize} title="Drag to resize terminal height" />}
       <div className="bottom-panel-header">
         <div className="bottom-panel-tabs">
           {tabs.map(t => (
             <button
               key={t.id}
+              aria-pressed={tab === t.id}
               className={`bottom-tab ${tab === t.id ? 'bottom-tab-active' : ''}`}
               onClick={() => { setTab(t.id); if (collapsed) onToggle(); }}
             >
@@ -1261,9 +1262,9 @@ export function BottomPanel({ collapsed, onToggle, result }: BottomPanelProps) {
             </button>
           ))}
         </div>
-        <button className="bottom-panel-toggle" onClick={onToggle} title={collapsed ? 'Expand panel' : 'Collapse panel'}>
+        {!docked && <button className="bottom-panel-toggle" onClick={onToggle} title={collapsed ? 'Expand panel' : 'Collapse panel'}>
           {collapsed ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-        </button>
+        </button>}
       </div>
       {!collapsed && (
         <div className="bottom-panel-content">

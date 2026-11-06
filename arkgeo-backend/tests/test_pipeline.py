@@ -164,3 +164,28 @@ class TestAPI:
         resp = self.client.post("/api/v1/deadman/disarm?user_id=dm-user")
         assert resp.status_code == 200
         assert resp.json()["armed"] is False
+
+
+@pytest.mark.asyncio
+async def test_ai_intelligence_reads_consensus_tier_used(monkeypatch):
+    import json
+
+    from app.brain.clue_extractors.base import llm_client
+    from app.brain.pipeline import BrainPipeline, CascadeResult
+    from app.models.schemas import ConsensusResult
+
+    result = CascadeResult()
+    result.consensus = ConsensusResult(
+        estimated_latitude=0, estimated_longitude=0, search_radius_meters=500,
+        confidence_score=0.1, tier_used="consensus",
+    )
+
+    def assess(_system_prompt, user_prompt):
+        fact_sheet = json.loads(user_prompt.split("\n", 1)[1])
+        assert fact_sheet["consensus"]["tier"] == "consensus"
+        return {"ai_assessment": "Synthetic fixture assessment"}
+
+    monkeypatch.setattr(llm_client, "is_configured", lambda: True)
+    monkeypatch.setattr(llm_client, "chat_json", assess)
+    await BrainPipeline()._run_ai_intelligence(result)
+    assert result.ai_intelligence == {"ai_assessment": "Synthetic fixture assessment"}

@@ -15,7 +15,6 @@
  *   - Security Operations   — SecOps command dashboard
  */
 import React from 'react';
-import { ShieldHalf } from 'lucide-react';
 import { SECOPS_ICONS } from './icons';
 
 /** Ordered SecOps sub-modules — the in-domain workflow. */
@@ -36,37 +35,23 @@ const SECOPS_MODULES = [
 
 export function SecOpsPlaceholder() {
   return (
-    <div className="domain-placeholder domain-placeholder-secops">
-      <div className="domain-placeholder-icon secops"><ShieldHalf className="w-16 h-16" /></div>
-      <div className="domain-placeholder-title">THREAT &amp; SECOPS</div>
-      <div className="domain-placeholder-subtitle">
-        The security-operations investigation domain is reserved for future tooling.
+    <section className="secops-roadmap" aria-label="Planned security operations modules">
+      <div className="secops-roadmap-intro">
+        <h2>Capability roadmap</h2>
+        <p>Six modules planned across the security operations lifecycle.</p>
       </div>
-      <div className="domain-placeholder-body">
-        THE ARK organizes capabilities by investigation domain. The SECOPS domain
-        hosts the end-to-end security-operations workflow — from SIEM ingestion
-        through incident closure — as one continuous investigation lifecycle.
-      </div>
-      <div className="domain-placeholder-section-label">SUB-MODULES</div>
-      <div className="domain-placeholder-list secops-modules">
+      <div className="secops-roadmap-grid">
         {SECOPS_MODULES.map((m) => {
           const Icon = m.icon;
           return (
-            <div key={m.id} className="domain-placeholder-item secops-module">
-              <span className="domain-placeholder-item-icon"><Icon className="w-4 h-4" /></span>
-              <span className="secops-module-text">
-                <span className="secops-module-label">{m.label}</span>
-                <span className="secops-module-desc">{m.desc}</span>
-              </span>
-              <span className="domain-placeholder-item-tag">PLANNED</span>
-            </div>
+            <article key={m.id} className="secops-roadmap-card">
+              <div><Icon size={18} aria-hidden="true" /><span>Planned</span></div>
+              <h3>{m.label}</h3>
+              <p>{m.desc}</p>
+            </article>
           );
         })}
       </div>
-      <div className="domain-placeholder-note">
-        These modules are not yet implemented. The navigation and workbench
-        architecture is ready to host them when they arrive.
-      </div>
-    </div>
+    </section>
   );
 }

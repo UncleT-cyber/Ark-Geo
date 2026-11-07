@@ -112,9 +112,11 @@ export function useImageReview() {
         if (!reason) {
           reason = failureCode === 'insufficient_credits' ? 'The model provider has insufficient credits or an exhausted usage limit.'
             : failureCode === 'rate_limited' ? 'The model provider is rate-limited.'
+            : failureCode === 'rate_limited_model' ? 'The selected model is rate-limited — try another model.'
             : failureCode === 'authentication_failed' ? 'The model provider rejected its credentials.'
+            : failureCode === 'model_unavailable' ? 'The selected model or endpoint is unavailable.'
             : /(?:401|403|api.key|authenticat)/i.test(detail) ? 'The model provider rejected its credentials.'
-            : /(?:429|rate.limit|quota)/i.test(detail) ? 'The model provider is rate-limited.'
+            : /(?:429|rate.limit|too many requests)/i.test(detail) ? 'The model provider is rate-limited.'
             : /(?:404|model.*(?:not found|unavailable))/i.test(detail) ? 'The advisory endpoint or model is unavailable.'
             : /(?:fetch|network|connect)/i.test(detail) ? 'Could not reach the advisory service.'
             : 'The advisory stream ended without a complete report.';

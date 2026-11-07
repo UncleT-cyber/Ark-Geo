@@ -25,10 +25,12 @@ def _window(hours: int = 1) -> tuple[str, str]:
 
 @pytest.fixture(autouse=True)
 def _clean_operator_scope():
-    """No operator engagement leaks between tests."""
+    """No operator engagement or cleared-fixture flag leaks between tests."""
     es.set_operator_engagement(None)
+    es._fixture_cleared = False
     yield
     es.set_operator_engagement(None)
+    es._fixture_cleared = False
 
 
 @pytest.fixture()
@@ -209,3 +211,81 @@ def test_declare_rejects_invalid_target(client):
                     json={"targets": ["https://example.org/x"], "ports": [443]},
                     headers=_admin_headers())
     assert r.status_code == 422
+
+
+# --------------------------------------------------------------------------- #
+# Effective scope visibility + stand-down
+# --------------------------------------------------------------------------- #
+def _fixture(tmp_path, monkeypatch, *, expiry_hours: int = 1) -> str:
+    """Install a legacy ARKGEO_ENGAGEMENT_SCOPE fixture and point the env at it."""
+    start, expiry = _window(expiry_hours)
+    path = tmp_path / "engagement_scope.json"
+    path.write_text(json.dumps({
+        "engagement_id": "A2-LAB-001",
+        "approved_addresses": ["172.30.250.10"],
+        "approved_ports": [8080],
+        "start": start,
+        "expiry": expiry,
+    }))
+    monkeypatch.setenv(es.ENV_PATH, str(path))
+    return str(path)
+
+
+def test_effective_source_reports_fixture(tmp_path, monkeypatch):
+    _fixture(tmp_path, monkeypatch)
+    assert es.effective_source() == "fixture"
+    assert es.effective_scope()["engagement_id"] == "A2-LAB-001"
+
+
+def test_effective_source_prefers_operator(tmp_path, monkeypatch, store):
+    _fixture(tmp_path, monkeypatch)
+    scope = store.create(owner_id="operator", addresses=["127.0.0.1"], all_ports=True)
+    es.set_operator_engagement(scope)
+    assert es.effective_source() == "operator"
+
+
+def test_get_engagement_reports_fixture_scope(client, tmp_path, monkeypatch):
+    """The operator surface must not read 'no engagement' while a fixture governs."""
+    _fixture(tmp_path, monkeypatch)
+    r = client.get("/api/v1/engagement", headers=_admin_headers())
+    assert r.status_code == 200
+    body = r.json()
+    assert body["active"] is None
+    assert body["effective_source"] == "fixture"
+    assert body["effective"]["targets"] == ["172.30.250.10"]
+
+
+def test_clear_endpoint_suppresses_fixture(client, tmp_path, monkeypatch):
+    """Stand-down clears the fixture so it stops silently governing execution."""
+    _fixture(tmp_path, monkeypatch)
+    assert es.check("net.curl_probe", {"url": "http://172.30.250.10:8080/"}).allowed is True
+    r = client.delete("/api/v1/engagement", headers=_admin_headers())
+    assert r.status_code == 200
+    assert r.json()["effective_source"] == "none"
+    assert es.effective_scope() is None
+    assert es.check("net.curl_probe", {"url": "http://172.30.250.10:8080/"}).allowed is False
+
+
+def test_clear_endpoint_revokes_declared_engagement(client):
+    client.post("/api/v1/engagement",
+                json={"targets": ["127.0.0.1"], "all_ports": True},
+                headers=_admin_headers())
+    assert es.get_operator_engagement() is not None
+    r = client.delete("/api/v1/engagement", headers=_admin_headers())
+    assert r.status_code == 200
+    assert es.get_operator_engagement() is None
+    assert client.get("/api/v1/engagement", headers=_admin_headers()).json()["active"] is None
+
+
+def test_clear_requires_admin(client):
+    assert client.delete("/api/v1/engagement").status_code == 401
+
+
+def test_operator_declaration_overrides_fixture(tmp_path, monkeypatch, store):
+    """Declaring an engagement after a fixture is present makes the operator authoritative."""
+    _fixture(tmp_path, monkeypatch)
+    assert es.check("net.curl_probe", {"url": "http://172.30.250.10:8080/"}).allowed is True
+    scope = store.create(owner_id="operator", addresses=["127.0.0.1"], all_ports=True)
+    es.set_operator_engagement(scope)
+    assert es.check("net.curl_probe", {"url": "http://127.0.0.1:8000/"}).allowed is True
+    assert es.check("net.curl_probe", {"url": "http://172.30.250.10:8080/"}).allowed is False

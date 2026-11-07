@@ -946,6 +946,9 @@ export interface EngagementView {
 export interface EngagementState {
   active: EngagementView | null;
   declared: EngagementView[];
+  /** The scope the execution layer is actually enforcing, and where it came from. */
+  effective: EngagementView | null;
+  effective_source: 'operator' | 'fixture' | 'none';
 }
 
 export interface EngagementCreatePayload {

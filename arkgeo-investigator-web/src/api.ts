@@ -65,6 +65,17 @@ function getPrincipalId(): string {
 client.defaults.headers.common['X-ARK-Principal'] = getPrincipalId();
 
 /**
+ * Headers for raw `fetch()` calls (SSE streams), which bypass the axios client
+ * and therefore its defaults. The principal MUST be sent on the run stream:
+ * the server scopes the caller's saved model preference to it, and a missing
+ * header silently demotes the run to the administrator default — which is why
+ * a composer model choice appeared to be overridden by the admin dashboard.
+ */
+function principalHeaders(): Record<string, string> {
+  return { 'Content-Type': 'application/json', 'X-ARK-Principal': getPrincipalId() };
+}
+
+/**
  * Ensure BASE_URL is resolved for Electron (synchronous preload should have
  * set it, but this is a safety net). Returns the current BASE_URL.
  */
@@ -515,6 +526,14 @@ export const api = {
     await client.post(`/engagement/${engagementId}/revoke`, {}, {
       headers: this._adminHeaders(),
     });
+  },
+
+  /** Stand down the in-force scope — operator declaration and env fixture. */
+  async clearEngagement(): Promise<{ status: string; effective_source: string }> {
+    const { data } = await client.delete<{ status: string; effective_source: string }>('/engagement', {
+      headers: this._adminHeaders(),
+    });
+    return data;
   },
 
   async getQuotas(): Promise<AdminQuotas> {
@@ -1072,7 +1091,7 @@ export const api = {
     const url = await ensureBaseUrl();
     const resp = await fetch(`${url}/cai/${opts.advisoryOnly ? 'review/stream' : 'stream'}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: principalHeaders(),
       body: JSON.stringify({
         prompt,
         session_id: opts.sessionId ?? null,
@@ -1121,7 +1140,7 @@ export const api = {
     const url = await ensureBaseUrl();
     const resp = await fetch(`${url}/cai/terminal/stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: principalHeaders(),
       body: JSON.stringify({
         prompt,
         session_id: opts.sessionId ?? null,
@@ -1323,7 +1342,7 @@ export const api = {
     const url = await ensureBaseUrl();
     const resp = await fetch(`${url}/cai/workspace/${encodeURIComponent(workspace)}/run`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: principalHeaders(),
       body: JSON.stringify({
         prompt,
         session_id: opts.sessionId ?? null,

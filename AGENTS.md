@@ -269,6 +269,15 @@ badges (tool/vision/free/local) are shown, and a "Use administrator default"
 footer clears the preference. The image-review advisory path no longer hardcodes
 a model (`ARK_CAI_MODEL = null`) so Chat and Console cannot diverge.
 
+**Principal must ride the SSE streams too.** The three raw `fetch()` calls
+(`caiStream`, `caiTerminalStream`, workspace run) bypass the axios client and
+therefore its default headers; they use `principalHeaders()` (api.ts) to send
+`X-ARK-Principal`. Without it the run's principal is `ANONYMOUS`, the caller's
+saved model preference does not match, and the run silently falls back to the
+administrator default — the defect where the composer model appeared to be
+overridden by the admin dashboard. (The explicit `model` body field still wins
+when present; the header matters when the selection is the saved preference.)
+
 Tests: `tests/test_model_authority.py` (23 passing — precedence, entitlement
 denial, subscription denial, credential isolation, HTTP surface, SSRF guard).
 Backend suite: same 20 pre-existing/environmental failures, no new regressions.
@@ -327,12 +336,19 @@ truth** for what ARK executes against. This replaces the old env-fixture
   `get_operator_engagement()`. `_load()` now resolves **operator engagement
   first**, then a legacy `ARKGEO_ENGAGEMENT_SCOPE` fixture, else fail-closed
   (target-bearing calls denied; non-target calls always run). The operator
-  declaration is authoritative — a fixture never overrides it.
+  declaration is authoritative — a fixture never overrides it. `clear_active()`
+  drops the operator declaration *and* suppresses an env fixture for the life of
+  the process (so a lab/CI fixture cannot silently keep governing after the
+  operator stands the scope down); `effective_source()` reports `operator` /
+  `fixture` / `none` and `effective_scope()` returns the scope actually enforced.
 - `app/api/v1/endpoints/engagement.py` (NEW) + `router.py`: admin-JWT surface.
   `POST /api/v1/engagement` declares and **installs the active scope**;
-  `GET /api/v1/engagement` returns active + history; `POST
-  /api/v1/engagement/{id}/revoke` clears it immediately. Every mutation is
-  audited via `admin_store.append_audit`.
+  `GET /api/v1/engagement` returns active + history **plus `effective` /
+  `effective_source`** (a fixture governing execution is disclosed, not hidden
+  behind "no engagement active"); `DELETE /api/v1/engagement` stands the scope
+  down (revokes the declaration and suppresses a fixture); `POST
+  /api/v1/engagement/{id}/revoke` clears one declaration immediately. Every
+  mutation is audited via `admin_store.append_audit`.
 - `main.py`: on startup the active engagement is restored from the store, so an
   authorized scope survives a backend restart (logged `Engagement restored:`).
 - `orchestrator.py`: an in-scope target-bearing call under an operator-declared
@@ -345,14 +361,19 @@ truth** for what ARK executes against. This replaces the old env-fixture
   fabrication; "the Operator declares an engagement … inside it ARK acts;
   outside it ARK refuses before dispatch and says so once, briefly."
 - Frontend: `components/admin/EngagementPanel.tsx` (admin → **Engagement &
-  Scope** nav) declares/revokes scope; `api.ts` `getEngagement` /
-  `declareEngagement` / `revokeEngagement`; types in `types.ts`.
-- Tests: `tests/test_operator_engagement.py` (store, scope resolution, API) +
-  two orchestrator tests (operator engagement authorizes execution; out-of-scope
-  target refused before dispatch). `tests/test_engagement_scope.py` message
-  assertions updated to the operator-facing wording.
+  Scope** nav) declares/revokes scope and shows the **effective** scope with its
+  source, plus a **Stand down** button; `api.ts` `getEngagement` /
+  `declareEngagement` / `revokeEngagement` / `clearEngagement`; types in
+  `types.ts` (`EngagementState.effective` / `effective_source`).
+- Tests: `tests/test_operator_engagement.py` (store, scope resolution, API,
+  effective-source reporting, stand-down) + two orchestrator tests (operator
+  engagement authorizes execution; out-of-scope target refused before dispatch).
+  `tests/test_engagement_scope.py` message assertions updated to the
+  operator-facing wording.
 - Verified live: declare → `overview.security.scope_active: True`; restart
-  restores the scope; revoke clears it; unauthenticated declare → 401.
+  restores the scope; revoke clears it; unauthenticated declare → 401; a
+  `ARKGEO_ENGAGEMENT_SCOPE` fixture is reported as `effective_source: fixture`
+  and `DELETE /engagement` stands it down (`effective_source: none`).
 
 ## Advisor P0 pass (2026-11-06)
 

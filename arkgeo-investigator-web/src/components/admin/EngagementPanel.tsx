@@ -92,7 +92,28 @@ export function EngagementPanel() {
     }
   };
 
+  const standDown = async () => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.clearEngagement();
+      setNotice('Scope stood down — target-bearing calls fail closed until an engagement is declared.');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear the active scope');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const active = state?.active ?? null;
+  const effective = state?.effective ?? null;
+  const source = state?.effective_source ?? 'none';
+  // A scope in force that the operator did not declare — an env fixture — is the
+  // usual reason ARK refuses (or allows) a target the operator surface does not
+  // show. Surface it explicitly instead of reading "no engagement active".
+  const fixtureInForce = source === 'fixture';
 
   return (
     <div>
@@ -114,20 +135,42 @@ export function EngagementPanel() {
 
       <div className="ark-card" style={{ padding: 16, marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-          {active ? <ShieldCheck className="w-4 h-4" /> : <ShieldOff className="w-4 h-4" />}
-          <strong>{active ? 'Engagement active' : 'No engagement active'}</strong>
+          {effective ? <ShieldCheck className="w-4 h-4" /> : <ShieldOff className="w-4 h-4" />}
+          <strong>{effective ? 'Scope in force' : 'No engagement active'}</strong>
+          {effective && (
+            <span className="ark-mono" style={{ fontSize: 11, opacity: 0.8 }}>
+              ({source === 'operator' ? 'operator-declared' : source === 'fixture' ? 'environment fixture' : source})
+            </span>
+          )}
         </div>
-        {active ? (
+
+        {fixtureInForce && (
+          <div className="ark-alert ark-alert-info" style={{ marginBottom: 12 }}>
+            ARK is enforcing an <span className="ark-mono">ARKGEO_ENGAGEMENT_SCOPE</span> fixture, not an
+            operator declaration. Targets it authorizes are the ones listed below. Stand it down to
+            enforce only what you declare here.
+          </div>
+        )}
+
+        {effective ? (
           <div className="ark-muted" style={{ lineHeight: 1.7 }}>
             <div><Target className="w-3 h-3" style={{ display: 'inline', marginRight: 6 }} />
-              Targets: <span className="ark-mono">{active.targets.join(', ')}</span></div>
-            <div>Ports: <span className="ark-mono">{active.all_ports ? 'all ports' : active.ports.join(', ') || 'none'}</span></div>
-            <div>Expires: <span className="ark-mono">{active.expiry}</span></div>
-            {active.label && <div>Label: <span className="ark-mono">{active.label}</span></div>}
-            <button className="ark-btn ark-btn-sm ark-btn-danger" style={{ marginTop: 12 }}
-              onClick={() => revoke(active)} disabled={busy}>
-              <ShieldOff className="w-3 h-3" /> Revoke
-            </button>
+              Targets: <span className="ark-mono">{effective.targets.join(', ')}</span></div>
+            <div>Ports: <span className="ark-mono">{effective.all_ports ? 'all ports' : effective.ports.join(', ') || 'none'}</span></div>
+            <div>Expires: <span className="ark-mono">{effective.expiry}</span></div>
+            {effective.label && <div>Label: <span className="ark-mono">{effective.label}</span></div>}
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              {active && (
+                <button className="ark-btn ark-btn-sm ark-btn-danger"
+                  onClick={() => revoke(active)} disabled={busy}>
+                  <ShieldOff className="w-3 h-3" /> Revoke
+                </button>
+              )}
+              <button className="ark-btn ark-btn-sm ark-btn-danger"
+                onClick={standDown} disabled={busy}>
+                <ShieldOff className="w-3 h-3" /> Stand down
+              </button>
+            </div>
           </div>
         ) : (
           <div className="ark-muted">

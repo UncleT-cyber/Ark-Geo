@@ -105,13 +105,44 @@ async def declare_engagement(body: EngagementCreate, request: Request,
 
 @router.get("")
 async def get_engagement(actor: str = Depends(require_admin_token)) -> dict:
-    """Return the active engagement and the operator's declaration history."""
+    """Return the active engagement and the operator's declaration history.
+
+    ``effective`` reports the scope the execution layer is *actually* enforcing
+    and where it came from — an operator declaration, or an ``ARKGEO_ENGAGEMENT_SCOPE``
+    environment fixture. Without it, a lab/CI fixture would silently govern
+    execution while the operator surface read "no engagement active".
+    """
     active = _get_store().get_active(owner_id=actor)
     history = _get_store().list_active(owner_id=actor)
+    source = engagement_scope.effective_source()
+    effective = engagement_scope.effective_scope()
     return {
         "active": _view(active) if active else None,
         "declared": [_view(s) for s in history],
+        "effective": _view(effective) if effective else None,
+        "effective_source": source,
     }
+
+
+@router.delete("")
+async def clear_engagement(request: Request,
+                           actor: str = Depends(require_admin_token)) -> dict:
+    """Stand down the in-force scope — operator declaration and env fixture.
+
+    A declared engagement is revoked so it is not restored on restart; an
+    ``ARKGEO_ENGAGEMENT_SCOPE`` fixture is suppressed for the life of the
+    process. After this, target-bearing calls fail closed until an engagement
+    is declared again.
+    """
+    store = _get_store()
+    for scope in store.list_active(owner_id=actor):
+        store.revoke(owner_id=actor, engagement_id=scope.get("engagement_id"))
+    engagement_scope.clear_active()
+    admin_store.append_audit(
+        actor=actor, action="engagement.clear",
+        ip=request.client.host if request.client else "",
+    )
+    return {"status": "cleared", "effective_source": engagement_scope.effective_source()}
 
 
 @router.post("/{engagement_id}/revoke")

@@ -48,16 +48,55 @@ ENV_PATH = "ARKGEO_ENGAGEMENT_SCOPE"
 # authoritative scope when present.
 _operator_engagement: Optional[dict] = None
 
+# When an operator explicitly clears the scope, an environment fixture
+# (``ARKGEO_ENGAGEMENT_SCOPE``) must not silently re-assert itself. This flag
+# is process-scoped: it lets the operator surface turn a lab/CI fixture off at
+# runtime, and a restart re-reads the environment as usual.
+_fixture_cleared: bool = False
+
 
 def set_operator_engagement(scope: Optional[dict]) -> None:
     """Install (or clear) the operator-declared engagement as the active scope."""
-    global _operator_engagement
+    global _operator_engagement, _fixture_cleared
     _operator_engagement = scope if isinstance(scope, dict) else None
+    if _operator_engagement is not None:
+        _fixture_cleared = False
 
 
 def get_operator_engagement() -> Optional[dict]:
     """The operator-declared engagement currently in force, if any."""
     return _operator_engagement
+
+
+def clear_active() -> None:
+    """Clear the in-force scope, including an environment fixture.
+
+    The operator surface calls this to stand the active authorization down at
+    once. The operator declaration is dropped and any ``ARKGEO_ENGAGEMENT_SCOPE``
+    fixture is suppressed until the process restarts, so the backend does not
+    silently keep enforcing a scope the operator just cleared.
+    """
+    global _operator_engagement, _fixture_cleared
+    _operator_engagement = None
+    _fixture_cleared = True
+
+
+def effective_source(path: Optional[str] = None) -> str:
+    """Which layer currently supplies the scope: ``operator``/``fixture``/``none``."""
+    if _operator_engagement is not None:
+        return "operator"
+    if _fixture_cleared:
+        return "none"
+    p = path or os.environ.get(ENV_PATH)
+    if p and os.path.isfile(p):
+        return "fixture"
+    return "none"
+
+
+def effective_scope(path: Optional[str] = None) -> Optional[dict]:
+    """The scope currently in force (operator declaration, else fixture), or None."""
+    state, scope = _load(path)
+    return scope if state == "ok" else None
 
 
 def _load(path: Optional[str] = None) -> tuple[str, Optional[dict]]:
@@ -69,6 +108,8 @@ def _load(path: Optional[str] = None) -> tuple[str, Optional[dict]]:
     """
     if _operator_engagement is not None:
         return "ok", _operator_engagement
+    if _fixture_cleared:
+        return "missing", None
     p = path or os.environ.get(ENV_PATH)
     if not p or not os.path.isfile(p):
         return "missing", None
@@ -405,4 +446,5 @@ def credentials(path: Optional[str] = None) -> dict:
 
 __all__ = ["ScopeDecision", "check", "summary_lines", "credentials",
            "set_operator_engagement", "get_operator_engagement",
+           "clear_active", "effective_source", "effective_scope",
            "DEFAULT_PATH", "ENV_PATH"]

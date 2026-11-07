@@ -100,7 +100,7 @@ class TestComposition:
         assert "you are ark" in sys.lower()
         assert "cognitive investigation" in sys.lower()
         assert "never fabricate" in sys.lower()
-        assert "the analyst remains the final decision-maker" in sys.lower()
+        assert "the operator remains the final decision-maker" in sys.lower()
         # Anti-hallucination principle is present verbatim.
         assert "verifiable investigative work" in sys
         assert "absence of evidence" in sys.lower()

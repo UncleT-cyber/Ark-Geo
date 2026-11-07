@@ -1,105 +1,14 @@
 /* ==========================================================================
-   CLIENT SETTINGS & BYOK DASHBOARD — Tactical Cyber / Dark Operations
-   Theme: deep void #090D11 · surface #11161B · border #1E2630
-   Accent: Cyan / Tactical Blue #06B6D4 primary, #0891B2 secondary with
-   glowing pill borders (border-cyan-500/20 = rgba(6,182,212,0.2),
-   shadow-cyan-500/5 = rgba(6,182,212,0.05)).  Inter + JetBrains Mono,
-   rounded-2xl cards, left-bordered active nav tabs.
+   CLIENT SETTINGS PANEL STYLES
+   Base styling for the reusable settings panels (BYOK, providers, model,
+   vault, notifications, support). The visual theme is supplied by the
+   SettingsWorkspace container, which declares the --cs-* tokens
+   (see components/settings/settings-workspace.css, OLED-black).
+
+   The deprecated floating-modal shell (.ark-settings / overlay / header /
+   tabs / plan badge / close) has been removed; Settings is now a full-page
+   application tab.
    ========================================================================== */
-
-.ark-settings {
-  --cs-bg: #090D11;
-  --cs-surface: #11161B;
-  --cs-surface-2: #161D26;
-  --cs-border: #1E2630;
-  --cs-border-soft: rgba(30, 38, 48, 0.6);
-  --cs-accent: #06B6D4;
-  --cs-accent-2: #0891B2;
-  --cs-accent-glow: rgba(6, 182, 212, 0.2);
-  --cs-accent-soft: rgba(6, 182, 212, 0.08);
-  --cs-success: #10B981;
-  --cs-danger: #EF4444;
-  --cs-warning: #F59E0B;
-  --cs-text: #F9FAFB;
-  --cs-text-2: #9CA3AF;
-  --cs-text-3: #6B7280;
-  font-family: 'Inter', system-ui, sans-serif;
-}
-
-/* ---------------- Modal shell ---------------- */
-.ark-settings-overlay {
-  position: fixed; inset: 0; z-index: 200;
-  background: rgba(4, 6, 8, 0.72);
-  backdrop-filter: blur(4px);
-  display: flex; align-items: center; justify-content: center;
-}
-.ark-settings-modal {
-  width: min(980px, 94vw); height: min(680px, 92vh);
-  background: var(--cs-bg);
-  border: 1px solid var(--cs-border);
-  border-radius: 18px;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.6), 0 0 50px rgba(6, 182, 212, 0.05);
-  display: flex; flex-direction: column; overflow: hidden;
-}
-
-/* ---------------- Header ---------------- */
-.ark-settings-header {
-  display: flex; align-items: center; gap: 14px;
-  padding: 14px 20px;
-  background: var(--cs-surface);
-  border-bottom: 1px solid var(--cs-border);
-}
-.ark-settings-header-title { display: flex; flex-direction: column; gap: 2px; }
-.ark-settings-title {
-  font-size: 15px; font-weight: 700; letter-spacing: 1.5px; color: var(--cs-text);
-  font-family: 'JetBrains Mono', monospace;
-}
-.ark-settings-subtitle { font-size: 11px; color: var(--cs-text-3); font-family: 'JetBrains Mono', monospace; }
-.ark-settings-plan-badge {
-  font-size: 9.5px; letter-spacing: 1.5px; font-family: 'JetBrains Mono', monospace;
-  color: #A5F3FC; background: var(--cs-accent-soft);
-  border: 1px solid var(--cs-accent-glow);
-  padding: 4px 12px; border-radius: 999px;
-  box-shadow: 0 0 14px rgba(6, 182, 212, 0.12);
-  white-space: nowrap;
-}
-.ark-settings-header-spacer { flex: 1; }
-.ark-settings-close {
-  background: transparent; border: 1px solid var(--cs-border); color: var(--cs-text-2);
-  width: 32px; height: 32px; border-radius: 10px; cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center; transition: all 0.15s;
-}
-.ark-settings-close:hover { color: var(--cs-danger); border-color: rgba(239, 68, 68, 0.5); }
-
-/* ---------------- Body: sidebar + panel ---------------- */
-.ark-settings-body { display: flex; flex: 1; min-height: 0; }
-.ark-settings-tabs {
-  width: 228px; flex-shrink: 0;
-  background: var(--cs-surface);
-  border-right: 1px solid var(--cs-border);
-  padding: 12px 10px; overflow-y: auto;
-}
-.ark-settings-tab {
-  display: flex; align-items: center; gap: 10px;
-  width: 100%; padding: 10px 12px; margin-bottom: 2px;
-  background: transparent; border: none; border-left: 3px solid transparent;
-  border-radius: 10px; color: var(--cs-text-2); font-size: 13px;
-  text-align: left; cursor: pointer; transition: all 0.15s;
-  font-family: 'Inter', system-ui, sans-serif;
-}
-.ark-settings-tab:hover { background: var(--cs-surface-2); color: var(--cs-text); }
-.ark-settings-tab-active {
-  background: var(--cs-accent-soft);
-  border-left-color: var(--cs-accent);
-  color: var(--cs-text);
-  box-shadow: inset 0 0 0 1px var(--cs-accent-glow), 0 0 16px rgba(6, 182, 212, 0.06);
-}
-.ark-settings-tab svg { flex-shrink: 0; }
-.ark-settings-tab-active svg { color: var(--cs-accent); }
-
-.ark-settings-panel { flex: 1; padding: 20px 24px; overflow-y: auto; min-width: 0; }
-.ark-settings-panel-title { font-size: 16px; font-weight: 700; color: var(--cs-text); margin: 0 0 2px; }
-.ark-settings-panel-desc { font-size: 12.5px; color: var(--cs-text-2); margin: 0 0 18px; }
 
 /* ---------------- Cards ---------------- */
 .ark-cs-card {

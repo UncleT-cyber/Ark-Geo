@@ -5,12 +5,17 @@ import type { AnalyzeResponse, NextStep } from '../../types';
 import { TopBar, type ApiKeyStatus } from './TopBar';
 import { WorkspaceTabs, WorkspaceTabPanels } from './WorkspaceTabs';
 import { InvestigationNavigation, USE_CASES } from './InvestigationNavigation';
+import { UseCasesView } from './UseCasesView';
 import type { ToolTabId } from './TabBar';
 import { EvidenceExplorer } from './investigation/EvidenceExplorer';
 import { InvestigationOverview } from './investigation/InvestigationOverview';
 import { ArkControl } from './ArkControl';
+import { CaiBrowserProvider, useCaiBrowser } from './caiBrowserBus';
+import { BrowserWorkspace } from './BrowserWorkspace';
+import { isWorkspaceTool, type OperationalToolId } from './operationalTools';
 import { useImageReview } from './useImageReview';
 import './workspace.css';
+import './browser-workspace.css';
 import { StatusBar } from './StatusBar';
 import { CommandPalette } from './CommandPalette';
 import { DashboardView, recordSession, classifyRisk } from './DashboardView';
@@ -24,16 +29,23 @@ import { CaseReportView } from './tools/CaseReportView';
 import { NetworkWorkbench, NETWORK_TABS, type NetworkTabId } from './NetworkWorkbench';
 import { SecOpsPlaceholder } from './SecOpsPlaceholder';
 import { CaseExplorer } from './CaseExplorer';
-import { InvestigatorProfileModal } from './InvestigatorProfileModal';
-import { ClientSettingsModal } from '../settings/ClientSettingsModal';
+import { SettingsWorkspace, type SettingsSectionId } from '../settings/SettingsWorkspace';
 import { IngestionSweep } from '../IngestionSweep';
 import { useToast, ToastContainer } from '../Toast';
 import { exportCasePdf } from '../../pdfExport';
 import { InvestigationProvider, useInvestigation, type SavedCase, type SavedCaseDomain } from './useInvestigation';
+import { useInvestigationTabs } from '../../core/tabs/useInvestigationTabs';
+import { TabsProvider, useTabs } from '../../core/tabs/TabsContext';
+import { InvestigationStoreProvider, useInvestigationStore, useInvestigationSlice } from '../../core/investigation/InvestigationStoreContext';
+import { defaultWorkspaceSelection, type InvestigationRunStatus } from '../../core/investigation/investigationStore';
+import { NeutralWorkspace, type NeutralWorkspaceId } from './NeutralWorkspace';
+import {
+  notificationFromEvent, pushNotification, unreadCount, type AppNotification,
+} from '../../core/notifications';
 import { ByokProvider } from '../settings/ByokContext';
 import { byokStore } from '../../core/byok/byokStore';
 import type { ByokProviderId } from '../../types';
-import { DOMAIN_ICONS, SUBVIEW_ICONS, type LucideIcon } from './icons';
+import { SUBVIEW_ICONS, type LucideIcon } from './icons';
 import { Upload, ChevronDown, ChevronRight, Save, Tag } from 'lucide-react';
 
 /** Ordered IMAGE investigation sub-views — one continuous workflow. */
@@ -66,13 +78,45 @@ const API_INDICATORS: { label: string; title: string; service: string; byok: Byo
 function WorkbenchInner() {
   const inv = useInvestigation();
   const imageReview = useImageReview();
+  const tabApi = useTabs();
+  const invStore = useInvestigationStore();
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const unread = unreadCount(notifications);
   const [dockWidth, setDockWidth] = useState(() => {
     try { return Number(localStorage.getItem('ark.dockWidth')) || 420; }
     catch { return 420; }
   });
   const [resizingDock, setResizingDock] = useState(false);
+  const [caiExpanded, setCaiExpanded] = useState(false);
+  const caiBrowser = useCaiBrowser();
+  // A workspace tool (e.g. Browser) takes over the central application area,
+  // replacing the active investigation view. This selection is owned by the
+  // active investigation, so two investigations can be in different workspaces.
+  const activeInvId = tabApi.activeId;
+  const activeWorkspace = activeInvId ? invStore.metaFor(activeInvId)?.workspace : undefined;
+  const workspaceTool = (activeWorkspace?.workspaceTool ?? null) as OperationalToolId | null;
+  // A new investigation starts neutral: no workspace chosen yet. It is NOT the
+  // Image Intelligence System Overview — that belongs to Image Intelligence.
+  const isNeutralWorkspace = activeWorkspace ? activeWorkspace.neutral : false;
+  const setWorkspaceTool = useCallback((value: OperationalToolId | null) => {
+    if (activeInvId) invStore.patchWorkspace(activeInvId, { workspaceTool: value, neutral: false });
+  }, [activeInvId, invStore]);
+  // Whether the managed browser runtime is reachable — gates the Browser tool
+  // in the operational inspector so the menu never offers a dead action.
+  const [browserAvailable, setBrowserAvailable] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    api.browserStatus()
+      .then(status => { if (!cancelled) setBrowserAvailable(status.available); })
+      .catch(() => { if (!cancelled) setBrowserAvailable(false); });
+    return () => { cancelled = true; };
+  }, []);
   const bodyRef = useRef<HTMLDivElement>(null);
   const resizeOrigin = useRef<{ x: number; width: number }>();
+  // Remembers the docked width so Restore returns to it rather than a default.
+  const dockWidthBeforeExpand = useRef(420);
+  // The control that asked to expand, so Restore can return focus to it.
+  const expandReturnFocus = useRef<HTMLElement | null>(null);
   const updateDockWidth = (width: number) => {
     const limit = Math.min(800, (bodyRef.current?.clientWidth ?? window.innerWidth) * .55);
     setDockWidth(Math.round(Math.min(limit, Math.max(280, width))));
@@ -80,17 +124,36 @@ function WorkbenchInner() {
   useEffect(() => {
     try { localStorage.setItem('ark.dockWidth', String(dockWidth)); } catch { /* private storage */ }
   }, [dockWidth]);
-  const [activeSubview, setActiveSubview] = useState<ToolTabId>('overview');
-  const [networkTab, setNetworkTab] = useState<NetworkTabId>('discovery');
-  const [analyzing, setAnalyzing] = useState(false);
+  // --- ARK expand / restore (layout-driven, no remount) ---
+  const expandCai = useCallback(() => {
+    const active = document.activeElement;
+    expandReturnFocus.current = active instanceof HTMLElement ? active : null;
+    dockWidthBeforeExpand.current = dockWidth;
+    setCaiExpanded(true);
+  }, [dockWidth]);
+  const restoreCai = useCallback(() => {
+    setCaiExpanded(false);
+    // Return to the exact docked width the operator had (never a reset default).
+    setDockWidth(dockWidthBeforeExpand.current);
+    requestAnimationFrame(() => expandReturnFocus.current?.focus?.());
+  }, []);
+  // Mirror for the (stable) global Escape listener.
+  const caiExpandedRef = useRef(false);
+  useEffect(() => { caiExpandedRef.current = caiExpanded; }, [caiExpanded]);
+  // Workspace sub-selections are owned by the active investigation.
+  const activeSubview = (activeWorkspace?.imageSubview ?? 'overview') as ToolTabId;
+  const networkTab = (activeWorkspace?.networkTab ?? 'discovery') as NetworkTabId;
+  const setActiveSubview = useCallback((value: ToolTabId) => {
+    if (activeInvId) invStore.patchWorkspace(activeInvId, { imageSubview: value, neutral: false });
+  }, [activeInvId, invStore]);
+  const setNetworkTab = useCallback((value: NetworkTabId) => {
+    if (activeInvId) invStore.patchWorkspace(activeInvId, { networkTab: value, neutral: false });
+  }, [activeInvId, invStore]);
   const [error, setError] = useState<string | null>(null);
-  const [zeroRetention, setZeroRetention] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const [thumbnailUrl, setThumbnailUrl] = useState<string | undefined>(undefined);
   const [connected, setConnected] = useState(true);
   const [showPalette, setShowPalette] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('keys');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.matchMedia('(max-width: 860px)').matches);
   const [explorerExpanded, setExplorerExpanded] = useState(false);
   const [apiStatuses, setApiStatuses] = useState<ApiKeyStatus[]>([]);
@@ -101,14 +164,33 @@ function WorkbenchInner() {
   const [saveName, setSaveName] = useState('');
   const [saveTags, setSaveTags] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const lastFileRef = useRef<File | null>(null);
   const { toasts, showToast, dismiss } = useToast();
+
+  // Evidence-ingest state is per investigation: the thumbnail, the source file
+  // handle, the in-flight analysis flag and the zero-retention choice must not
+  // leak from one investigation's evidence into another's view. The file handle
+  // itself stays in a ref map (never in React state) so no content is retained
+  // beyond the live session.
+  const [thumbnailUrl, setThumbnailUrl] = useInvestigationSlice<string | undefined>('thumbnailUrl', () => undefined);
+  const [analyzing, setAnalyzing] = useInvestigationSlice<boolean>('analyzing', () => false);
+  const [zeroRetention, setZeroRetention] = useInvestigationSlice<boolean>('zeroRetention', () => false);
+  const lastFilesRef = useRef<Record<string, File | null>>({});
+  const sliceKey = activeInvId ?? '__none__';
+  const lastFileRef = useMemo(() => ({
+    get current() { return lastFilesRef.current[sliceKey] ?? null; },
+    set current(file: File | null) { lastFilesRef.current[sliceKey] = file; },
+  }), [sliceKey]);
+  // Live object URLs, per investigation, so a superseded thumbnail is revoked
+  // immediately and every remaining one is revoked when the workbench unmounts
+  // (never on investigation switch — the other investigation may return to it).
+  const thumbUrlsRef = useRef<Record<string, string | undefined>>({});
 
   const result = inv.result;
 
   useEffect(() => () => {
-    if (thumbnailUrl) URL.revokeObjectURL(thumbnailUrl);
-  }, [thumbnailUrl]);
+    Object.values(thumbUrlsRef.current).forEach(url => { if (url) URL.revokeObjectURL(url); });
+    thumbUrlsRef.current = {};
+  }, []);
 
   // TopBar API provider indicators — unified single source of truth. A dot is
   // "configured" when the ADMIN system key is set server-side (health), OR the
@@ -179,13 +261,28 @@ function WorkbenchInner() {
       }
       if (e.key === 'Escape') {
         setShowPalette(false);
-        setShowProfile(false);
-        setShowSettings(false);
+        // Escape restores an expanded dock only when it is not needed to dismiss
+        // a dialog, command palette or an open menu first. Settings is a normal
+        // tab now, so it is closed via its tab, not Escape.
+        const overlayOpen = !!document.querySelector(
+          '.cmd-palette-overlay, .profile-modal-overlay, .save-prompt-overlay, .ark-model-popover, .ark-menu',
+        );
+        if (!overlayOpen && caiExpandedRef.current) restoreCai();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [restoreCai]);
+
+  // Navigating to another main workspace docks the dock again — the active task
+  // is untouched (no cancellation, no remount).
+  const lastDomain = useRef(inv.domain);
+  useEffect(() => {
+    if (lastDomain.current !== inv.domain) {
+      lastDomain.current = inv.domain;
+      setCaiExpanded(false);
+    }
+  }, [inv.domain]);
 
   const analyzeFile = useCallback(async (file: File) => {
     const reviewId = imageReview.begin(file.name);
@@ -193,6 +290,9 @@ function WorkbenchInner() {
     setError(null);
     setCascadePhase(null);
     const thumbUrl = URL.createObjectURL(file);
+    const prevThumb = thumbUrlsRef.current[sliceKey];
+    if (prevThumb && prevThumb !== thumbUrl) URL.revokeObjectURL(prevThumb);
+    thumbUrlsRef.current[sliceKey] = thumbUrl;
     setThumbnailUrl(thumbUrl);
     lastFileRef.current = file;
     try {
@@ -234,7 +334,7 @@ function WorkbenchInner() {
       setAnalyzing(false);
       setCascadePhase(null);
     }
-  }, [zeroRetention, showToast, inv, imageReview]);
+  }, [zeroRetention, showToast, inv, imageReview, lastFileRef, sliceKey]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -257,9 +357,17 @@ function WorkbenchInner() {
 
   /** Navigate to an image sub-view (the sidebar is the primary navigator). */
   const openTool = useCallback((toolId: ToolTabId) => {
+    // Leaving a workspace tool (Browser) returns to the investigation surface.
+    setWorkspaceTool(null);
     inv.setDomain('image');
     setActiveSubview(toolId);
-  }, [inv]);
+  }, [inv, setWorkspaceTool, setActiveSubview]);
+
+  /** Activity-bar domain navigation also dismisses a workspace tool. */
+  const handleNavigateDomain = useCallback((domain: Parameters<typeof inv.setDomain>[0]) => {
+    setWorkspaceTool(null);
+    inv.setDomain(domain);
+  }, [inv, setWorkspaceTool]);
 
   const handleCopyCoords = useCallback(() => {
     if (!result?.coordinates) return;
@@ -334,13 +442,73 @@ function WorkbenchInner() {
 
   const newSession = useCallback(() => {
     imageReview.clear();
-    inv.clear();
-    lastFileRef.current = null;
     setError(null);
-    setThumbnailUrl(undefined);
-    setActiveSubview('overview');
-    inv.setDomain('image');
-  }, [inv, imageReview]);
+    // A new investigation is a NEW identity with its own conversation, execution
+    // context and workspace selection — it does NOT wipe the shared context, and
+    // it does NOT create a case record. The previous investigation is untouched.
+    // Its own ingest state (thumbnail, file handle, retention) starts at the
+    // keyed defaults, so nothing is cleared here.
+    const id = tabApi.createTab({ title: 'New investigation', domain: 'image' });
+    invStore.ensure(id, { workspace: { ...defaultWorkspaceSelection() } });
+  }, [imageReview, tabApi, invStore]);
+
+  /** Open Settings as a normal, single application tab and activate it.
+   *  Repeated opens reuse the same tab (never duplicate); the user's open
+   *  investigations, their runs and the conversation history are untouched. */
+  const openSettings = useCallback(() => {
+    setShowPalette(false);
+    const existing = tabApi.tabs.find(t => t.domain === 'settings');
+    if (existing) {
+      tabApi.selectTab(existing.id);
+      return;
+    }
+    tabApi.createTab({ title: 'Settings', domain: 'settings' });
+  }, [tabApi]);
+
+  /** Map a live CAI event to a notification + tab run-status update. */
+  const handleInvestigationEvent = useCallback((ev: Record<string, any>) => {
+    const sid: string | null = ev.session_id ?? null;
+    // The tab that owns this run. The `session` event arrives as the first
+    // event of a run, before any operator can switch tabs, so the active tab is
+    // the run's investigation. Status events resolve by session id below.
+    const tab = tabApi.activeTab;
+    if (sid && ev.event === 'session') {
+      // Bind the backend session id to the active investigation *in place*.
+      // A live session event must never create or activate a tab: that would
+      // re-key the investigation store mid-run and orphan the streaming reply
+      // (the P0 "send → no response" defect).
+      tabApi.bindSession(sid, { title: inv.activeCase?.title || inv.activeEvidence?.filename || 'Investigation', domain: inv.domain as any, caseId: inv.activeCase?.id ?? null });
+      if (tab) invStore.patchMeta(tab.id, { sessionId: sid, caseId: inv.activeCase?.id ?? null });
+      return;
+    }
+    if (sid && ev.event === 'run_created') {
+      tabApi.setRunStatus(sid, 'running');
+      if (tab) invStore.setRunStatus(tab.id, 'running', ev.run_id ?? null);
+    }
+    if (sid && (ev.event === 'run_completed')) {
+      tabApi.setRunStatus(sid, 'completed');
+      if (tab) invStore.setRunStatus(tab.id, 'completed');
+    }
+    if (sid && (ev.event === 'run_failed' || (ev.event === 'scope_checked' && ev.allowed === false))) {
+      tabApi.setRunStatus(sid, 'failed');
+      if (tab) invStore.setRunStatus(tab.id, 'failed');
+    }
+
+    // CAI-driven browsing: when ARK invokes a browser.* tool, surface the
+    // operator Browser workspace and follow the session it is driving.
+    const toolId: string = ev.tool ?? ev.function?.name ?? '';
+    if ((ev.event === 'tool_call' || ev.event === 'tool') && toolId.startsWith('browser.')) {
+      caiBrowser.noteToolCall(toolId, ev.args, ev.result);
+      setWorkspaceTool('browser');
+    }
+
+    const n = notificationFromEvent(ev);
+    if (n) setNotifications(prev => pushNotification(prev, n));
+  }, [inv.activeCase, inv.activeEvidence, inv.domain, tabApi, caiBrowser, invStore, setWorkspaceTool]);
+
+  const handleMarkAllRead = useCallback(() => {
+    setNotifications(prev => prev.map(item => item.read ? item : { ...item, read: true }));
+  }, []);
 
   const triggerUpload = useCallback(() => {
     inv.setDomain('image');
@@ -360,7 +528,69 @@ function WorkbenchInner() {
     setThumbnailUrl(undefined);
     setError(null);
     showToast(`Restored case ${saved.caseId}`, 'success');
-  }, [inv, showToast, imageReview, zeroRetention]);
+  }, [inv, showToast, imageReview, zeroRetention, lastFileRef]);
+
+  const handleSelectTab = useCallback((id: string) => { tabApi.selectTab(id); }, [tabApi]);
+
+  const handleCloseTab = useCallback((id: string) => {
+    tabApi.closeTab(id);
+    // Release the closed investigation's live UI state (conversation, run
+    // timeline, queue, thumbnail object URL, file handle). Durable metadata is
+    // retained so a still-running backend session is not orphaned.
+    const url = thumbUrlsRef.current[id];
+    if (url) URL.revokeObjectURL(url);
+    delete thumbUrlsRef.current[id];
+    delete lastFilesRef.current[id];
+    invStore.drop(id);
+  }, [tabApi, invStore]);
+
+  // Tab activation seeds the investigation store from the tab descriptor and,
+  // when the investigation has no case context yet, rehydrates its saved case.
+  // Because case context is now investigation-keyed, switching back to a tab
+  // restores that investigation's own workspace and conversation untouched —
+  // this effect only has to handle the *first* activation of an investigation.
+  const appliedTab = useRef<string | null>(null);
+  useEffect(() => {
+    const tab = tabApi.activeTab;
+    if (!tab) {
+      // Nothing active (e.g. the Settings tab was closed with no investigation
+      // open) → return to the IMAGE landing state.
+      if (inv.domain === 'settings') inv.setDomain('image');
+      appliedTab.current = null;
+      return;
+    }
+    // Ensure the investigation exists in the store (idempotent) and keep its
+    // durable metadata in step with the tab descriptor. Only defined values are
+    // merged, so a re-activated tab never clobbers a session id the store
+    // already holds (e.g. a run started before the tab was closed).
+    invStore.ensure(tab.id, {
+      title: tab.title,
+      ...(tab.sessionId ? { sessionId: tab.sessionId } : {}),
+      ...(tab.caseId ? { caseId: tab.caseId } : {}),
+      runStatus: (tab.runStatus as InvestigationRunStatus) ?? 'idle',
+    });
+    if (appliedTab.current === tab.id) return;
+    appliedTab.current = tab.id;
+
+    // Settings is a full-page surface, not an investigation: switch the domain
+    // and leave the underlying investigation state untouched for when we return.
+    if (tab.domain === 'settings') {
+      inv.setDomain('settings');
+      return;
+    }
+    // Rehydrate this investigation's saved case only if it has no case context
+    // of its own yet (first activation).
+    const saved = inv.history.find(h => h.caseId === tab.caseId);
+    if (saved && inv.activeCase?.id !== saved.caseId) handleRestoreCase(saved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabApi.activeId, tabApi.activeTab]);
+
+  const handleOpenNotification = useCallback((n: AppNotification) => {
+    setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, read: true } : item));
+    const match = n.sessionId ? tabApi.tabs.find(t => t.sessionId === n.sessionId) : undefined;
+    if (match) tabApi.selectTab(match.id);
+    else if (n.sessionId) tabApi.ensureTab(n.sessionId, { title: 'Investigation', domain: 'image' });
+  }, [tabApi]);
 
   /** Save the current workspace observations into the unified Case Vault.
    *  Domain is inferred from the active workspace (Telecom tab → 'telecom'). */
@@ -410,6 +640,7 @@ function WorkbenchInner() {
   const activeCaseId = inv.activeCase?.id || null;
   const imageView = IMAGE_SUBVIEWS.find(view => view.id === activeSubview);
   const networkView = NETWORK_TABS.find(view => view.id === networkTab);
+  const isSettings = inv.domain === 'settings';
   const workspace = {
     image: {
       label: 'Image intelligence',
@@ -431,42 +662,86 @@ function WorkbenchInner() {
       title: 'Case explorer',
       description: 'Find saved investigations and review the active case audit trail.',
     },
+    usecases: {
+      label: 'Investigations',
+      title: 'Use cases',
+      description: 'Quick-start surfaces for common investigation workflows.',
+    },
+    settings: {
+      label: 'Settings',
+      title: 'Settings',
+      description: 'Providers, keys, model, privacy and support.',
+    },
   }[inv.domain];
-  const WorkspaceIcon = DOMAIN_ICONS[inv.domain];
 
   return (
     <div className="workbench ark-command-center">
       <TopBar
-        activeCaseId={activeCaseId}
-        apiStatuses={apiStatuses}
-        connected={connected}
-        onOpenPalette={() => setShowPalette(true)}
-        onOpenProfile={() => setShowProfile(true)}
-        onSaveInvestigation={openSavePrompt}
+        tabs={tabApi.tabs}
+        activeTabId={tabApi.activeId}
+        onSelectTab={handleSelectTab}
+        onCloseTab={handleCloseTab}
+        onNewTab={newSession}
+        notifications={notifications}
+        unread={unread}
+        onOpenNotification={handleOpenNotification}
+        onMarkAllRead={handleMarkAllRead}
       />
 
-      <div ref={bodyRef} className={`workbench-body ${resizingDock ? 'ark-dock-resizing' : ''}`}
+      <div ref={bodyRef} className={`workbench-body ${resizingDock ? 'ark-dock-resizing' : ''} ${caiExpanded ? 'ark-cai-expanded' : ''} ${isSettings ? 'workbench-body-settings' : ''}`}
         style={{ '--ark-dock-width': `${dockWidth}px` } as React.CSSProperties}>
+        {isSettings ? (
+          <SettingsWorkspace
+            section={settingsSection}
+            onSection={setSettingsSection}
+            onRestoreCase={handleRestoreCase}
+            apiStatuses={apiStatuses}
+            connected={connected}
+          />
+        ) : (
+        <>
         <InvestigationNavigation
           collapsed={sidebarCollapsed}
           domain={inv.domain}
-          activeCaseId={activeCaseId}
-          analyzing={analyzing}
-          history={inv.history}
           onToggle={() => setSidebarCollapsed(value => !value)}
-          onNew={newSession}
-          onNavigate={inv.setDomain}
-          onRestore={handleRestoreCase}
-          onUseCase={openUseCase}
-          onTools={() => setShowPalette(true)}
-          onSettings={() => setShowSettings(true)}
+          onNavigate={handleNavigateDomain}
+          onUseCases={() => handleNavigateDomain('usecases')}
+          onSettings={openSettings}
           onAdmin={adminAuth.isAuthenticated() ? () => { window.location.hash = `${ADMIN_LOGIN_PATH}/console`; } : undefined}
         />
 
         {/* Investigation viewport */}
+        {workspaceTool === 'browser' ? (
+          <main className="workbench-main" aria-labelledby="workspace-title">
+            <header className="workspace-heading">
+              <div className="workspace-heading-copy">
+                <div className="workspace-heading-domain">Managed browser</div>
+                <h1 id="workspace-title">Browser</h1>
+                <p>Embedded browsing workspace — screenshot-first, driven by ARK or taken over by the operator.</p>
+              </div>
+              {activeCaseId && <span className="workspace-heading-case mono">{activeCaseId}</span>}
+            </header>
+            <div className="workbench-viewport ark-workspace-browser">
+              <BrowserWorkspace onClose={() => setWorkspaceTool(null)} caseId={activeCaseId ?? ''} />
+            </div>
+          </main>
+        ) : isNeutralWorkspace ? (
+          <main className="workbench-main" aria-labelledby="workspace-title">
+            <NeutralWorkspace
+              title={tabApi.activeTab?.title || 'New investigation'}
+              investigationId={activeInvId ?? ''}
+              caseId={activeCaseId}
+              browserAvailable={browserAvailable}
+              onSelectWorkspace={(id: NeutralWorkspaceId) => {
+                if (id === 'browser') { setWorkspaceTool('browser'); return; }
+                if (id === 'cases') { inv.setDomain('cases'); return; }
+                inv.setDomain(id);
+              }}
+            />
+          </main>
+        ) : (
         <main className="workbench-main" aria-labelledby="workspace-title">
           <header className="workspace-heading">
-            <div className="workspace-heading-icon"><WorkspaceIcon size={20} aria-hidden="true" /></div>
             <div className="workspace-heading-copy">
               <div className="workspace-heading-domain">{workspace.label}</div>
               <h1 id="workspace-title">{workspace.title}</h1>
@@ -507,6 +782,7 @@ function WorkbenchInner() {
             {inv.domain === 'network' && <NetworkWorkbench activeTab={networkTab} />}
             {inv.domain === 'secops' && <SecOpsPlaceholder />}
             {inv.domain === 'cases' && <CaseExplorer onRestoreCase={handleRestoreCase} />}
+            {inv.domain === 'usecases' && <UseCasesView onUseCase={openUseCase} />}
             <IngestionSweep
               active={analyzing}
               phase={
@@ -518,34 +794,41 @@ function WorkbenchInner() {
           </div>
 
         </main>
-        <div className="ark-dock-divider" role="separator" aria-label="Resize ARK-CAI dock" aria-orientation="vertical" tabIndex={0}
-          onPointerDown={event => {
-            if (event.button !== 0) return;
-            const dock = event.currentTarget.nextElementSibling;
-            if (!dock) return;
-            event.currentTarget.setPointerCapture(event.pointerId);
-            resizeOrigin.current = { x: event.clientX, width: dock.getBoundingClientRect().width };
-            setResizingDock(true);
-          }}
-          onPointerMove={event => {
-            const origin = resizeOrigin.current;
-            if (origin && event.currentTarget.hasPointerCapture(event.pointerId)) {
-              updateDockWidth(origin.width + origin.x - event.clientX);
-            }
-          }}
-          onLostPointerCapture={() => { resizeOrigin.current = undefined; setResizingDock(false); }}
-          onKeyDown={event => {
-            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-            event.preventDefault();
-            const width = event.currentTarget.nextElementSibling?.getBoundingClientRect().width ?? dockWidth;
-            updateDockWidth(width + (event.key === 'ArrowLeft' ? 24 : -24));
-          }}
-          onDoubleClick={() => setDockWidth(420)}
-        />
-        <ArkControl workspaceTitle={workspace.title} imageReview={imageReview.review} onImage={file => { inv.setDomain('image'); return analyzeFile(file); }} analyzing={analyzing} onOpenTool={openTool} evidenceFile={lastFileRef.current} />
+        )}
+        <section className="ark-cai-region" aria-label="ARK workspace">
+          <div className="ark-dock-divider" role="separator" aria-label="Resize ARK dock" aria-orientation="vertical" tabIndex={0}
+            onPointerDown={event => {
+              if (event.button !== 0) return;
+              const dock = event.currentTarget.nextElementSibling;
+              if (!dock) return;
+              event.currentTarget.setPointerCapture(event.pointerId);
+              resizeOrigin.current = { x: event.clientX, width: dock.getBoundingClientRect().width };
+              setResizingDock(true);
+            }}
+            onPointerMove={event => {
+              const origin = resizeOrigin.current;
+              if (origin && event.currentTarget.hasPointerCapture(event.pointerId)) {
+                updateDockWidth(origin.width + origin.x - event.clientX);
+              }
+            }}
+            onLostPointerCapture={() => { resizeOrigin.current = undefined; setResizingDock(false); }}
+            onKeyDown={event => {
+              if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+              event.preventDefault();
+              const width = event.currentTarget.nextElementSibling?.getBoundingClientRect().width ?? dockWidth;
+              updateDockWidth(width + (event.key === 'ArrowLeft' ? 24 : -24));
+            }}
+            onDoubleClick={() => setDockWidth(420)}
+          />
+          <ArkControl workspaceTitle={workspace.title} imageReview={imageReview.review} onImage={file => { inv.setDomain('image'); return analyzeFile(file); }} analyzing={analyzing} onOpenTool={openTool} evidenceFile={lastFileRef.current}
+            expanded={caiExpanded} onToggleExpand={() => (caiExpanded ? restoreCai() : expandCai())} onEvent={handleInvestigationEvent} browserAvailable={browserAvailable}
+            onOpenWorkspaceTool={id => { if (isWorkspaceTool(id)) setWorkspaceTool(id); }} />
+        </section>
+        </>
+        )}
       </div>
 
-      <StatusBar result={result} connected={connected} analyzing={analyzing} activeCaseId={activeCaseId} />
+      {!isSettings && <StatusBar result={result} connected={connected} analyzing={analyzing} activeCaseId={activeCaseId} />}
 
       <CommandPalette
         open={showPalette}
@@ -554,24 +837,14 @@ function WorkbenchInner() {
         onExportPdf={handleExportPdf}
         onUpload={() => { inv.setDomain('image'); fileInputRef.current?.click(); }}
         onOpenAdmin={() => { window.location.hash = '/console-auth'; }}
+        onNewInvestigation={newSession}
+        onSaveInvestigation={() => { setShowPalette(false); openSavePrompt(); }}
+        onOpenSettings={openSettings}
         hasResult={!!result}
       />
 
       <input ref={fileInputRef} type="file" accept="image/jpeg,image/png" onChange={handleFileSelect} style={{ display: 'none' }} />
 
-      <InvestigatorProfileModal
-        open={showProfile}
-        onClose={() => setShowProfile(false)}
-        apiStatuses={apiStatuses}
-        onRestoreCase={handleRestoreCase}
-      />
-      <ClientSettingsModal
-        onRestoreCase={handleRestoreCase}
-        open={showSettings}
-        onClose={() => setShowSettings(false)}
-        apiStatuses={apiStatuses}
-        connected={connected}
-      />
       <ToastContainer toasts={toasts} onDismiss={dismiss} />
 
       {savePromptOpen && (
@@ -621,11 +894,27 @@ function WorkbenchInner() {
 export function Workbench() {
   return (
     <ByokProvider>
-      <InvestigationProvider>
-        <ArkBusProvider>
-          <WorkbenchInner />
-        </ArkBusProvider>
-      </InvestigationProvider>
+      <TabsProvider>
+        <InvestigationStoreProviderHost>
+          <ArkBusProvider>
+            <CaiBrowserProvider>
+              <WorkbenchInner />
+            </CaiBrowserProvider>
+          </ArkBusProvider>
+        </InvestigationStoreProviderHost>
+      </TabsProvider>
     </ByokProvider>
+  );
+}
+
+/** Bridges the tab surface (the active investigation) to the investigation
+ *  store, then mounts the investigation-keyed case-context provider. */
+function InvestigationStoreProviderHost({ children }: { children: React.ReactNode }) {
+  const tabs = useTabs();
+  const activeId = tabs.activeId;
+  return (
+    <InvestigationStoreProvider activeId={activeId}>
+      <InvestigationProvider>{children}</InvestigationProvider>
+    </InvestigationStoreProvider>
   );
 }

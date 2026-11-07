@@ -13,6 +13,8 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef } from 'react';
 import type { AnalyzeResponse, InvestigationSession, Observation } from '../../types';
 import { api } from '../../api';
+import { useTabs } from '../../core/tabs/TabsContext';
+import { useInvestigationStore } from '../../core/investigation/InvestigationStoreContext';
 import { runImagePipeline } from '../../core/pipeline/ImagePipeline';
 import type { ImagePipelineResult, PipelineProgress } from '../../core/types';
 import {
@@ -189,8 +191,8 @@ export interface InvestigationContextValue extends InvestigationContext {
    *  case as findings + a single audit event. When no case is active yet, one
    *  is created on the fly (opts may set its domain + title). */
   appendCaseObservations: (obs: CaseObservation[], opts?: { domain?: DomainId; title?: string }) => void;
-  /** Shared streaming terminal feed (Telecom console, network diagnostics).
-   *  Bottom panel TERMINAL tab mirrors the latest entries live. */
+  /** Shared streaming feed (Telecom console, network diagnostics).
+   *  The bottom-panel ANALYSIS LOG tab mirrors the latest entries live. */
   terminal: TerminalEntry[];
   pushTerminal: (level: 'info' | 'ok' | 'warn' | 'err', text: string) => void;
   clearTerminal: () => void;
@@ -218,20 +220,56 @@ export interface CaseObservation {
 
 const Ctx = createContext<InvestigationContextValue | null>(null);
 
+/**
+ * InvestigationProvider — investigation-keyed case-context multiplexer.
+ *
+ * It holds one `InvestigationContext` (case/evidence/run/findings/audit) *per
+ * investigation*, plus the per-investigation AI session, pipeline, terminal and
+ * bottom-console tab. The active investigation (from the tab surface) selects
+ * which slice is exposed through the existing `InvestigationContextValue`
+ * interface, so every consumer keeps working unchanged while the underlying
+ * state is now genuinely isolated per investigation.
+ *
+ * Nothing here cancels or touches backend execution on switch: it only chooses
+ * which investigation's state is rendered. Live writes always land on the
+ * investigation that was active when the write was issued.
+ */
 export function InvestigationProvider({ children }: { children: React.ReactNode }) {
-  const [base, setBase] = useState<InvestigationContext>(emptyContext);
-  const [domain, setDomain] = useState<DomainId>('image');
-  const [result, setResult] = useState<AnalyzeResponse | null>(null);
-  const [history, setHistory] = useState<SavedCase[]>(() => loadHistory());
+  const tabs = useTabs();
+  const store = useInvestigationStore();
+  const activeTabId = tabs.activeId;
+  const activeInvId = activeTabId ?? '__none__';
 
-  // Shared ARK AI investigation session + bottom-console tab.
-  const [session, setSession] = useState<InvestigationSession | null>(null);
-  const [invBusy, setInvBusy] = useState(false);
-  const [invError, setInvError] = useState<string | null>(null);
-  const [bottomTab, setBottomTab] = useState('problems');
-  const [pipeline, setPipeline] = useState<ImagePipelineResult | null>(null);
-  const [pipelineProgress, setPipelineProgress] = useState<PipelineProgress | null>(null);
-  const [terminal, setTerminal] = useState<TerminalEntry[]>([]);
+  // --- investigation-keyed state (one bucket per investigation) ---
+  const [contexts, setContexts] = useState<Record<string, InvestigationContext>>({});
+  const [results, setResults] = useState<Record<string, AnalyzeResponse | null>>({});
+  const [history, setHistory] = useState<SavedCase[]>(() => loadHistory());
+  const [sessions, setSessions] = useState<Record<string, InvestigationSession | null>>({});
+  const [busies, setBusies] = useState<Record<string, boolean>>({});
+  const [errors, setErrors] = useState<Record<string, string | null>>({});
+  const [bottomTabs, setBottomTabs] = useState<Record<string, string>>({});
+  const [pipelines, setPipelines] = useState<Record<string, ImagePipelineResult | null>>({});
+  const [pipelineProgresses, setPipelineProgresses] = useState<Record<string, PipelineProgress | null>>({});
+  const [terminals, setTerminals] = useState<Record<string, TerminalEntry[]>>({});
+
+  // Mirror the active investigation id for callbacks that must not re-bind when
+  // the operator switches tabs mid-flight.
+  const activeInvRef = useRef(activeInvId);
+  activeInvRef.current = activeInvId;
+
+  const base = contexts[activeInvId] ?? emptyContext();
+  const domain = store.metaFor(activeInvId)?.workspace.domain ?? 'image';
+  const result = results[activeInvId] ?? null;
+  const session = sessions[activeInvId] ?? null;
+  const invBusy = busies[activeInvId] ?? false;
+  const invError = errors[activeInvId] ?? null;
+  const bottomTab = bottomTabs[activeInvId] ?? 'problems';
+  const pipeline = pipelines[activeInvId] ?? null;
+  const pipelineProgress = pipelineProgresses[activeInvId] ?? null;
+  const terminal = terminals[activeInvId] ?? [];
+
+  // Refs that always resolve the *currently active* investigation's slices, so
+  // existing callbacks (which read refs) keep their semantics.
   const sessionRef = useRef<InvestigationSession | null>(null);
   sessionRef.current = session;
   const baseRef = useRef<InvestigationContext>(base);
@@ -239,7 +277,19 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
   const resultRef = useRef<AnalyzeResponse | null>(result);
   resultRef.current = result;
 
+  /** Functional patch of the active investigation's case context. */
+  const patchActive = useCallback((updater: (prev: InvestigationContext) => InvestigationContext) => {
+    const id = activeInvRef.current;
+    setContexts(prev => ({ ...prev, [id]: updater(prev[id] ?? emptyContext()) }));
+  }, []);
+
+  const setActiveDomain = useCallback((d: DomainId) => {
+    // Choosing a domain is a workspace selection: it leaves the neutral state.
+    store.patchWorkspace(activeInvRef.current, { domain: d, neutral: false });
+  }, [store]);
+
   const pushTerminal = useCallback((level: 'info' | 'ok' | 'warn' | 'err', text: string) => {
+    const id = activeInvRef.current;
     const now = new Date();
     const entry: TerminalEntry = {
       id: `T${now.getTime()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -247,16 +297,20 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
       level,
       text,
     };
-    setTerminal(t => [...t.slice(-499), entry]);
-    setBottomTab('terminal');
+    setTerminals(prev => ({ ...prev, [id]: [...(prev[id] ?? []).slice(-499), entry] }));
   }, []);
 
-  const clearTerminal = useCallback(() => setTerminal([]), []);
+  const clearTerminal = useCallback(() => {
+    const id = activeInvRef.current;
+    setTerminals(prev => ({ ...prev, [id]: [] }));
+  }, []);
 
   /** Fold investigation outputs (findings + agent audit trail) into the case. */
   const mergeInvestigation = useCallback((s: InvestigationSession) => {
-    setBase(b => {
-      if (!b.activeCase) return b;
+    const id = activeInvRef.current;
+    setContexts(prev => {
+      const b = prev[id] ?? emptyContext();
+      if (!b.activeCase) return prev;
       const caseId = b.activeCase.id;
       const extraFindings: Finding[] = [];
       (s.findings || []).forEach(f => {
@@ -293,67 +347,99 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
       if (res) {
         storeSnapshot(caseId, { result: pruneResult(res), findings: nb.findings, auditTrail: nb.auditTrail });
       }
-      return nb;
+      return { ...prev, [id]: nb };
     });
   }, []);
 
+  const setSessionActive = useCallback((v: InvestigationSession | null) => {
+    const id = activeInvRef.current;
+    setSessions(prev => ({ ...prev, [id]: v }));
+  }, []);
+  const setBusyActive = useCallback((v: boolean) => {
+    const id = activeInvRef.current;
+    setBusies(prev => ({ ...prev, [id]: v }));
+  }, []);
+  const setErrorActive = useCallback((v: string | null) => {
+    const id = activeInvRef.current;
+    setErrors(prev => ({ ...prev, [id]: v }));
+  }, []);
+  const setBottomTabActive = useCallback((v: string) => {
+    const id = activeInvRef.current;
+    setBottomTabs(prev => ({ ...prev, [id]: v }));
+  }, []);
+  const setResultActive = useCallback((value: AnalyzeResponse | null | ((prev: AnalyzeResponse | null) => AnalyzeResponse | null)) => {
+    const id = activeInvRef.current;
+    setResults(prev => ({
+      ...prev,
+      [id]: typeof value === 'function' ? (value as (p: AnalyzeResponse | null) => AnalyzeResponse | null)(prev[id] ?? null) : value,
+    }));
+  }, []);
+  const setPipelineActive = useCallback((value: ImagePipelineResult | null) => {
+    const id = activeInvRef.current;
+    setPipelines(prev => ({ ...prev, [id]: value }));
+  }, []);
+  const setPipelineProgressActive = useCallback((value: PipelineProgress | null) => {
+    const id = activeInvRef.current;
+    setPipelineProgresses(prev => ({ ...prev, [id]: value }));
+  }, []);
+
   const startInvestigation = useCallback(async (file: File, objective: InvestigateObjective) => {
-    setInvBusy(true);
-    setInvError(null);
+    setBusyActive(true);
+    setErrorActive(null);
     try {
       const s = await api.createInvestigation(file, objective);
-      setSession(s);
-      setBottomTab('plan');
+      setSessionActive(s);
+      setBottomTabActive('plan');
     } catch (err) {
-      setInvError(err instanceof Error ? err.message : 'Failed to start investigation');
+      setErrorActive(err instanceof Error ? err.message : 'Failed to start investigation');
     } finally {
-      setInvBusy(false);
+      setBusyActive(false);
     }
-  }, []);
+  }, [setBusyActive, setErrorActive, setSessionActive, setBottomTabActive]);
 
   const approveInvestigation = useCallback(async () => {
     const current = sessionRef.current;
     if (!current) return;
-    setInvBusy(true);
-    setInvError(null);
+    setBusyActive(true);
+    setErrorActive(null);
     try {
       const s = await api.approveInvestigation(current.investigation_id);
-      setSession(s);
+      setSessionActive(s);
       mergeInvestigation(s);
     } catch (err) {
-      setInvError(err instanceof Error ? err.message : 'Approval failed');
+      setErrorActive(err instanceof Error ? err.message : 'Approval failed');
     } finally {
-      setInvBusy(false);
+      setBusyActive(false);
     }
-  }, [mergeInvestigation]);
+  }, [mergeInvestigation, setBusyActive, setErrorActive, setSessionActive]);
 
   const resumeInvestigation = useCallback(async (steps: number) => {
     const current = sessionRef.current;
     if (!current) return;
-    setInvBusy(true);
-    setInvError(null);
+    setBusyActive(true);
+    setErrorActive(null);
     try {
       const s = await api.resumeInvestigation(current.investigation_id, { max_steps: steps });
-      setSession(s);
+      setSessionActive(s);
       mergeInvestigation(s);
     } catch (err) {
-      setInvError(err instanceof Error ? err.message : 'Resume failed');
+      setErrorActive(err instanceof Error ? err.message : 'Resume failed');
     } finally {
-      setInvBusy(false);
+      setBusyActive(false);
     }
-  }, [mergeInvestigation]);
+  }, [mergeInvestigation, setBusyActive, setErrorActive, setSessionActive]);
 
   const refreshInvestigation = useCallback(async () => {
     const current = sessionRef.current;
     if (!current) return;
     try {
       const s = await api.getInvestigation(current.investigation_id);
-      setSession(s);
+      setSessionActive(s);
       mergeInvestigation(s);
     } catch (err) {
-      setInvError(err instanceof Error ? err.message : 'Refresh failed');
+      setErrorActive(err instanceof Error ? err.message : 'Refresh failed');
     }
-  }, [mergeInvestigation]);
+  }, [mergeInvestigation, setErrorActive, setSessionActive]);
 
   const loadFromAnalysis = useCallback((resp: AnalyzeResponse, filename: string, zeroRetention?: boolean) => {
     const caseId = caseIdFromRequest(resp.request_id);
@@ -459,7 +545,7 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
       });
     }
 
-    setBase({
+    patchActive(() => ({
       tenant: DEFAULT_TENANT,
       workspace: DEFAULT_WORKSPACE,
       activeCase,
@@ -468,9 +554,9 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
       findings,
       auditTrail,
       reports: [],
-    });
-    setResult(resp);
-    setDomain('image');
+    }));
+    setResultActive(resp);
+    setActiveDomain('image');
 
     // Persist to cross-domain case history
     const anomalyCount =
@@ -506,18 +592,20 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
    *  for backend observations), and each step + the fusion summary are written
    *  to the audit trail. */
   const mergePipeline = useCallback((p: ImagePipelineResult) => {
-    setPipeline(p);
-    setPipelineProgress(null);
+    setPipelineActive(p);
+    setPipelineProgressActive(null);
     // Fold frontend OCR→geocoding pins into the active result when the backend
     // response didn't already carry them (Feature 2).
     if (p.geo_candidates && p.geo_candidates.length > 0) {
-      setResult(prev => {
+      setResultActive(prev => {
         if (!prev || (prev.geo_candidates && prev.geo_candidates.length > 0)) return prev;
         return { ...prev, geo_candidates: p.geo_candidates };
       });
     }
-    setBase(b => {
-      if (!b.activeCase) return b;
+    const id = activeInvRef.current;
+    setContexts(prev => {
+      const b = prev[id] ?? emptyContext();
+      if (!b.activeCase) return prev;
       const caseId = b.activeCase.id;
       const runId = b.activeRun?.id ?? caseId;
       const evidenceId = b.activeEvidence?.id ?? caseId;
@@ -589,22 +677,22 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
       if (res) {
         storeSnapshot(caseId, { result: pruneResult(res), findings: nb.findings, auditTrail: nb.auditTrail });
       }
-      return nb;
+      return { ...prev, [id]: nb };
     });
-  }, []);
+  }, [setPipelineActive, setPipelineProgressActive, setResultActive]);
 
   /** Run the 5-step cascade over an ingested asset and fold it into the case. */
   const runPipeline = useCallback(async (file: File, resp: AnalyzeResponse, onProgress?: (progress: PipelineProgress) => void) => {
-    setPipelineProgress({ currentStep: 0, totalSteps: 5, name: 'Preparing cascade' });
+    setPipelineProgressActive({ currentStep: 0, totalSteps: 5, name: 'Preparing cascade' });
     const p = await runImagePipeline(file, resp, {
       onProgress: prog => {
-        setPipelineProgress(prog);
+        setPipelineProgressActive(prog);
         onProgress?.(prog);
       },
     });
     mergePipeline(p);
     return p;
-  }, [mergePipeline]);
+  }, [mergePipeline, setPipelineProgressActive]);
 
   const restoreCase = useCallback((saved: SavedCase) => {
     const activeCase: Case = {
@@ -628,18 +716,18 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
     const snap = loadSnapshots()[saved.caseId] || null;
     const findings = snap ? snap.findings : [];
     const auditTrail = snap ? snap.auditTrail : [];
-    setBase(b => ({
+    patchActive(b => ({
       ...b, activeCase, activeEvidence, activeRun, findings, auditTrail, reports: [],
     }));
-    if (snap) setResult(snap.result);
-    else setResult(null);
-    setPipeline(null);
-    setPipelineProgress(null);
-    setSession(null);
-    setInvError(null);
-    setDomain(activeCase.domain);
+    if (snap) setResultActive(snap.result);
+    else setResultActive(null);
+    setPipelineActive(null);
+    setPipelineProgressActive(null);
+    setSessionActive(null);
+    setErrorActive(null);
+    setActiveDomain(activeCase.domain);
     return snap;
-  }, []);
+  }, [patchActive, setActiveDomain, setErrorActive, setPipelineActive, setPipelineProgressActive, setResultActive, setSessionActive]);
 
   const removeCase = useCallback((saved: SavedCase) => {
     dropSnapshot(saved.caseId);
@@ -703,13 +791,13 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
   }, []);
 
   const clear = useCallback(() => {
-    setBase(emptyContext());
-    setResult(null);
-    setSession(null);
-    setInvError(null);
-    setPipeline(null);
-    setPipelineProgress(null);
-  }, []);
+    patchActive(() => emptyContext());
+    setResultActive(null);
+    setSessionActive(null);
+    setErrorActive(null);
+    setPipelineActive(null);
+    setPipelineProgressActive(null);
+  }, [patchActive, setErrorActive, setPipelineActive, setPipelineProgressActive, setResultActive, setSessionActive]);
 
   /** Fold cross-domain observations into the active case (Network Workspace,
    *  Vulnerability Matrix, future domains). Findings reuse the FND-OBS pattern
@@ -719,7 +807,9 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
    *  findings into an open investigation. */
   const appendCaseObservations = useCallback((obs: CaseObservation[], opts?: { domain?: DomainId; title?: string }) => {
     if (!obs.length) return;
-    setBase(b => {
+    const id = activeInvRef.current;
+    setContexts(prev => {
+      const b = prev[id] ?? emptyContext();
       const now = Date.now();
       const hasCase = !!b.activeCase;
       const domain: DomainId = opts?.domain ?? (b.activeCase?.domain ?? 'network');
@@ -781,19 +871,19 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
       if (res) {
         storeSnapshot(caseId, { result: pruneResult(res), findings: nb.findings, auditTrail: nb.auditTrail });
       }
-      return nb;
+      return { ...prev, [id]: nb };
     });
   }, []);
 
   const value = useMemo<InvestigationContextValue>(() => ({
     ...base, domain, result,
-    setDomain, loadFromAnalysis, restoreCase, removeCase, clearHistory, saveCase, clear, history,
-    session, invBusy, invError, bottomTab, setBottomTab,
+    setDomain: setActiveDomain, loadFromAnalysis, restoreCase, removeCase, clearHistory, saveCase, clear, history,
+    session, invBusy, invError, bottomTab, setBottomTab: setBottomTabActive,
     startInvestigation, approveInvestigation, resumeInvestigation, refreshInvestigation,
     runPipeline, pipeline, pipelineProgress, appendCaseObservations,
     terminal, pushTerminal, clearTerminal,
-  }), [base, domain, result, loadFromAnalysis, restoreCase, removeCase, clearHistory, saveCase, clear, history,
-      session, invBusy, invError, bottomTab,
+  }), [base, domain, result, setActiveDomain, loadFromAnalysis, restoreCase, removeCase, clearHistory, saveCase, clear, history,
+      session, invBusy, invError, bottomTab, setBottomTabActive,
       startInvestigation, approveInvestigation, resumeInvestigation, refreshInvestigation,
       runPipeline, pipeline, pipelineProgress, appendCaseObservations,
       terminal, pushTerminal, clearTerminal]);

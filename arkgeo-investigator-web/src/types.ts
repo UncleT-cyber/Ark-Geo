@@ -228,7 +228,7 @@ export interface AnalyzeResponse {
     detail?: string;
     [k: string]: unknown;
   } | null;
-  /** AI intelligence assessment from the global ARK-CAI model. */
+  /** AI intelligence assessment from the global ARK model. */
   ai_intelligence?: {
     ai_assessment?: string;
     key_observations?: string[];
@@ -1491,4 +1491,42 @@ export interface PhoneOsintResponse {
   trace_id: string;
   workers: Record<string, OsintWorkerResult>;
   detail: string;
+}
+
+/** A managed-browser artifact (screenshot) produced by the CAI browser runtime. */
+export interface BrowserArtifact {
+  kind: 'screenshot' | 'snapshot' | 'download';
+  path: string;
+  sha256: string;
+  bytes: number;
+  created_ms: number;
+  label: string;
+}
+
+/** One tab within a managed-browser session. */
+export interface BrowserTabInfo {
+  tab_id: string;
+  url: string;
+  title: string | null;
+}
+
+/** State of a managed-browser session driven by CAI and observable by the operator. */
+export interface BrowserSessionInfo {
+  session_id: string;
+  investigation_id?: string;
+  case_id?: string;
+  run_id?: string;
+  agent_id?: string;
+  control: 'agent' | 'operator';
+  created_ms: number;
+  last_used_ms: number;
+  closed: boolean;
+  tabs: BrowserTabInfo[];
+  active_tab: string | null;
+  tab_count: number;
+  blocked_requests: number;
+  artifacts: BrowserArtifact[];
+  url?: string;
+  title?: string | null;
+  latest_screenshot?: BrowserArtifact | null;
 }

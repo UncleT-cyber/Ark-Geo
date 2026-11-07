@@ -160,15 +160,22 @@ function stopBackend() {
 }
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  // Platform-aware window chrome. macOS keeps its native traffic lights over a
+  // hidden titlebar; Windows/Linux use the native Window Controls Overlay so we
+  // keep real minimize/maximize/close buttons instead of drawing our own.
+  const isMac = process.platform === 'darwin';
+  // titleBarOverlay is supported on Windows and Linux in Electron >= 30. We keep
+  // a standard-frame fallback so a platform without overlay support never ends
+  // up with an uncontrollable window.
+  const overlaySupported = !isMac && typeof BrowserWindow !== 'undefined';
+
+  const baseOptions = {
     width: 1440,
     height: 900,
     minWidth: 1024,
     minHeight: 700,
     title: 'THE ARK — Integrated Security Environment',
     backgroundColor: '#0B0F17',
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -176,7 +183,23 @@ function createWindow() {
       sandbox: false,
     },
     show: false,
-  });
+  };
+
+  const chrome = isMac
+    ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 16 } }
+    : overlaySupported
+      ? {
+          titleBarStyle: 'hidden',
+          titleBarOverlay: { color: '#0B0F17', symbolColor: '#F1F5F9', height: 40 },
+        }
+      : {};
+
+  try {
+    mainWindow = new BrowserWindow({ ...baseOptions, ...chrome });
+  } catch (err) {
+    console.warn('[ARK] Custom titlebar failed, falling back to standard frame:', err.message);
+    mainWindow = new BrowserWindow(baseOptions);
+  }
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();

@@ -59,28 +59,32 @@ def test_agent_task_stream_emits_events(monkeypatch, tmp_path):
     _make_sandbox(_patch_sandbox(monkeypatch, tmp_path))
     monkeypatch.setattr(al, "gateway", _StreamingGateway())
 
-    client = TestClient(app)
-    resp = client.post(
-        "/api/v1/agent/task",
-        json={
-            "prompt": "inspect case-001",
-            "target_path": "case-001",
-            "stream": True,
-        },
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["stream"] is True
-    assert body["status"] == "running"
-    task_id = body["task_id"]
-    assert task_id.startswith("ARK-TASK-")
+    # A context-managed TestClient keeps a single event loop alive across both
+    # the POST (which spawns the background loop) and the SSE GET. A bare
+    # TestClient tears its loop down after each request, cancelling the
+    # background task before it can emit anything.
+    with TestClient(app) as client:
+        resp = client.post(
+            "/api/v1/agent/task",
+            json={
+                "prompt": "inspect case-001",
+                "target_path": "case-001",
+                "stream": True,
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["stream"] is True
+        assert body["status"] == "running"
+        task_id = body["task_id"]
+        assert task_id.startswith("ARK-TASK-")
 
-    with client.stream(
-        "GET", f"/api/v1/agent/task/{task_id}/events",
-    ) as r:
-        assert r.status_code == 200
-        assert r.headers["content-type"].startswith("text/event-stream")
-        text = "".join(r.iter_text())
+        with client.stream(
+            "GET", f"/api/v1/agent/task/{task_id}/events",
+        ) as r:
+            assert r.status_code == 200
+            assert r.headers["content-type"].startswith("text/event-stream")
+            text = "".join(r.iter_text())
 
     assert '"event": "tool_started"' in text
     assert '"event": "tool_done"' in text
@@ -93,20 +97,20 @@ def test_agent_task_stream_result_has_agent_shape(monkeypatch, tmp_path):
     _make_sandbox(_patch_sandbox(monkeypatch, tmp_path))
     monkeypatch.setattr(al, "gateway", _StreamingGateway())
 
-    client = TestClient(app)
-    task_id = client.post(
-        "/api/v1/agent/task",
-        json={
-            "prompt": "inspect case-001",
-            "target_path": "case-001",
-            "stream": True,
-        },
-    ).json()["task_id"]
+    with TestClient(app) as client:
+        task_id = client.post(
+            "/api/v1/agent/task",
+            json={
+                "prompt": "inspect case-001",
+                "target_path": "case-001",
+                "stream": True,
+            },
+        ).json()["task_id"]
 
-    with client.stream(
-        "GET", f"/api/v1/agent/task/{task_id}/events",
-    ) as r:
-        text = "".join(r.iter_text())
+        with client.stream(
+            "GET", f"/api/v1/agent/task/{task_id}/events",
+        ) as r:
+            text = "".join(r.iter_text())
 
     result_block = text.split('"event": "result"', 1)[1]
     assert "tool_calls" in result_block

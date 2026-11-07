@@ -422,7 +422,7 @@ class AnalyzeResponse(BaseModel):
     ai_intelligence: Optional[dict[str, Any]] = Field(
         None,
         description="AI intelligence assessment (observations, contradictions, "
-        "recommendations) from the global ARK-CAI model.",
+        "recommendations) from the global ARK model.",
     )
 
 

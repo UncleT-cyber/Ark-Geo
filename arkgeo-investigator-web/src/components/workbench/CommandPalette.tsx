@@ -22,15 +22,19 @@ interface CommandPaletteProps {
   onExportPdf: () => void;
   onUpload: () => void;
   onOpenAdmin: () => void;
+  onNewInvestigation: () => void;
+  onSaveInvestigation: () => void;
+  onOpenSettings: () => void;
   hasResult: boolean;
 }
 
-export function CommandPalette({ open, onClose, onOpenTool, onExportPdf, onUpload, onOpenAdmin, hasResult }: CommandPaletteProps) {
+export function CommandPalette({ open, onClose, onOpenTool, onExportPdf, onUpload, onOpenAdmin, onNewInvestigation, onSaveInvestigation, onOpenSettings, hasResult }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const commands: Command[] = [
+    { id: 'new', label: 'New Investigation', action: onNewInvestigation },
     { id: 'upload', label: 'Upload Target Image', action: onUpload },
     { id: 'overview', label: 'Open Investigation Overview', action: () => onOpenTool('overview' as ToolTabId), disabled: !hasResult },
     { id: 'spatial', label: 'Open Spatial Canvas', action: () => onOpenTool('spatial'), disabled: !hasResult },
@@ -39,7 +43,9 @@ export function CommandPalette({ open, onClose, onOpenTool, onExportPdf, onUploa
     { id: 'provenance', label: 'Verify C2PA / Provenance', action: () => onOpenTool('provenance'), disabled: !hasResult },
     { id: 'vision', label: 'Open OCR & Visual Intelligence', action: () => onOpenTool('vision'), disabled: !hasResult },
     { id: 'report', label: 'Open Case Report & Evidence Log', action: () => onOpenTool('report'), disabled: !hasResult },
+    { id: 'save', label: 'Save Investigation to Case Vault', action: onSaveInvestigation },
     { id: 'pdf', label: 'Generate PDF Report', action: onExportPdf, disabled: !hasResult },
+    { id: 'settings', label: 'Open Settings', action: onOpenSettings },
     { id: 'admin', label: 'Open Admin Console', action: onOpenAdmin },
   ];
 

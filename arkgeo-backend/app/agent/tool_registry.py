@@ -56,6 +56,7 @@ from ..tools.reverse_image_tool import reverse_image_search
 from ..tools.ros_forensics.ros_inspector_tool import inspect_ros
 from ..tools.ros_forensics.safety_audit_analyzer import analyze_safety_config
 from ..tools.web_search_tool import web_fetch, web_search
+from ..tools.web_intel import tools as _web_intel
 from . import schemas as S
 
 logger = logging.getLogger(__name__)
@@ -1161,6 +1162,244 @@ def _catalog() -> list[Tool]:
                                    "description": "Authoritative baseline YAML."},
             },
         ), analyze_safety_config),
+
+        # ------------------------------------------------------------------ #
+        # Web Intelligence — hardened retrieval (web.*)
+        # ------------------------------------------------------------------ #
+        Tool(_spec(
+            "web.fetch", "Web Fetch",
+            "Retrieve a permitted http(s) URL and return readable text plus "
+            "response metadata (status, content-type, redirect chain, bytes). "
+            "Runs through the egress guard: SSRF protection, DNS-rebinding-"
+            "resistant pinned dialing, per-hop redirect validation, byte/time "
+            "caps. Blocks private/loopback/link-local/cloud-metadata targets.",
+            domain="web", category=S.ToolCategory.READ, risk=S.RiskLevel.LOW,
+            provider="web",
+            permissions=[S.Permission.QUERY_EXTERNAL],
+            cost=S.CostEstimate(api_calls=1, est_ms=1500),
+            input_schema={
+                "url": {"type": "string", "description": "Absolute http(s) URL."},
+                "max_chars": {"type": "integer",
+                              "description": "Max chars of readable text (default 8000)."},
+                "timeout": {"type": "integer",
+                            "description": "Per-request timeout seconds (default 20)."},
+            },
+        ), _web_intel.web_fetch),
+
+        Tool(_spec(
+            "web.extract", "Web Extract",
+            "Extract readable main content (Markdown) and page metadata "
+            "(title, description, og:*, author, published time) from a URL. "
+            "Same egress guard as web.fetch. Does not execute JavaScript — use "
+            "browser.* for rendered single-page applications.",
+            domain="web", category=S.ToolCategory.ANALYSIS, risk=S.RiskLevel.LOW,
+            provider="web",
+            permissions=[S.Permission.QUERY_EXTERNAL],
+            cost=S.CostEstimate(api_calls=1, est_ms=2000),
+            input_schema={
+                "url": {"type": "string", "description": "Absolute http(s) URL."},
+                "max_chars": {"type": "integer",
+                              "description": "Max chars of extracted text (default 20000)."},
+            },
+        ), _web_intel.web_extract),
+
+        Tool(_spec(
+            "web.links", "Web Links",
+            "Enumerate hyperlinks on a page (absolute URLs), each re-validated "
+            "against the egress guard and flagged allowed/blocked. Optional "
+            "same-host filter.",
+            domain="web", category=S.ToolCategory.READ, risk=S.RiskLevel.LOW,
+            provider="web",
+            permissions=[S.Permission.QUERY_EXTERNAL],
+            cost=S.CostEstimate(api_calls=1, est_ms=1500),
+            input_schema={
+                "url": {"type": "string", "description": "Absolute http(s) URL."},
+                "same_host_only": {"type": "boolean",
+                                   "description": "Keep only links on the same host."},
+                "limit": {"type": "integer", "description": "Max links (default 200)."},
+            },
+        ), _web_intel.web_links),
+
+        Tool(_spec(
+            "web.document", "Web Document",
+            "Retrieve and inspect a supported document (PDF / JSON / plain "
+            "text) and return its extracted readable text. Same egress guard.",
+            domain="web", category=S.ToolCategory.READ, risk=S.RiskLevel.LOW,
+            provider="web",
+            permissions=[S.Permission.QUERY_EXTERNAL],
+            cost=S.CostEstimate(api_calls=1, est_ms=3000),
+            input_schema={
+                "url": {"type": "string", "description": "Absolute http(s) URL of the document."},
+                "max_chars": {"type": "integer",
+                              "description": "Max chars of extracted text (default 40000)."},
+            },
+        ), _web_intel.web_document),
+
+        # ------------------------------------------------------------------ #
+        # Managed Browser Runtime (browser.*) — Playwright + Chromium
+        # ------------------------------------------------------------------ #
+        Tool(_spec(
+            "browser.open", "Browser Open",
+            "Open a managed Chromium session (isolated ephemeral profile) and "
+            "optionally navigate to a URL. Returns a session_id used by every "
+            "other browser.* tool. Sessions are resource-limited and reaped "
+            "when idle.",
+            domain="web", category=S.ToolCategory.ACTION, risk=S.RiskLevel.MEDIUM,
+            provider="browser",
+            permissions=[S.Permission.QUERY_EXTERNAL],
+            deterministic=False,
+            cost=S.CostEstimate(est_ms=3000),
+            input_schema={
+                "url": {"type": "string", "description": "Optional initial URL to open."},
+                "investigation_id": {"type": "string", "description": "Investigation id to bind."},
+                "case_id": {"type": "string", "description": "Case id to bind."},
+                "run_id": {"type": "string", "description": "CAI run id to bind."},
+            },
+        ), _web_intel.browser_open),
+
+        Tool(_spec(
+            "browser.navigate", "Browser Navigate",
+            "Navigate the active tab of a managed browser session to a URL. "
+            "Every navigation, redirect and subresource is re-validated by the "
+            "egress guard.",
+            domain="web", category=S.ToolCategory.ACTION, risk=S.RiskLevel.MEDIUM,
+            provider="browser",
+            permissions=[S.Permission.QUERY_EXTERNAL],
+            deterministic=False,
+            input_schema={
+                "session_id": {"type": "string", "description": "Managed browser session id."},
+                "url": {"type": "string", "description": "Absolute http(s) URL."},
+            },
+        ), _web_intel.browser_navigate),
+
+        Tool(_spec(
+            "browser.snapshot", "Browser Snapshot",
+            "Return the rendered text content of the active page (post-"
+            "JavaScript). Read-only.",
+            domain="web", category=S.ToolCategory.READ, risk=S.RiskLevel.LOW,
+            provider="browser",
+            permissions=[S.Permission.QUERY_EXTERNAL],
+            deterministic=False,
+            input_schema={
+                "session_id": {"type": "string", "description": "Managed browser session id."},
+            },
+        ), _web_intel.browser_snapshot),
+
+        Tool(_spec(
+            "browser.extract", "Browser Extract",
+            "Extract readable content, metadata and hyperlinks from the "
+            "rendered DOM. Optional CSS selector for a focused subtree.",
+            domain="web", category=S.ToolCategory.ANALYSIS, risk=S.RiskLevel.LOW,
+            provider="browser",
+            permissions=[S.Permission.QUERY_EXTERNAL],
+            deterministic=False,
+            input_schema={
+                "session_id": {"type": "string", "description": "Managed browser session id."},
+                "selector": {"type": "string", "description": "Optional CSS selector."},
+            },
+        ), _web_intel.browser_extract),
+
+        Tool(_spec(
+            "browser.screenshot", "Browser Screenshot",
+            "Capture the active page as a PNG artifact (hashed, stored under "
+            "the case artifact dir). A screenshot is a captured frame — it is "
+            "reported as such, never as a live session.",
+            domain="web", category=S.ToolCategory.READ, risk=S.RiskLevel.LOW,
+            provider="browser",
+            permissions=[S.Permission.QUERY_EXTERNAL],
+            deterministic=False,
+            input_schema={
+                "session_id": {"type": "string", "description": "Managed browser session id."},
+                "label": {"type": "string", "description": "Optional label for the artifact."},
+                "full_page": {"type": "boolean", "description": "Capture the full page (default true)."},
+            },
+        ), _web_intel.browser_screenshot),
+
+        Tool(_spec(
+            "browser.click", "Browser Click",
+            "Click an element (CSS selector) on the active page. Operator "
+            "control suspends agent actions.",
+            domain="web", category=S.ToolCategory.ACTION, risk=S.RiskLevel.MEDIUM,
+            provider="browser",
+            permissions=[S.Permission.QUERY_EXTERNAL],
+            deterministic=False,
+            input_schema={
+                "session_id": {"type": "string", "description": "Managed browser session id."},
+                "selector": {"type": "string", "description": "CSS selector to click."},
+            },
+        ), _web_intel.browser_click),
+
+        Tool(_spec(
+            "browser.type", "Browser Type",
+            "Type text into an input (CSS selector); optionally submit with "
+            "Enter. Form submission is a sensitive action — approve before use.",
+            domain="web", category=S.ToolCategory.ACTION, risk=S.RiskLevel.HIGH,
+            provider="browser",
+            permissions=[S.Permission.QUERY_EXTERNAL],
+            deterministic=False,
+            input_schema={
+                "session_id": {"type": "string", "description": "Managed browser session id."},
+                "selector": {"type": "string", "description": "CSS selector of the input."},
+                "text": {"type": "string", "description": "Text to enter."},
+                "submit": {"type": "boolean", "description": "Press Enter after typing."},
+            },
+        ), _web_intel.browser_type),
+
+        Tool(_spec(
+            "browser.scroll", "Browser Scroll",
+            "Scroll the active page up or down.",
+            domain="web", category=S.ToolCategory.ACTION, risk=S.RiskLevel.MEDIUM,
+            provider="browser",
+            permissions=[S.Permission.QUERY_EXTERNAL],
+            deterministic=False,
+            input_schema={
+                "session_id": {"type": "string", "description": "Managed browser session id."},
+                "direction": {"type": "string", "description": "up | down (default down)."},
+                "amount": {"type": "integer", "description": "Pixels to scroll (default 800)."},
+            },
+        ), _web_intel.browser_scroll),
+
+        Tool(_spec(
+            "browser.history", "Browser History",
+            "Move within the active tab's history — back, forward or reload. "
+            "A history move with no target is a no-op, not an error.",
+            domain="web", category=S.ToolCategory.ACTION, risk=S.RiskLevel.MEDIUM,
+            provider="browser",
+            permissions=[S.Permission.QUERY_EXTERNAL],
+            deterministic=False,
+            input_schema={
+                "session_id": {"type": "string", "description": "Managed browser session id."},
+                "action": {"type": "string", "description": "back | forward | reload (default reload)."},
+            },
+        ), _web_intel.browser_history),
+
+        Tool(_spec(
+            "browser.tabs", "Browser Tabs",
+            "List, open, select or close tabs within a managed session "
+            "(action = list | new | select | close).",
+            domain="web", category=S.ToolCategory.ACTION, risk=S.RiskLevel.MEDIUM,
+            provider="browser",
+            permissions=[S.Permission.QUERY_EXTERNAL],
+            deterministic=False,
+            input_schema={
+                "session_id": {"type": "string", "description": "Managed browser session id."},
+                "action": {"type": "string", "description": "list | new | select | close."},
+                "tab_id": {"type": "string", "description": "Target tab for select/close."},
+            },
+        ), _web_intel.browser_tabs),
+
+        Tool(_spec(
+            "browser.close", "Browser Close",
+            "Close a managed browser session and delete its ephemeral profile "
+            "and downloads.",
+            domain="web", category=S.ToolCategory.ACTION, risk=S.RiskLevel.MEDIUM,
+            provider="browser",
+            permissions=[S.Permission.QUERY_EXTERNAL],
+            deterministic=False,
+            input_schema={
+                "session_id": {"type": "string", "description": "Managed browser session id."},
+            },
+        ), _web_intel.browser_close),
     ]
 
 

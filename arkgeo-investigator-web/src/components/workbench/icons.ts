@@ -34,7 +34,6 @@ import {
   ChevronLeft,
   MapPin,
   FolderKanban,
-  Terminal,
   Activity,
   Gauge,
   Siren,
@@ -49,6 +48,7 @@ import {
   Frown,
   GitBranch,
   Zap,
+  BookOpen,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -69,6 +69,7 @@ export const DOMAIN_ICONS = {
   network: Network,
   cases: FolderKanban,
   secops: ShieldHalf,
+  usecases: BookOpen,
 } as const;
 
 /** Threat & SecOps domain sub-view icons (sidebar navigation within SECOPS domain). */
@@ -124,7 +125,6 @@ export const CONSOLE_ICONS = {
   agent: Cpu,
   evidence: FileSearch,
   audit: ShieldCheck,
-  terminal: Terminal,
 } as const;
 
 /** Activity-bar area → Lucide icon. */

@@ -201,7 +201,7 @@ class VisionEnsemble:
         as ``candidate_regions``.  Confidence is capped below the dedicated
         geo-vision APIs so the consensus engine weights them appropriately.
 
-        Routes through the global ARK-CAI model (ai_gateway → cloud/Ollama
+        Routes through the global ARK model (ai_gateway → cloud/Ollama
         cascade), NOT Ollama directly.  The async caller enforces a hard
         timeout so a slow model never stalls the pipeline.
         """

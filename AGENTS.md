@@ -18,11 +18,20 @@ ArkGeo is a modular AI geolocation and personal safety ecosystem with three appl
 
 ## Key Commands
 
+### Run everything (canonical)
+```bash
+./launch.sh            # backend :12000 + web :12001 (+ Ollama if present)
+./launch.sh status     # what is running
+./launch.sh stop       # stop what launch.sh started
+```
+Ports are **backend 12000 / web 12001** (the vite proxy targets :12000). Do NOT
+use 8000/5173 — those are stale and leave the web portal unable to reach the API.
+
 ### Backend
 ```bash
 cd arkgeo-backend
-python -m pytest tests/ -q              # run tests (196 passing)
-python -m uvicorn main:app --reload     # start dev server (port 8000)
+.venv-new/bin/python -m pytest tests/ -q   # run tests (the real venv; .venv symlink is broken)
+.venv-new/bin/python -m uvicorn main:app --host 0.0.0.0 --port 12000
 ```
 
 ### Web Portal
@@ -31,7 +40,7 @@ cd arkgeo-investigator-web
 npm install
 npx tsc --noEmit                        # type-check (clean)
 npx vite build                          # production build
-npm run dev                             # dev server (port 5173, proxies /api → :8000)
+npm run dev                             # dev server (port 12001, proxies /api → :12000)
 ```
 
 ### Mobile
@@ -59,8 +68,24 @@ npx expo start                          # Expo dev server
 
 ## Testing
 - pytest-asyncio mode=STRICT
-- 19 tests across metadata extraction, consensus engine, and pipeline integration
-- Known non-blocking warning: httpx/TestClient deprecation in Starlette
+- Run with the real venv: `.venv-new/bin/python -m pytest tests/ -q` (the `.venv` symlink is broken)
+- Baseline is green: **738 passed** (725 + 13 session-authz isolation tests). When a failure only appears in the full run but passes in isolation, it is test pollution — a prior test closed the event loop, so any test using `asyncio.get_event_loop()` breaks. Convert such tests to `@pytest.mark.asyncio async def`.
+- Several tests exercise **real local binaries** and fail (not skip) when they are missing: `exiftool` (deep metadata), `dig`/`whois` (DNS/WHOIS), `nmap`/`gobuster` (HITL orchestrator dispatch requires the tool to be *available*), `tesseract` (OCR; this one *skips* cleanly). On Debian: `sudo apt-get update && sudo apt-get install -y libimage-exiftool-perl dnsutils whois nmap gobuster tesseract-ocr`. With them installed the suite is fully green (738 passed / 0 skipped).
+- Orchestrator/engine tests monkeypatch `litellm.acompletion` and must:
+  - pass **provider-sanitized** tool names (`provider_name("net.dns_lookup") == "ark_net_dns_lookup_<hash>"`), never raw ids, since dots are invalid at the model boundary;
+  - provide an **engagement-scope fixture** (`ARKGEO_ENGAGEMENT_SCOPE`) — target-bearing calls fail closed without one;
+  - supply every **required** tool arg (e.g. `net.nmap_scan` requires `target` *and* `ports`) or dispatch returns "outside the permitted task schema";
+  - stub `orchestrator._dispatch_tool` so no real scan/fetch runs.
+- Browser-runtime tests: `tests/test_browser_endpoints.py` drives a real Chromium through the ASGI `TestClient` **portal** (`client.portal.call(...)`) so the session lives on the same event loop as the request; the lifecycle test is `skipif`-guarded on `browser.availability()`.
+- Known non-blocking warning: httpx/TestClient deprecation in Starlette; pytest-asyncio `asyncio_default_fixture_loop_scope` unset.
+
+## Gotchas
+- HuggingFace model catalog is **live-first** (`https://router.huggingface.co/v1/models`) with the curated on-file whitelist as fallback — tests that assert `source == "curated"` must mock the router (respx) or they hit the network.
+- Vision routing (`ai_gateway._VISION_NAME_RE`) must **not** match text-only models (`qwen2.5-coder`); a configured text-only model never receives an image.
+- `asyncio.create_task` needs a strong reference (see `_spawn_background` in `app/api/v1/endpoints/agent.py`) or the stream can be GC'd mid-run.
+- Egress guard (`app/tools/web_intel/guard.py`) refuses private/loopback/link-local/metadata targets and non-http(s) schemes; cloud-metadata is refused even with `ARK_WEB_ALLOW_INTERNAL=true`.
+- **Managed browser sessions are per-process**: `app/tools/web_intel/browser.py` holds one in-process `browser_manager`. Sessions created by the pytest ASGI portal, or by any other process, do **not** appear in the running uvicorn — the operator plane only sees its own sessions. The operator plane is `app/api/v1/endpoints/browser.py`: `GET /api/v1/browser/status`, `GET/POST /api/v1/browser/sessions` (POST opens a session — the operator-initiated flow the workspace omnibox uses; body `{url, investigation_id, case_id}`, attribution threaded through `browser_operator_open` into `browser_manager.open`), `GET /sessions/{id}`, `/sessions/{id}/navigate`, `/sessions/{id}/history`, `/sessions/{id}/control`, `/sessions/{id}/capture`, `/sessions/{id}/frame`, `/sessions/{id}/close`. The operator plane is **not** gated by the agent-plane control suspension: navigation/history keep working while the operator holds control (control state is `agent` | `operator`).
+- Backend has **no `--reload`**: adding a route requires an explicit uvicorn restart or the live process keeps serving the old app (a fresh route can 405/404 while `main.py` already defines it).
 
 ## Conventions
 - No node_modules, .env, __pycache__, dist/ in version control
@@ -119,6 +144,15 @@ prompt.
   loop (one goal), D=console tabs, E=adaptive re-planning, F=cross-domain
   reuse. Full plan incl. phases G-J and the integrated security environment:
   `docs/ARK_INTEGRATED_SECURITY_ENVIRONMENT.md`.
+- **Identity (canonical)**: the platform has ONE user-facing intelligence —
+  **ARK, Cybersecurity Super Intelligence** ("THE ARK's sole user-facing
+  intelligence"). The CAI framework is an internal engine only; never brand it
+  as a separate assistant (no `ARK-CAI` label, no "CAI Browser", no CAI
+  banner). The canonical prompt is `app/agent/cognitive/00_identity.prompt`;
+  the live orchestrator appends an `[ARK RUNTIME STATE]` block naming ARK and
+  the active model. Startup banner reads `ARK SYSTEM INITIALIZED`. Internal
+  identifiers (`caiBrowserBus`, `caiTerminalStream`, the `app/engine/cai/cai/`
+  snapshot, README license attribution) stay as-is.
 - **ARK Cognitive Architecture** (12 core units + 5 domain specialists): the
   canonical structure is `docs/ARK_INTEGRATED_SECURITY_ENVIRONMENT.md` §2.
   Contracts live in `app/agent/schemas.py` (Hypothesis, Critique,
@@ -131,14 +165,24 @@ prompt.
   Phase C planner). Do NOT pull new models without explicit instruction.
 
 ### Frontend workbench shell (domain-based investigation architecture)
+
 THE ARK is organized by INVESTIGATION DOMAINS, not individual tools. Each domain
 contains every tool required to complete that investigation.
 - `entities.ts`: shared entity model (DomainId, InvestigationCase, EvidenceItem, etc.)
 - `useInvestigation.tsx`: InvestigationProvider context + `useInvestigation()` hook — holds domain, active case, result, history; drives domain switching across all components
-- `ActivityBar.tsx`: far-left DOMAIN nav — IMAGE (primary), NETWORK (placeholder), **SECOPS** (Threat & Security Operations placeholder), CASES (cross-domain case layer) + **settings gear** (footer, opens SettingsModal) + ARK wordmark. Profile is opened from TopBar avatar, NOT the ActivityBar footer.
-- `TopBar.tsx`: single ARK identity (one wordmark/logo), command palette trigger, connection/API status — NO duplicate logos, NO admin link. Has a **macOS safe-zone** `padding-left: 68px` so content clears native traffic-light window controls in desktop/Electron mode.
-- `Workbench.tsx`: wraps everything in `<InvestigationProvider>` → TopBar + ActivityBar + Sidebar + MainViewport + BottomPanel + StatusBar. Owns `showSettings` state; renders `<SettingsModal>` and handles `handleSelectSession` (reloads a dashboard session into the image workspace).
-- `InvestigatorProfileModal.tsx`: identity/clearance/API-key status; states "Admin is a protected control plane — not accessible from here"
+- `InvestigationNavigation.tsx`: the sidebar information architecture — a scrollable body with three groups in fixed order, flowing top to bottom: **WORKSPACES** (Image Intelligence, Network Intelligence, Threat & SecOps), **INVESTIGATIONS** (Case Explorer, Use Cases — preceded by extra breathing room), **AUTOMATION** (Agents & Workflows, Planned); **SYSTEM** (Admin* role-gated, Settings; *only when authenticated) is **pinned to the sidebar footer** via `margin-top:auto`, below the scroll area. Items are 8px apart, groups 18px apart, sidebar padding 8px 14px. **No New Investigation button, no per-session recent-investigations list, no Command Palette item, and no expanded Quick-starts list** — open sessions live in the titlebar tabs; saved-case retrieval lives in Case Explorer; quick starts live in the Use Cases surface. Collapse toggle is the single button in `.investigation-nav-heading`, right-aligned (never centered).
+- `ActivityBar.tsx`: superseded by `InvestigationNavigation` (the domain ActivityBar is no longer rendered; kept only for legacy reference).
+- `TopBar.tsx`: the **investigation tab strip** (`tabs`/`activeTabId`/`onSelectTab`) — scrollable tab row with per-tab status dot, close, a `+` new-investigation button, and a tab-overflow menu; plus the **notification bell** (unread count, dropdown, mark-all-read) at the far right. It is the window titlebar in Electron, so it keeps the macOS `padding-left: 78px` / Windows-Linux `padding-right: 148px` safe zones and marks `.ark-tab` as `-webkit-app-region: no-drag`. NO duplicate logos, NO admin link, NO command-palette trigger or connection status (those moved to the CommandPalette hotkey and StatusBar).
+- `Workbench.tsx`: wraps everything in `<InvestigationProvider>` → TopBar + InvestigationNavigation (sidebar) + MainViewport + ARK dock + StatusBar. Owns the tab registry (`useInvestigationTabs`), the notification list, and the active Settings section; handles `handleSelectSession` (reloads a dashboard session into the image workspace). Save/Export moved into the CommandPalette. When the active tab's domain is `settings`, the sidebar / main viewport / ARK dock / StatusBar are hidden and `<SettingsWorkspace>` fills the body instead.
+- **Investigation tabs** (`src/core/tabs/tabRegistry.ts` + `src/core/tabs/useInvestigationTabs.ts` + `src/core/storage.ts`): a tab is `{id, sessionId, title, domain, caseId, runStatus, rev, origin, deleted?}`. `id` is the stable client tab id; `sessionId` binds to the backend durable session. Tabs persist via `core/storage.ts` (localStorage in the browser, the Electron bridge in the shell) and sync across windows with a revision-stamped BroadcastChannel merge. Selecting a tab applies its domain/case once per activation. The new-investigation `+` button creates a fresh tab; a run starting binds its `session_id` to the active tab rather than spawning a duplicate. **Close is a tombstone** — a closed tab is kept with `deleted:true` and a bumped `rev` (pruned after 24 h) so the union merge propagates the removal instead of resurrecting it; `loadTabs()` returns live tabs only.
+  - **Live `session` events must use `bindSession`, never `ensureTab`.** `ensureTab` creates + activates a tab when the active tab has no session or holds a *stale* one; on the `session` SSE event that re-keys the investigation store (`activeId` changes) mid-run, so the streaming reply writes into the now-hidden slice and the UI shows nothing (the "send does nothing / reply invisible" P0). `bindSession` binds the session id to the active investigation *in place* and never switches the active tab. `ensureTab` is retained only for the notification path (`handleOpenNotification`), where opening a tab is the intended operator action.
+- **Notifications** (`src/core/notifications.ts`): `pushNotification(list, n)` with a bounded cap; `notificationFromEvent(ev)` maps bus events (hitl/scope_checked/run_completed/run_failed/evidence) to notifications. The bell surfaces them and a click selects the matching tab by `sessionId`.
+- **ARK dock header layout**: `.ark-dock-header` is a single non-wrapping flex row — `.ark-dock-identity` (wordmark + Advisory/Autonomous mode with a live dot) truncates with ellipsis, and `.ark-dock-actions` (the Chat/Review/Console `nav` + expand toggle) is `flex-shrink:0` and pinned right so it never wraps or orphans at narrow dock widths. Below ~1180px the view-button text labels drop to icons only to keep the row orderly.
+- **Provider/model settings** (`src/components/settings/SettingsWorkspace.tsx` + `ProvidersPanel.tsx`): the **full-page Settings workspace** — a dedicated application tab (not a modal). Left rail nav (API Keys / Providers & Connections / System Health / Model & Privacy / Saved Case Vault / Notifications / Support) + right content column. Provider & connection status, ExifTool pathing and model/privacy panels live here. Opened from the sidebar **Settings** item or the CommandPalette; repeated opens reuse the one Settings tab. Styled OLED-black via `components/settings/settings-workspace.css`, which re-declares the `--cs-*` tokens so the reused panels need no markup change. Layout-only refactor — settings behaviour is unchanged. The old `ClientSettingsModal.tsx` (floating overlay), `SettingsModal.tsx` and `InvestigatorProfileModal.tsx` were removed.
+- **ARK Expandable Workspace** (`Workbench.tsx` + `ArkControl.tsx` + `ark-control.css`): the dock has two display modes toggled by the `Maximize2`/`Minimize2` control in the `.ark-dock-header` (right of the Chat/Review/Console nav, `aria-label` "Expand ARK to workspace" / "Restore ARK to docked panel"). **Docked (default)** preserves the right-side panel and the operator's saved width. **Expanded** hides `.workbench-main` and grows the dock to fill the workbench body, stopping at the navigation sidebar's real boundary (layout-driven — works whether the sidebar is collapsed or not; no hardcoded offsets). `caiExpanded` state lives in `WorkbenchInner`; `dockWidthBeforeExpand` restores the exact prior width on Restore; focus returns to the toggle. Escape restores only when no overlay/menu is open (`.cmd-palette-overlay`, `.profile-modal-overlay`, `.save-prompt-overlay`, `.ark-model-popover`, `.ark-menu`); switching main workspace (domain) re-docks. It is purely a layout change — the active run/task is never cancelled or remounted.
+- **Managed Browser central workspace** (`operationalTools.ts` + `BrowserWorkspace.tsx` + `browser-workspace.css`): the managed browser is a **central-workspace tool**, not a dock inspector. `operationalTools.ts` carries a `surface` field (`workspace` | `inspector`) on each `OperationalToolId` plus `isWorkspaceTool(id)`; only `browser` is a workspace tool today. `ArkControl.openInspector` dispatches workspace tools up through the `onOpenWorkspaceTool` prop, and `Workbench.tsx` holds the `workspaceTool` state that swaps the main viewport (ternary in the render: `workspaceTool === 'browser'` → `<BrowserWorkspace>`, else the normal investigation surface). The dock inspector keeps rendering the non-workspace tools (problems/log/plan/agent/evidence/audit) unchanged. A CAI `browser.*` tool event auto-opens the workspace and follows the session it drives. Leaving the workspace is implicit: `openTool`, `handleNavigateDomain`, tab activation and tab-close all clear `workspaceTool`. `BrowserWorkspace` is screenshot-first (a captured frame is the stage; `Globe` placeholder when there is no session), with a nav strip (back/forward/reload), omnibox, Capture, New session, session picker, and an evidence-artifact strip. The omnibox **starts a session when none exists** (operator-initiated flow via `POST /api/v1/browser/sessions`). The old `BrowserView.tsx` dock component was deleted.
+- **Model picker effective-selection rule** (`ArkControl.tsx`): the trigger label, row highlight and `Selected` badge all use `effectiveModelId = selectedModel || adminDefaultModel`, never the server's `is_active` flag. `is_active` is computed from the load-time saved preference, so it goes stale after a switch within the session; the picker must always reflect what will actually run (explicit selection → saved preference → administrator default).
+- `InvestigatorProfileModal.tsx`: removed — identity/clearance/API-key status now lives in the ARK dock / Settings; admin remains "a protected control plane — not accessible from here".
 - `CaseExplorer.tsx`: CASES domain — cross-domain saved investigations + audit vault
 - Sidebar is the PRIMARY navigator (no TabBar in core flow). IMAGE sidebar shows: upload (no case) OR case header + vertical sub-view nav (Investigation, Spatial/Map, File Forensics, OCR & Vision, Source Discovery, Provenance/C2PA, Case/Report) + collapsible Evidence Explorer + New Investigation.
 - Sidebar collapse toggle is ON the sidebar itself (ChevronLeft = expanded→collapse, ChevronRight = collapsed→expand), not in Settings. The collapse bar sits in a dedicated header ABOVE the primary tool icons so it never displaces them by a row.
@@ -148,9 +192,9 @@ contains every tool required to complete that investigation.
 - `investigation/InvestigationOverview.tsx`: MAP-FIRST command center — map always visible at top (never disappears), Location Not Established overlay when no coords, ARK assessment tiles + WHAT WE KNOW/DON'T KNOW/SUSPICIOUS/INVESTIGATE NEXT below
 - `tools/SpatialTool.tsx`: map NEVER disappears — Location Not Established overlay when no coords; fusion/spatial summary side panel
 - `tools/`: SpatialTool, FileForensicsTool, DiscoveryTool, ProvenanceTool, VisionTool, CaseReportView (all operate on the same case/evidence context). CaseReportView replaces the old ReportTool as the court-ready forensic report sub-view.
-- `SettingsModal.tsx`: System & API Provider Configuration — surfaces GeoSpy/OpenAI Vision/LLLM keys (status only, keys are server-side), Mapbox token (client env), ExifTool binary pathing, and backend connection state. Reached ONLY via the ActivityBar footer gear icon — NEVER from admin. Footer note: "Admin is a protected control plane — not accessible from here."
-- `CommandPalette.tsx`: Cmd/Ctrl+Shift+P and Cmd/Ctrl+K hotkeys (openTool switches to IMAGE domain + subview)
-- `BottomPanel.tsx`: domain-aware contextual console — tabs: PROBLEMS, ANALYSIS LOG, EVIDENCE, AUDIT, TERMINAL (terminal has command parser: help/status/clear/scan/connect)
+- `SettingsModal.tsx`: removed — its System & API Provider Configuration now lives in the full-page `SettingsWorkspace` → Providers & Connections section. Admin remains "a protected control plane — not accessible from here."
+- `CommandPalette.tsx`: Cmd/Ctrl+Shift+P and Cmd/Ctrl+K hotkeys (openTool switches to IMAGE domain + subview); also owns Save/Export now that the TopBar is tab-only.
+- `BottomPanel.tsx`: domain-aware contextual console — tabs: PROBLEMS, ANALYSIS LOG, PLAN, AGENT, EVIDENCE, AUDIT (the dock is a 3×2 grid; the shared streaming feed from `inv.terminal` renders live in ANALYSIS LOG). The interactive TERMINAL tab was removed; `pushTerminal` no longer switches tabs, it just feeds ANALYSIS LOG.
 - `StatusBar.tsx`: accepts `activeCaseId` prop — shows backend status, SHA-256 hash, active case, GPS
 - `icons.ts`: central Lucide icon registry — DOMAIN_ICONS (image/network/cases), SIDEBAR_ICONS, UI_ICONS (no emoji in UI)
 - `App.tsx`: admin reachable ONLY via stealth hotkey Cmd/Ctrl+Shift+P (fires on ALL routes) → obfuscated `/console-auth` login; admin routes never appear in workbench UI
@@ -160,10 +204,142 @@ contains every tool required to complete that investigation.
 
 ### Frontend dev server notes
 - Vite dev server runs on port 12001 (custom); `npm run dev` (HMR active)
-- Backend on port 8000; vite proxy `/api` → :8000
+- Backend on port 12000; vite proxy `/api` → `process.env.ARKGEO_BACKEND_URL` or :12000
 - HMR pitfall: if `DashboardView.tsx` (or any file mixing component + non-component exports like `classifyRisk`) fails Fast Refresh, restart the dev server cleanly to avoid a frozen half-state where clicks stop re-rendering. `kill` the vite node PID then `npm run dev`.
-- Backend tests: 226 passing (pytest), 11 warnings (HMAC key length non-blocking)
+- Backend tests: 725 passing (pytest), 11 warnings (HMAC key length non-blocking)
 - Env note: `Pillow==10.3.0`/`pydantic==2.7.1` pins do NOT build on Python 3.13 —
   the working venv uses upgraded Pillow+pydantic+fastapi; requirements.txt needs
   re-pinning. `exiftool` binary required (brew install exiftool).
-- `npx tsc --noEmit` clean; `npx vite build` clean (~1902 modules)
+- `npx tsc --noEmit` clean; `npx vite build` clean (~2013 modules)
+- Backend has no `--reload`: after adding/changing routes you MUST restart uvicorn or the running process keeps serving stale code (a route can 404 while `main.py` already defines it).
+- `GET /cai/registry` returns 500 when the optional CAI runtime is absent (`arkgeo-backend/cai/src` is empty) — a dormant, optional-feature endpoint, not a Milestone B regression. `/cai/models` and `/cai/sessions` work without it.
+
+## Model Selection Authority, Provider Access & Picker UX (Milestone B)
+The model that runs is decided by one authority, not by scattered defaults.
+Precedence: **explicit selection → saved user preference → administrator default**,
+then availability + entitlement checks. `ARKGEO_CAI_MODEL` is folded into the
+admin layer (top of admin default) so an explicit user choice still wins.
+
+Backend modules (all new):
+- `app/services/principal.py`: `principal_from_request(request)` resolves a
+  sanitized `X-ARK-Principal` / `X-ARK-Organization` into a `Principal`. A
+  **development stand-in for a real session** — never an auth boundary; the
+  client can only address its own namespace.
+- `app/services/entitlements.py`: `Principal`, `ANONYMOUS`, `evaluate(...)`,
+  `resolve_entitlement(...)`, `SUBSCRIPTION_PROVIDER`. The entitlement boundary —
+  decides allow_platform / allow_byok / allow_local / allowed_providers /
+  subscription_models. ARK-managed (subscription) models are **declared but
+  denied until granted**.
+- `app/services/user_preferences.py`: per-principal saved model selection.
+- `app/services/user_credentials.py`: **BYOK** store, AES-256-GCM encrypted via
+  `app.core.security`, keyed by the principal namespace (cross-tenant isolation
+  is the primary key). Reads expose only a masked preview + `configured`.
+- `app/models/model_registry.py`: normalized `PROVIDER_MODELS`, `PROVIDER_IDENTITY`,
+  `lookup`, `known_model`, `parse_model_id`, `subscription_records`. Unverified
+  capabilities are reported as `"unknown"` — never invented.
+- `app/services/model_router.py`: the authority. `resolve(principal, requested,
+  *, has_image) -> Resolution` (ok / requested vs resolved / credential_source /
+  routing_reason / error_code). `_admin_default()` (honours `ARKGEO_CAI_MODEL`
+  at the top of the admin layer), `_availability(principal, provider, model)
+  -> (available, reason, credential_source)`. No silent substitution unless the
+  admin-configured fallback chain is explicitly enabled — and then the actual
+  model is disclosed.
+- `app/api/v1/endpoints/user_models.py` (`/api/v1/user/model/...`): preference
+  GET/PUT/DELETE, BYOK credentials GET/POST/DELETE (SSRF guard:
+  https-only, rejects loopback/private/link-local/reserved/`.internal`), and a
+  read-only entitlements view. Registered in `router.py`.
+
+Wiring: `orchestrator.py` `_resolve_model(session)` delegates to the router;
+`SessionState` carries `principal` + `resolved_model`; `run()` resolves *before*
+any work and fails loudly (`model_denied` event) on a denied/unavailable model.
+`cai.py` passes `principal_from_request` into every stream/run endpoint and
+`/cai/models` returns normalized records; `/cai/model` is principal-aware
+(requested vs resolved + routing reason); `/model/switch` validates and persists
+the preference.
+
+Frontend picker (`ArkControl.tsx` + `ark-control.css`): `api.ts` sends a stable
+per-browser `X-ARK-Principal` and the picker is authoritative — the user's saved
+preference wins over the admin default, selection persists server-side, search
+filters by name/id, unavailable models are disabled with a reason, capability
+badges (tool/vision/free/local) are shown, and a "Use administrator default"
+footer clears the preference. The image-review advisory path no longer hardcodes
+a model (`ARK_CAI_MODEL = null`) so Chat and Console cannot diverge.
+
+Tests: `tests/test_model_authority.py` (23 passing — precedence, entitlement
+denial, subscription denial, credential isolation, HTTP surface, SSRF guard).
+Backend suite: same 20 pre-existing/environmental failures, no new regressions.
+
+## Operator control plane — Stop / Steer / Mode (2026-11-05)
+
+The Stop / Steer / execution-mode controls are now **backend-owned and real**,
+not frontend simulation. Design + verification: `docs/ARK_RUN_CONTROL_PLANE.md`.
+
+- `app/engine/run_control.py` (NEW): process-local `RunControl` registry shared
+  by the HTTP layer and the orchestrator. `register/unregister/get/get_for_session/
+  resolve`; `request_stop()` (status becomes `stopping`, never `cancelled`);
+  `submit_steer()/drain_steering()`; `MODES = {"auto","manual"}`.
+- `orchestrator.py`: `SessionState.execution_mode`; `run()` creates/tears down
+  the control; `_run()` checks stop at the loop top and after each tool return
+  (a running tool is never interrupted mid-syscall — the stop lands when it
+  returns); `_drain_steering()` injects accepted guidance and defers anything
+  that would widen authority; the approval gate requires confirmation in
+  `manual` mode. Neither mode bypasses engagement scope or the policy guard.
+- `cai.py`: `POST /cai/stop` / `/cai/steer` / `/cai/mode`, `GET /cai/run`,
+  `POST /cai/queue` + `GET /cai/queue/{sid}` are wired to the registry.
+  `stop` returns `stop_requested` (never a fabricated `stopped`). `execution_mode`
+  is accepted on `/stream`, `/terminal/stream`, `/workspace/{ws}/run`.
+- `session_store.py`: `RUN_CANCELLED = "cancelled"`.
+- Frontend (`ArkControl.tsx` + `ExecutionPanels.tsx` + `executionPresentation.ts`
+  + `ark-control.css`): the permanent upper execution region is gone. The
+  conversation is the primary surface; execution detail lives in one compact
+  collapsible inline `ExecutionActivity` card, and a structured
+  `InvestigationReport` is appended on terminal runs (both built from the run's
+  own events). The header carries **no** Chat/Console switch — it is ARK
+  wordmark + live status + operational tools + expand only; the conversation is
+  the single surface and execution detail expands inline. While a run is active,
+  Send queues (runs after the current objective) and the Send button becomes the
+  single Stop control; the mode toggle persists to the backend and rolls back on
+  failure. `api.ts`: `caiMode`, `caiRun`, `caiEnqueue`, `executionMode` on
+  `caiTerminalStream`.
+- Tests: `tests/test_run_control.py` (16 passing). Backend suite 754 passing;
+  `tsc --noEmit` and `vite build` clean.
+- Known limit: `RunControl` and the queue are process-local; a restart drops
+  in-flight control state.
+
+## Advisor P0 pass (2026-11-06)
+
+- **Git credential**: `origin` had an embedded `ghu_` GitHub App user-to-server
+  token. **Locally remediated** (remote rewritten to a credential-free URL; no
+  token in config/history/reflog/objects/logs/reports). **Provider-side
+  revocation still OUTSTANDING** (human action). No commit/push until done.
+  Record: `docs/audits/ARK_P0_CREDENTIAL_REMEDIATION.md`.
+- **Electron sandbox**: `sandbox:false` kept deliberately (preload uses
+  synchronous IPC for the port handshake). Renderer loads **no** untrusted
+  content (no iframe/webview/dangerouslySetInnerHTML); untrusted browsing is
+  backend-side. Decision record: `docs/audits/ARK_ELECTRON_SANDBOX_DECISION.md`.
+- **End-to-end scenarios**: live-executed ledger in
+  `docs/audits/ARK_E2E_SCENARIO_LEDGER.md`. Real image investigation works
+  (`/api/v1/analyze`, coords exact, custody cert); model routing proven correct;
+  cloud *inference* is **BLOCKED** by provider 429/no creds (reported honestly,
+  never fabricated). Open items: HTTP-plane control of a live agent session,
+  `steer` on a sustained run. Renderer click-through **closed** for the
+  investigation-isolation defect (section G).
+- **Investigation isolation (P0, fixed)**: a tab now points to its own
+  investigation; switching tabs swaps that investigation's conversation,
+  execution, case context and workspace selection — no shared global state.
+  Frontend store `src/core/investigation/investigationStore.ts` +
+  `InvestigationStoreContext.tsx` (`activeId`, `metaFor`, `ensure`, `patchMeta`,
+  `patchWorkspace`, `setRunStatus`, `drop`, `getSlice`, `setSlice`, and the
+  `useInvestigationSlice` keyed-state primitive used by the workbench for
+  per-investigation `thumbnailUrl`/`analyzing`/`zeroRetention`). `useInvestigation`
+  multiplexes `Record<investigationId, InvestigationContext>`; `ArkControl` keys
+  conversation + execution per investigation. Durable metadata
+  (`ark.investigations`, localStorage) holds **no** content — transcript and
+  evidence stay in the backend encrypted session store. Backend authorization
+  boundary: `cai.py` `_session_visible_to(meta, principal)` scopes
+  `GET/DELETE /cai/sessions/{id}` to the owning principal (cross-principal →
+  `unknown session`, not an existence oracle); `list_sessions` filters by
+  `principal_subject`. Tests: `tests/test_cai_session_authz.py` (13). Full suite
+  **738 passed**. Design/root-cause: `docs/audits/ARK_P0_INVESTIGATION_ISOLATION.md`.
+- **Servers**: backend `uvicorn --host 0.0.0.0 --port 12000`, web `vite --host
+  0.0.0.0 --port 12001` (must bind 0.0.0.0 or the work-host proxy 502s).

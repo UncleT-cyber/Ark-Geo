@@ -112,6 +112,20 @@ class TestWebSearch:
 # web_fetch
 # --------------------------------------------------------------------------- #
 class TestWebFetch:
+    @staticmethod
+    def _pin_guard(monkeypatch):
+        """Make the egress guard hermetic: keep the original host, skip DNS."""
+        from urllib.parse import urlsplit
+        from app.tools.web_intel import guard
+
+        def _fake(url, *, allow_internal_targets=None):
+            parts = urlsplit(url)
+            host = (parts.hostname or "").lower()
+            return guard.EgressDecision(
+                url=url, resolved_ip=host, host_header=parts.netloc, host=host)
+
+        monkeypatch.setattr(guard, "check_url", _fake)
+
     @pytest.mark.asyncio
     async def test_non_http_url_unavailable(self, monkeypatch):
         from app.tools.web_search_tool import web_fetch
@@ -122,16 +136,19 @@ class TestWebFetch:
     async def test_fetch_error(self, monkeypatch):
         import respx
         from app.tools.web_search_tool import web_fetch
+        self._pin_guard(monkeypatch)
         async with respx.mock() as mock:
             mock.get("https://example.com/x").respond(404)
             res = await web_fetch("https://example.com/x")
         assert res["state"] == "ERROR"
+        assert res["status"] == 404
         assert res["title"] is None
 
     @pytest.mark.asyncio
     async def test_fetch_success_returns_title_and_text(self, monkeypatch):
         import respx
         from app.tools.web_search_tool import web_fetch
+        self._pin_guard(monkeypatch)
         html = "<html><head><title>PAGE TITLE</title></head>" \
                "<body><script>var x=1;</script><p>Hello   world</p></body></html>"
         async with respx.mock() as mock:
@@ -141,6 +158,17 @@ class TestWebFetch:
         assert res["title"] == "PAGE TITLE"
         assert "Hello world" in res["text"]
         assert "var x=1" not in res["text"]
+        assert res["status"] == 200
+        assert res["content_type"] == "text/html"
+        assert res["redirect_chain"] == []
+
+    @pytest.mark.asyncio
+    async def test_private_target_blocked_by_guard(self, monkeypatch):
+        from app.tools.web_search_tool import web_fetch
+        monkeypatch.delenv("ARK_WEB_ALLOW_INTERNAL", raising=False)
+        res = await web_fetch("http://127.0.0.1:12000/api/v1/health")
+        assert res["state"] == "BLOCKED"
+        assert res["ok"] is False
 
 
 # --------------------------------------------------------------------------- #

@@ -167,7 +167,7 @@ def _net_subdomain_enum(domain: str) -> str:
 
     url = f"https://crt.sh/?q=%.{domain}&output=json"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "ARK-CAI"})
+        req = urllib.request.Request(url, headers={"User-Agent": "ARK"})
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode())
         subs = sorted({e["name_value"] for e in data})

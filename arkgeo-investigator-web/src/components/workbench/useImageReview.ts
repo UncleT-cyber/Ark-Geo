@@ -4,7 +4,10 @@ import type { ImagePipelineResult } from '../../core/types';
 import type { AuditEvent, Finding } from './entities';
 import type { AnalyzeResponse } from '../../types';
 
-export const ARK_CAI_MODEL = 'openrouter/nvidia/nemotron-3.5-super-vl:free';
+// No hardcoded model: the image-review advisory path defers to the same
+// model-selection authority as the Console (the user's saved preference or the
+// administrator default), so Chat and Console never diverge (Phase 5 / defect D4).
+export const ARK_CAI_MODEL: string | null = null;
 
 export interface ImageReview {
   id: number;
@@ -78,10 +81,10 @@ export function useImageReview() {
     let answer = '';
     let finalized = false;
     try {
-      await api.caiStream(prompt, { advisoryOnly: true, model: ARK_CAI_MODEL }, event => {
+      await api.caiStream(prompt, { advisoryOnly: true, ...(ARK_CAI_MODEL ? { model: ARK_CAI_MODEL } : {}) }, event => {
         if (request.signal.aborted) return;
         if (event.event === 'status' && event.stage === 'thinking') {
-          update(id, current => ({ ...current, steps: [...current.steps, 'ARK-CAI drafting advisory report'] }));
+          update(id, current => ({ ...current, steps: [...current.steps, 'ARK drafting advisory report'] }));
         }
         if (event.event === 'token') answer += event.text;
         if (event.event === 'final') {

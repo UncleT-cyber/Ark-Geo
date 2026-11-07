@@ -24,7 +24,37 @@ FRONTEND_PORT=12001
 BACKEND_URL="http://127.0.0.1:${BACKEND_PORT}/api/v1/health"
 FRONTEND_URL="http://127.0.0.1:${FRONTEND_PORT}"
 
-port_listening() { lsof -iTCP:"$1" -sTCP:LISTEN -P -n >/dev/null 2>&1; }
+port_listening() {
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -iTCP:"$1" -sTCP:LISTEN -P -n >/dev/null 2>&1
+  elif command -v ss >/dev/null 2>&1; then
+    ss -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1\$"
+  else
+    python3 - "$1" <<'PY' >/dev/null 2>&1
+import socket, sys
+s = socket.socket()
+try:
+    s.bind(("127.0.0.1", int(sys.argv[1])))
+    sys.exit(1)  # free → not listening
+except OSError:
+    sys.exit(0)  # in use → listening
+finally:
+    s.close()
+PY
+  fi
+}
+
+# Resolve a working backend interpreter. The repo ships a `.venv` symlink that
+# may be broken (its python3.12 target is absent); `.venv-new` is the real,
+# importable environment on Python 3.13.
+detect_backend_python() {
+  for cand in "$ROOT/arkgeo-backend/.venv/bin/python" "$ROOT/arkgeo-backend/.venv-new/bin/python"; do
+    if [ -x "$cand" ] && "$cand" -c 'import uvicorn, fastapi' >/dev/null 2>&1; then
+      echo "$cand"; return 0
+    fi
+  done
+  return 1
+}
 
 log()  { printf '\033[36m[ark]\033[0m %s\n' "$*"; }
 ok()   { printf '\033[32m[ark]\033[0m %s\n' "$*"; }
@@ -69,9 +99,14 @@ start_backend() {
     ok "Backend already running on :${BACKEND_PORT}."
     return 0
   fi
-  log "Starting backend (uvicorn) on :${BACKEND_PORT} …"
-  ( cd "$ROOT/arkgeo-backend" && exec nohup .venv/bin/python -m uvicorn main:app \
-      --host 127.0.0.1 --port "$BACKEND_PORT" \
+  local py
+  if ! py="$(detect_backend_python)"; then
+    err "No usable backend venv (tried .venv and .venv-new). Run: cd arkgeo-backend && python -m venv .venv-new && .venv-new/bin/pip install -r requirements.txt"
+    return 1
+  fi
+  log "Starting backend (uvicorn) on :${BACKEND_PORT} using ${py#"$ROOT"/} …"
+  ( cd "$ROOT/arkgeo-backend" && exec nohup "$py" -m uvicorn main:app \
+      --host 0.0.0.0 --port "$BACKEND_PORT" \
       >"$LOG_DIR/backend.log" 2>&1 </dev/null ) &
   save_pid "$!"
   for _ in $(seq 1 30); do

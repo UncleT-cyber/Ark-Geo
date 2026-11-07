@@ -341,6 +341,16 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
     return null;
   }
 
+  const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
+  async function copyMessage(text: string, index: number) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedMessageIndex(index);
+    } catch {
+      setCopiedMessageIndex(null);
+    }
+  }
+
   async function copyRunId() {
     if (!execution.run_id) return;
     try {
@@ -923,10 +933,18 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
         <>
             {!messages.length && <div className="ark-idle"><img className="ark-idle-logo" src="/branding/ark/ark-emblem-256.png" alt="ARK emblem" width={112} height={112} /><span className="ark-idle-sub">Cybersecurity Super Intelligence</span><p>Ask a question, attach evidence, or run a command to begin an investigation.</p></div>}
             {messages.map((message, i) => <article key={i} className={message.user ? 'ark-message ark-user' : 'ark-message'}>
-              {message.image && <img src={message.image} alt="Attached evidence" />}
-              {message.user ? message.text : <ArkMarkdown text={message.text || (busy && i === messages.length - 1 && !message.approval && !message.tools?.length ? 'Working…' : '')} />}
-              {message.tools?.map(tool => <span key={tool} className="ark-tool-chip">{tool}</span>)}
-              {message.approval && <div>Approve {message.approval.tool}? <button disabled={approving} onClick={() => void approve(i, message.approval!, true)}>Approve</button> <button disabled={approving} onClick={() => void approve(i, message.approval!, false)}>Deny</button></div>}
+              <div className="ark-message-heading">
+                <span className="ark-message-speaker">{message.user ? 'You' : 'ARK'}</span>
+                {message.text && <button className="ark-message-copy" type="button" onClick={() => void copyMessage(message.text, i)} aria-label={`Copy ${message.user ? 'your message' : 'ARK response'}`} title="Copy message">
+                  {copiedMessageIndex === i ? <><CheckCircle size={13} /> Copied</> : <><Copy size={13} /> Copy</>}
+                </button>}
+              </div>
+              <div className="ark-message-content">
+                {message.image && <img src={message.image} alt="Attached evidence" />}
+                {message.user ? message.text : <ArkMarkdown text={message.text || (busy && i === messages.length - 1 && !message.approval && !message.tools?.length ? 'Working…' : '')} />}
+                {message.tools?.map(tool => <span key={tool} className="ark-tool-chip">{tool}</span>)}
+                {message.approval && <div>Approve {message.approval.tool}? <button disabled={approving} onClick={() => void approve(i, message.approval!, true)}>Approve</button> <button disabled={approving} onClick={() => void approve(i, message.approval!, false)}>Deny</button></div>}
+              </div>
             </article>)}
         </>
         </div>

@@ -166,6 +166,7 @@ class UnifiedToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, UnifiedTool] = {}
         self._by_norm: dict[str, str] = {}  # normalized name → tool_id
+        self._collisions: list[dict[str, str]] = []  # normalized-alias clashes
         self._populated = False
 
     # ------------------------------------------------------------------ #
@@ -382,7 +383,21 @@ class UnifiedToolRegistry:
 
         self._tools[tid] = tool
         if ntid in self._by_norm:
-            logger.warning("[Unified Registry] Ambiguous normalized alias: %s", ntid)
+            # Two distinct tool ids normalize to the same alias (e.g. web.fetch
+            # vs webfetch). The first wins the normalized lookup; record the
+            # clash so it is auditable rather than a silent shadowing.
+            winner = self._by_norm[ntid]
+            self._collisions.append({
+                "alias": ntid,
+                "winner": winner,
+                "shadowed": tid,
+                "winner_source": self._tools[winner].source if winner in self._tools else "",
+                "shadowed_source": tool.source,
+            })
+            logger.warning(
+                "[Unified Registry] Ambiguous normalized alias: %s "
+                "(%s wins over %s)", ntid, winner, tid,
+            )
             self._by_norm[ntid] = ""
         else:
             self._by_norm[ntid] = tid
@@ -422,6 +437,15 @@ class UnifiedToolRegistry:
     def domains(self) -> list[str]:
         """List all registered domains."""
         return sorted(set(t.domain for t in self._tools.values()))
+
+    def collisions(self) -> list[dict[str, str]]:
+        """Normalized-alias clashes recorded during population.
+
+        Each entry names the alias, the id that won the normalized lookup, the
+        id it shadowed, and both sources. Both ids remain independently
+        addressable by exact id — this is introspection, not capability loss.
+        """
+        return list(self._collisions)
 
     # ------------------------------------------------------------------ #
     # Schema generation — what the LLM sees

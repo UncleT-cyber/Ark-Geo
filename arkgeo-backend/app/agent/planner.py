@@ -150,12 +150,16 @@ class PlanBuilder:
         case_id: str,
         *,
         use_model: bool = True,
+        model_id: Optional[str] = None,
     ) -> tuple[S.PlanRevision, str]:
         """Produce a proposed plan revision.
 
         Returns ``(revision, planner_source)`` where ``planner_source`` is
         ``"model"`` or ``"template"`` — recorded on the session so the PLAN
         console shows how the plan was produced (unit 10/audit).
+
+        ``model_id`` is the *routed* model chosen by the Phase H model policy;
+        ``None`` keeps the gateway default (the local arm).
         """
         specialist = self._specialists.get(objective.domain)
         template_id = self._specialists.plan_template_id(
@@ -168,7 +172,7 @@ class PlanBuilder:
         if use_model and specialist:
             tool_specs = self._specialists.registered_tools(specialist.domain)
             proposed = await gateway.plan_steps(
-                objective, tool_specs, specialist.domain,
+                objective, tool_specs, specialist.domain, model_id=model_id,
             )
             if proposed:
                 allowed = {spec.tool_id for spec in tool_specs}

@@ -88,10 +88,10 @@ def _force_template_planner(monkeypatch):
     want a fixed, reproducible 16-step plan and immediate termination.
     """
 
-    async def _template_only(objective, tool_specs, desc):
+    async def _template_only(objective, tool_specs, desc, **kwargs):
         return None
 
-    async def _terminate(objective, gap, specs, budget_summary):
+    async def _terminate(objective, gap, specs, budget_summary, **kwargs):
         return None  # model chose termination → adaptive loop stops
 
     monkeypatch.setattr("app.agent.model_gateway.gateway.plan_steps", _template_only)
@@ -121,7 +121,7 @@ class TestPlanner:
 
     @pytest.mark.asyncio
     async def test_model_path_used_when_valid(self, monkeypatch):
-        async def fake_plan_steps(objective, tool_specs, desc):
+        async def fake_plan_steps(objective, tool_specs, desc, **kwargs):
             return [
                 {"tool_id": "extract_exif", "rationale": "GPS first"},
                 {"tool_id": "compute_custody_hash", "rationale": "integrity"},
@@ -134,7 +134,7 @@ class TestPlanner:
 
     @pytest.mark.asyncio
     async def test_model_failure_falls_back_to_template(self, monkeypatch):
-        async def broken(objective, tool_specs, desc):
+        async def broken(objective, tool_specs, desc, **kwargs):
             return None
 
         monkeypatch.setattr("app.agent.model_gateway.gateway.plan_steps", broken)
@@ -144,7 +144,7 @@ class TestPlanner:
 
     @pytest.mark.asyncio
     async def test_model_invalid_ids_are_dropped(self, monkeypatch):
-        async def bad(objective, tool_specs, desc):
+        async def bad(objective, tool_specs, desc, **kwargs):
             return [
                 {"tool_id": "extract_exif", "rationale": "ok"},
                 {"tool_id": "totally_not_a_tool", "rationale": "hallucinated"},

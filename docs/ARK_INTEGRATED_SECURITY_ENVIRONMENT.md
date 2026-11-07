@@ -121,7 +121,7 @@ behind the Model Gateway — never the architecture itself.
 | 06 | **Verification / Critic Engine** | Challenges conclusions; independent-evidence checks | `agent/critic.py` (contract: `Critique`) | Phase E |
 | 07 | **Context & Memory Engine** | Immediate / investigation / session / case / org context | `agent/context_memory.py` (contract: `ContextFrame`) | Phase C (light) |
 | 08 | **Policy / Permission Governor** | Tool/target/tenant authorization, risk→approval, budgets | `agent/policy_guard.py` | ✅ Phase B |
-| 09 | **Model Gateway** | Model abstraction: local/cloud/vision/embedding/OCR; provider-agnostic | `agent/model_gateway.py` (contract: `ModelSpec`) | Phase C |
+| 09 | **Model Gateway** | Model abstraction: local/cloud/vision/embedding/OCR; provider-agnostic | `agent/model_gateway.py` (contract: `ModelSpec`; routing: `agent/model_registry.py` + `agent/model_policy.py`) | ✅ Phase C/H |
 | 10 | **Findings Engine** | Conclusions → structured `Finding` (type/severity/status/evidence) | `agent/findings.py` (+ `evidence_graph`) | Phase C (wiring) |
 | 11 | **Analyst Interaction Engine** | Natural-language steering → controlled ARK actions | `agent/interaction.py` + frontend | Phase D |
 | 12 | **Report / Communication Engine** | Writes from case state only; never invents | `agent/report_engine.py` | Phase I |
@@ -170,6 +170,7 @@ case/evidence fabric.**
 | Phase F — Cross-domain NETWORK + SECOPS | ✅ done | `tests/test_phase_f_cross_domain.py` — 13 passing; NETWORK + SECOPS specialists route registered tools through the unchanged loop, evidence on the shared case graph; `port_scan`/`incident_annotate` gated by step-confirm; merged plan lineage on the console |
 | Phase F follow-up — OSINT + WEB route real tools | ✅ done | `tests/test_phase_f_osint_web.py` — 9 passing; OSINT/WEB specialists declare + route registered tools (`web_search`/`web_fetch`/`geocode_*`/`reverse_image_search`; `web.*` + `browser.*`), planner templates + executor arg resolution + correlator gaps; `test_cognitive_contracts` asserts no specialist declares an unregistered tool |
 | Phase G — Case engine unification | ✅ done | `app/agent/case_engine.py` derives a merged case graph across investigations; `GET /cases` + `GET /cases/{case_id}`; cross-domain contradiction edges (IMAGE EXIF GPS vs OSINT geocode) + one findings list + one audit trail; `tests/test_phase_g_case_engine.py` — 14 passing; CaseExplorer renders the backend cross-domain view (`casePresentation.ts`, 7 unit tests) |
+| Phase H — Model routing (policy-decided) | ✅ done | `app/agent/model_registry.py` (`ModelSpec` registry: local planner + local vision + cloud arms) + `app/agent/model_policy.py` (local-first default; `zero_retention`/`local_only` structurally force the local arm before any rule; `ModelPolicyRule` pins a capability, `require_local` narrows); routed model id flows to planner/adaptive loop and is recorded on the session (`model_decision`) and every finding (`Finding.model_id`); `tests/test_phase_h_model_routing.py` — 24 passing |
 | ARK Identity Contract (cognitive layer §6) | ✅ done | `app/agent/cognitive/` 00-05 core + `app/agent/domains/` identity/reasoning/tools for image/network/secops/osint/web/cases; `context_builder.py` composes core → domain → tools; gateway routes through it; `tests/test_identity_contract.py` — 13 passing; live qwen runs produce valid registered-only plans |
 | Frontend workbench | ✅ builds | `tsc --noEmit` clean, vite build clean |
 | Local LLM runtime | ✅ ready | Ollama 0.32.9 on-host, **qwen2.5-coder:3b cached** (1.9 GB), responds to API |
@@ -283,12 +284,27 @@ console, and guard are unchanged.
 - Exit gate: one case with evidence from ≥2 domains, one findings list, one
   audit trail.
 
-### Phase H — Model routing (policy-decided)
+### Phase H — Model routing (policy-decided) ✅ done
 - Model registry mirrors the tool registry: `ModelSpec` (id, capability,
   local/remote, cost, offline-ok, pinned version). Policy decides which model
   a planner or vision call may use; `zero_retention` forces local.
 - Exit gate: a policy rule routes sensitive analysis to the local model and
   the finding records it.
+- **Built:** `app/agent/model_registry.py` — `Model`/`ModelRegistry` over
+  `ModelSpec` (local planner + local vision + cloud planner + cloud vision;
+  ids read from Admin gateway config). `app/agent/model_policy.py` —
+  `ModelPolicy.decide(ModelRequest)` returns a `ModelDecision`. Precedence:
+  (1) `zero_retention`/`local_only` structurally forces a local,
+  `zero_retention_safe` model **before any rule** — a cloud-pinning rule
+  cannot leak a sensitive case; (2) matching `ModelPolicyRule`s pin a
+  capability (`require_local` narrows to local; an unregistered or
+  unprovisioned `prefer` degrades to the local arm with `fallback_used=True`
+  and a disclosed reason — never a silent substitution); (3) default is
+  local-first.
+  The orchestrator routes `PLANNING` at `start()`, records the decision on the
+  session (`model_decision`) and the routed id (`model_id`), threads it into
+  the planner + adaptive loop, and stamps every promoted finding with
+  `Finding.model_id`. `tests/test_phase_h_model_routing.py` — 24 passing.
 
 ### Phase I — Court-ready reproduction bundles
 - Every case can export: objective frame, plan lineage (hash-chained),
@@ -394,5 +410,8 @@ fingerprint_service → adaptive tls_inspect).
 5. Write the first prompt-injection fixtures (the doc mandates these land
    before the agent touches external content — OSINT/WEB tools are the first
    that ingest external input).
-6. Phase H — model routing (policy-decided `ModelSpec` registry; `zero_retention`
-   forces local).
+6. ~~Phase H — model routing (policy-decided `ModelSpec` registry;
+   `zero_retention` forces local).~~ ✅ done (`app/agent/model_registry.py`,
+   `app/agent/model_policy.py`, `tests/test_phase_h_model_routing.py`).
+7. Phase I — court-ready reproduction bundles (export objective frame, plan
+   lineage, evidence graph, tool + model + env versions, re-run manifest).

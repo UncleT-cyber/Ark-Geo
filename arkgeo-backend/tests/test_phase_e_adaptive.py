@@ -75,10 +75,10 @@ def _patch_geocoder(monkeypatch):
 
 
 def _force_template_planner(monkeypatch):
-    async def _template_only(objective, tool_specs, desc):
+    async def _template_only(objective, tool_specs, desc, **kwargs):
         return None
 
-    async def _terminate(objective, gap, specs, budget_summary):
+    async def _terminate(objective, gap, specs, budget_summary, **kwargs):
         return None
 
     monkeypatch.setattr("app.agent.model_gateway.gateway.plan_steps", _template_only)
@@ -255,7 +255,7 @@ class TestAdaptiveReplanning:
         _patch_geocoder(monkeypatch)
         _force_template_planner(monkeypatch)
 
-        async def _resolve_contradiction(objective, gap, specs, budget_summary):
+        async def _resolve_contradiction(objective, gap, specs, budget_summary, **kwargs):
             assert gap["gap_type"] == S.GapType.OPEN_CONTRADICTION.value
             return [{"tool_id": "reverse_geocode", "rationale": "settle it"}]
 

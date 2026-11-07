@@ -209,6 +209,18 @@ export function BottomPanel({ collapsed, onToggle, result, docked = false, inspe
           <span className="inv-mono">iterations={s.iterations} · planner={s.planner_source}</span>
         </div>
 
+        {s.model_decision?.spec && (
+          <div className="inv-row" title={s.model_decision.reason}>
+            <span className="bottom-row-type mono">MODEL</span>
+            <span className="bottom-row-msg mono">
+              {s.model_decision.spec.model_id}
+              {s.model_decision.spec.local ? ' · local' : ' · cloud'}
+              {s.model_decision.forced_local ? ' · forced-local' : ''}
+              {s.model_decision.fallback_used ? ' · fallback' : ''}
+            </span>
+          </div>
+        )}
+
         <div className="inv-section-title">OBJECTIVE</div>
         <div className="inv-row"><span className="bottom-row-type mono">GOAL</span><span className="bottom-row-msg">{s.objective.goal}</span></div>
         <div className="inv-row"><span className="bottom-row-type mono">SUBJECT</span><span className="bottom-row-msg">{s.objective.subject}</span></div>

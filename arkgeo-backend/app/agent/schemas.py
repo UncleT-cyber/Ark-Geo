@@ -200,6 +200,7 @@ class Finding(BaseModel):
     observation: Optional[str] = None
     assessment: Optional[str] = None
     domain: Optional[DomainId] = None
+    model_id: Optional[str] = None               # which model contributed (Phase H)
 
 
 class EvidenceGraph(BaseModel):
@@ -346,6 +347,52 @@ class ModelSpec(BaseModel):
     zero_retention_safe: bool = True             # may run on sensitive cases
     cost_estimate: Optional[CostEstimate] = None
     endpoint: Optional[str] = None               # e.g. Ollama model tag
+
+
+class ModelPolicyMatch(BaseModel):
+    """Selector for a model-routing rule.
+
+    A rule fires when every populated field matches the *request*. A request
+    carries the capability being exercised and (optionally) the active domain
+    and whether the case is zero-retention. ``local_only`` matches requests
+    that must stay on-box; ``zero_retention`` matches sensitive requests.
+    """
+    capability: Optional[ModelCapability] = None
+    domain: Optional[DomainId] = None
+    zero_retention: Optional[bool] = None
+    local_only: Optional[bool] = None
+
+
+class ModelPolicyRule(BaseModel):
+    """Phase H — a policy rule that pins a capability to a model.
+
+    The policy guard (tools) answers *may this tool run?*; this rule answers
+    *which model may serve this capability?*. ``prefer`` is a model id in the
+    registry; ``require_local`` forces the local arm regardless of ``prefer``
+    (so a sensitive rule can never be satisfied by a cloud model).
+    """
+    rule_id: str
+    match: ModelPolicyMatch = Field(default_factory=ModelPolicyMatch)
+    prefer: Optional[str] = None                 # model_id to route to
+    require_local: bool = False
+    enabled: bool = True
+
+
+class ModelDecision(BaseModel):
+    """The routing outcome for one model request — recorded for provenance.
+
+    ``spec`` is the chosen :class:`ModelSpec`; ``reason``/``rule_id`` say why.
+    ``forced_local`` is True when a zero-retention / local-only constraint (not
+    just a rule) forced the local arm. ``fallback_used`` is True when the
+    preferred model was unavailable and the local arm served instead — the
+    substitution is always disclosed, never silent.
+    """
+    allowed: bool
+    spec: Optional[ModelSpec] = None
+    reason: str = ""
+    rule_id: str = "default"
+    forced_local: bool = False
+    fallback_used: bool = False
 
 
 # --------------------------------------------------------------------------- #
@@ -499,6 +546,8 @@ __all__ = [
     "Hypothesis", "HypothesisCandidate", "Critique", "ContextFrame",
     # Model Gateway
     "ModelCapability", "ModelProvider", "ModelSpec",
+    # Model routing policy (Phase H)
+    "ModelPolicyMatch", "ModelPolicyRule", "ModelDecision",
     # Domain specialists
     "SpecialistSpec",
     # Policy

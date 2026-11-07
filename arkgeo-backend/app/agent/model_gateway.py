@@ -247,6 +247,7 @@ class ModelGateway:
         objective: S.InvestigationObjective,
         tool_specs: list[S.ToolSpec],
         domain_key: str,
+        model_id: Optional[str] = None,
     ) -> Optional[list[dict[str, str]]]:
         """Ask the model to propose an ordered tool plan.
 
@@ -269,6 +270,7 @@ class ModelGateway:
                 {"role": "user", "content": user_prompt},
             ],
             json_mode=True,
+            model_id=model_id,
         )
         if not content:
             return None
@@ -295,6 +297,7 @@ class ModelGateway:
         gap: dict,
         tool_specs: list[S.ToolSpec],
         budget_summary: str,
+        model_id: Optional[str] = None,
     ) -> Optional[list[dict[str, str]]]:
         """Unit 04 — ask the model which of a gap's candidate tools to run
         next (and in what order), or to terminate.
@@ -313,6 +316,7 @@ class ModelGateway:
                 {"role": "user", "content": user_prompt},
             ],
             json_mode=True,
+            model_id=model_id,
         )
         if not content:
             return None

@@ -45,6 +45,7 @@ from .evidence_graph import _agree_within_tolerance
 from .executor import AgentLogEntry, ExecutionContext, PlanExecutor
 from .hypothesis_engine import build_hypotheses
 from .model_gateway import gateway
+from .model_policy import ModelRequest, policy as model_policy
 from .planner import _budget_estimate, plan_builder, plan_hash
 from .policy_guard import PolicyGuard
 from .tool_registry import registry
@@ -91,6 +92,7 @@ class InvestigationSession:
     status: str = "proposed"     # proposed | approved | running | done | paused | rejected | failed
     pause_reason: Optional[str] = None
     model_id: Optional[str] = None
+    model_decision: Optional[dict] = None        # Phase H routing record
     image_bytes: Optional[bytes] = field(default=None, repr=False)
     memo: dict[str, str] = field(default_factory=dict)
     iterations: int = 0
@@ -117,6 +119,7 @@ class InvestigationSession:
             "plan": self.plan.model_dump(),
             "planner_source": self.planner_source,
             "model_id": self.model_id,
+            "model_decision": self.model_decision,
             "status": self.status,
             "pause_reason": self.pause_reason,
             "created_at_ms": self.created_at_ms,
@@ -193,7 +196,20 @@ class InvestigationOrchestrator:
     ) -> InvestigationSession:
         """Create a proposed investigation (objective → plan). No execution."""
         case_id = case_id or _gen_case_id()
-        plan, source = await plan_builder.build(objective, case_id)
+
+        # Phase H — policy-decided model routing. The objective's sensitivity
+        # (zero_retention) and domain inform the choice; a sensitive case is
+        # structurally pinned to the local arm.
+        decision = model_policy.decide(ModelRequest(
+            capability=S.ModelCapability.PLANNING,
+            domain=objective.domain,
+            zero_retention=objective.constraints.zero_retention,
+        ))
+        routed_model = decision.spec.model_id if decision.spec else None
+
+        plan, source = await plan_builder.build(
+            objective, case_id, model_id=routed_model,
+        )
         session = InvestigationSession(
             investigation_id=_gen_investigation_id(),
             case_id=case_id,
@@ -205,9 +221,9 @@ class InvestigationOrchestrator:
             image_bytes=image_bytes,
             revisions=[plan],
             principal_subject=principal_subject or ANONYMOUS.subject,
+            model_decision=decision.model_dump(),
+            model_id=routed_model or gateway.default_model,
         )
-        if source == "model":
-            session.model_id = gateway.default_model
         self.store.put(session)
         return session
 
@@ -445,6 +461,7 @@ class InvestigationOrchestrator:
                 proposed = await gateway.propose_next(
                     session.objective, gap.model_dump(), specs,
                     str(guard.usage.to_dict()),
+                    model_id=session.model_id,
                 )
             except Exception:  # noqa: BLE001 — model must never break the loop
                 logger.warning("propose_next failed; deterministic fallback")
@@ -485,6 +502,10 @@ class InvestigationOrchestrator:
                 node.claim_type, S.FindingType.OTHER)
             finding.domain = domain
             finding.severity = _severity_for(node)
+            # Phase H — record which model contributed. A tier-2 node carries
+            # its own model_id; a deterministic node inherits the session's
+            # routed model (the one that reasoned over the graph).
+            finding.model_id = node.model_id or session.model_id
 
 
 def _merged_steps(revisions: list[S.PlanRevision]) -> list[dict]:

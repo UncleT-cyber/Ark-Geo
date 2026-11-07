@@ -143,7 +143,8 @@ prompt.
   exceptions, custom-rule override + no-downgrade guarantee, audit emission/linking/tamper).
 - Phasing: A=registry+graph, B=policy guard (done), C=smallest orchestrator
   loop (one goal), D=console tabs, E=adaptive re-planning, F=cross-domain
-  reuse. Full plan incl. phases G-J and the integrated security environment:
+  reuse, G=cross-domain case engine (done), H=model routing (done). Full plan
+  incl. phases I-J and the integrated security environment:
   `docs/ARK_INTEGRATED_SECURITY_ENVIRONMENT.md`.
 
 ### ARK Super Intelligence — Phase A/B (autonomous investigation & orchestration)
@@ -287,6 +288,24 @@ contains every tool required to complete that investigation.
   domain detection. Frontend `CaseExplorer.tsx` renders the backend cross-domain
   view via `casePresentation.ts` (pure helpers, unit-tested). Tests:
   `tests/test_phase_g_case_engine.py` (14), `casePresentation.test.ts` (7).
+- **Phase H — model routing (`app/agent/model_registry.py` + `app/agent/model_policy.py`)**:
+  the model half of the authority surface. `ModelRegistry` mirrors `ToolRegistry`
+  over `ModelSpec` (local planner, local vision, cloud planner, cloud vision; the
+  local ids come from Admin gateway config, falling back to built-ins). `ModelPolicy.decide(ModelRequest)`
+  → `ModelDecision` with a fixed precedence: (1) `zero_retention`/`local_only`
+  **structurally** forces a local, `zero_retention_safe` model *before any rule*
+  (a cloud-pinning `ModelPolicyRule` can never leak a sensitive case); (2) matching
+  rules pin a capability (`require_local` narrows to the local arm; an unregistered
+  `prefer` falls through, never hard-fails). A cloud-pinning rule whose credential
+  is absent is treated as unavailable and degrades to the local arm with
+  `fallback_used=True` and a disclosed reason — never a silent substitution.
+  (3) default is local-first. The
+  orchestrator routes `PLANNING` in `start()`, records the decision on the session
+  (`model_decision`) and the routed id (`model_id`), threads the id into
+  `plan_builder.build(model_id=…)` and `gateway.propose_next(model_id=…)`, and
+  stamps every promoted finding with `Finding.model_id` (node model, else session
+  model). `model_id` is now set for template-planned sessions too (was model-only).
+  Tests: `tests/test_phase_h_model_routing.py` (24).
 - Backend venv in this container is `.venv-new` (`.venv/bin/*` shebangs point at
   a macOS path); run tests with `.venv-new/bin/python -m pytest tests/ -q`.
 - `npx tsc --noEmit` clean; `npx vite build` clean (~2013 modules)

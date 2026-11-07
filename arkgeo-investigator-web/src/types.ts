@@ -642,6 +642,7 @@ export interface InvestigationFinding {
   severity: string;
   status: string;
   domain?: string | null;
+  model_id?: string | null;
 }
 
 export interface EvidenceGraphPayload {
@@ -660,6 +661,29 @@ export interface BudgetUsage {
   api_calls: number;
 }
 
+/** Phase H — the routed model spec (subset the console needs). */
+export interface ModelSpec {
+  model_id: string;
+  name: string;
+  capabilities: string[];
+  provider: string;
+  local: boolean;
+  version?: string;
+  offline_ok?: boolean;
+  zero_retention_safe?: boolean;
+  endpoint?: string | null;
+}
+
+/** Phase H — the policy routing decision recorded on a session. */
+export interface ModelDecision {
+  allowed: boolean;
+  spec?: ModelSpec | null;
+  reason: string;
+  rule_id: string;
+  forced_local: boolean;
+  fallback_used?: boolean;
+}
+
 /** Full AI investigation session as returned by create/approve/get/resume. */
 export interface InvestigationSession {
   investigation_id: string;
@@ -668,6 +692,7 @@ export interface InvestigationSession {
   plan: PlanRevision;
   planner_source: string;
   model_id?: string | null;
+  model_decision?: ModelDecision | null;
   status: string;           // proposed | running | done | paused | ...
   pause_reason?: string | null;
   created_at_ms: number;

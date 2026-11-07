@@ -196,7 +196,7 @@ class TestGatewayWiring:
         from app.agent.planner import plan_builder
         _base = _objective("network")
 
-        async def fake_plan_steps(objective, tool_specs, domain_key):
+        async def fake_plan_steps(objective, tool_specs, domain_key, **kwargs):
             return [{"tool_id": "discover_hosts", "rationale": "first"}]
 
         monkeypatch.setattr("app.agent.model_gateway.gateway.plan_steps",

@@ -39,6 +39,7 @@ from typing import Any, Optional
 import httpx
 
 from app.core.config import settings
+from app.engine.provider_errors import classify_code
 from app.services.key_probe import live_probe
 
 logger = logging.getLogger(__name__)
@@ -111,6 +112,9 @@ class GenerationResult:
 
     ``content`` is ``None`` when the provider failed; ``detail`` then carries
     an honest reason so callers / status surfaces can explain the route.
+    ``code`` is the shared error-taxonomy code (see
+    :mod:`app.engine.provider_errors`) when the failure is a classified
+    provider condition, else ``None`` (e.g. a transport error or a success).
     """
 
     content: Optional[str]
@@ -118,6 +122,7 @@ class GenerationResult:
     model: Optional[str]
     latency_ms: int
     detail: str
+    code: Optional[str] = None
 
 
 class AIGateway:
@@ -580,9 +585,21 @@ class AIGateway:
         latency = round((time.time() - started) * 1000)
         content = self._parse_cloud_response(provider, r)
         if content is None:
+            # Non-200 (or an empty successful body): classify the failure with
+            # the shared taxonomy so the gateway and the CAI streaming path
+            # report the same code. The body text is read for classification
+            # ONLY — it is never surfaced to the caller (which gets the
+            # operator-safe ``detail`` = "HTTP <status>").
+            body = ""
+            if r.status_code != 200:
+                try:
+                    body = (r.text or "")[:4000]
+                except Exception:  # noqa: BLE001 — body read must never raise
+                    body = ""
+            code = classify_code(r.status_code, body.lower()) if r.status_code != 200 else None
             return GenerationResult(
                 content=None, provider=provider, model=model,
-                latency_ms=latency, detail=f"HTTP {r.status_code}",
+                latency_ms=latency, detail=f"HTTP {r.status_code}", code=code,
             )
         return GenerationResult(
             content=content, provider=provider, model=model,

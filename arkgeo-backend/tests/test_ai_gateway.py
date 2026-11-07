@@ -408,3 +408,56 @@ class TestAIStatusEndpoint:
         assert data["ollama"]["available"] is True
         # qwen2.5-coder is text-only → no vision path is available.
         assert data["vision"] is False
+
+
+# --------------------------------------------------------------------------- #
+# Gateway/proxy error-classification parity (B.2)
+# --------------------------------------------------------------------------- #
+class TestCloudErrorClassification:
+    """The gateway must speak the same error vocabulary as the CAI stream.
+
+    ``_cloud_call`` is driven with a fake httpx client so the real request
+    builder + response parser + classifier all run. No network.
+    """
+
+    class _Resp:
+        def __init__(self, status, text):
+            self.status_code = status
+            self.text = text
+
+        def json(self):
+            import json
+            return json.loads(self.text)
+
+    def _fake_client(self, resp):
+        class _Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def request(self, *args, **kwargs):
+                return resp
+        return _Client()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(("status", "body", "code"), [
+        (429, '{"error":{"message":"You exceeded your current quota"}}', "insufficient_credits"),
+        (429, '{"error":{"message":"Rate limit exceeded: free-models-per-day"}}', "rate_limited_model"),
+        (429, '{"error":{"message":"Too many requests"}}', "rate_limited"),
+        (403, '{"error":{"message":"Key limit exceeded"}}', "insufficient_credits"),
+        (401, '{"error":{"message":"Incorrect API key provided"}}', "authentication_failed"),
+        (500, "upstream boom", "provider_rejected"),
+    ])
+    async def test_cloud_call_sets_shared_error_code(self, monkeypatch, status, body, code):
+        from app.services import ai_gateway as mod
+        resp = self._Resp(status, body)
+        monkeypatch.setattr(mod.ai_gateway, "_cloud_key", lambda p: "sk-fixture")
+        monkeypatch.setattr(mod.httpx, "AsyncClient", lambda **kwargs: self._fake_client(resp))
+        result = await mod.ai_gateway._cloud_call("openai", "hi", None, None, False, 0.2)
+        assert result is not None and result.content is None
+        assert result.code == code
+        # The raw provider body is never surfaced to the caller.
+        assert result.detail == f"HTTP {status}"
+        assert "fixture" not in result.detail and "quota" not in result.detail.lower()

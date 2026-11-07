@@ -62,10 +62,14 @@ def _provider_body(exc: Exception) -> str:
     return " ".join(parts).lower()
 
 
-def public_error(exc: Exception) -> dict[str, str]:
-    status = getattr(exc, "status_code", None)
-    detail = _provider_body(exc)
+def classify_code(status: int | None, detail: str) -> str:
+    """Classify a provider failure to a stable code from status + body text.
 
+    Shared by :func:`public_error` (the CAI streaming path) and the AI gateway,
+    so both AI paths speak one error vocabulary. ``detail`` is expected to be
+    lowercased body text; pass through :func:`_provider_body` for an exception.
+    """
+    status = status if isinstance(status, int) else None
     has_throttle = any(term in detail for term in _THROTTLE_TERMS)
     # "limit exceeded" is ambiguous on its own: OpenRouter's "Key limit exceeded"
     # is a spent quota, but "Rate limit exceeded" is a throttle. Treat it as a
@@ -74,37 +78,45 @@ def public_error(exc: Exception) -> dict[str, str]:
         "limit exceeded" in detail and not has_throttle
     )
 
-    if isinstance(exc, InvalidToolSchema) or (
-        status in (400, 422) and any(term in detail for term in ("invalid name", "function schema", "invalid schema"))
-    ):
-        code, message = "invalid_tool_schema", "A tool definition failed compatibility validation."
-    elif has_credit:
+    if status in (400, 422) and any(term in detail for term in ("invalid name", "function schema", "invalid schema")):
+        return "invalid_tool_schema"
+    if has_credit:
         # Body-decisive: an exhausted quota/credit condition, whatever the
         # status. A 429 carrying this body is a spent quota, NOT a throttle.
-        code = "insufficient_credits"
-        message = "The model provider reports insufficient credits or an exhausted usage limit."
-    elif status in (401, 403):
-        code, message = "authentication_failed", "The model provider rejected its credentials or access."
-    elif status == 402:
-        code, message = "insufficient_credits", "The model provider reports insufficient credits."
-    elif status == 429:
+        return "insufficient_credits"
+    if status in (401, 403):
+        return "authentication_failed"
+    if status == 402:
+        return "insufficient_credits"
+    if status == 429:
         # A genuine throttle. Distinguish a model-scoped limit from an
-        # account-level one only when the body names the dimension; otherwise
-        # report the general rate limit.
-        if has_throttle and _MODEL_SCOPE_RE.search(detail):
-            code = "rate_limited_model"
-            message = "The selected model is rate-limited. Try again later or select another model."
-        else:
-            code = "rate_limited"
-            message = "The model provider is rate-limited. Try again later."
-    elif any(term in detail for term in ("support tool use", "support tool calling", "tool calling is not supported")):
-        code, message = "unsupported_tool_calling", "No compatible provider endpoint accepted tool calling for this model."
-    elif status == 404:
-        code = "model_unavailable"
-        message = "The requested model or endpoint is unavailable from the configured provider."
+        # account-level one only when the body names the dimension.
+        return "rate_limited_model" if (has_throttle and _MODEL_SCOPE_RE.search(detail)) else "rate_limited"
+    if any(term in detail for term in ("support tool use", "support tool calling", "tool calling is not supported")):
+        return "unsupported_tool_calling"
+    if status == 404:
+        return "model_unavailable"
+    return "provider_rejected"
+
+
+_MESSAGES: dict[str, str] = {
+    "invalid_tool_schema": "A tool definition failed compatibility validation.",
+    "insufficient_credits": "The model provider reports insufficient credits or an exhausted usage limit.",
+    "authentication_failed": "The model provider rejected its credentials or access.",
+    "rate_limited": "The model provider is rate-limited. Try again later.",
+    "rate_limited_model": "The selected model is rate-limited. Try again later or select another model.",
+    "unsupported_tool_calling": "No compatible provider endpoint accepted tool calling for this model.",
+    "model_unavailable": "The requested model or endpoint is unavailable from the configured provider.",
+    "provider_rejected": "The model request failed. Check the configured provider and model.",
+}
+
+
+def public_error(exc: Exception) -> dict[str, str]:
+    if isinstance(exc, InvalidToolSchema):
+        code = "invalid_tool_schema"
     else:
-        code, message = "provider_rejected", "The model request failed. Check the configured provider and model."
-    return {"event": "error", "code": code, "message": message}
+        code = classify_code(getattr(exc, "status_code", None), _provider_body(exc))
+    return {"event": "error", "code": code, "message": _MESSAGES[code]}
 
 
 # Codes that a caller may safely retry. A credit failure is never retryable

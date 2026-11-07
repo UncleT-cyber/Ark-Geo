@@ -133,6 +133,12 @@ class RouteDecision:
     detected_target: str | None = None
     rationale: str = ""
     raw: str = ""
+    # B.4 — when the utterance is investigation-shaped (verify a location,
+    # investigate an image/case, correlate evidence), surface a proposed
+    # objective so a caller can route into the existing /investigate flow
+    # instead of a bare ReAct loop. Purely advisory metadata: nothing executes.
+    investigation: bool = False
+    objective: dict | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -142,6 +148,8 @@ class RouteDecision:
             "detected_target": self.detected_target,
             "rationale": self.rationale,
             "raw": self.raw,
+            "investigation": self.investigation,
+            "objective": self.objective,
         }
 
 
@@ -171,6 +179,86 @@ def _detect_role(text: str, mode: IntentMode) -> SpecialistRole:
     if any(k in t for k in ("recon", "enumerate", "discover", "osint", "fingerprint")):
         return SpecialistRole.RECON
     return SpecialistRole.RED_TEAMER
+
+
+# --------------------------------------------------------------------------- #
+# B.4 — Investigation intent detection
+# --------------------------------------------------------------------------- #
+# An utterance is investigation-shaped when it asks to verify/establish a
+# claim about a subject (location, device, provenance) or to investigate an
+# image/case, and carries a forensic signal. Order matters: the most specific
+# goal is tested first so "verify this image is authentic" maps to tamper
+# detection, not location.
+_INVESTIGATION_GOAL_CUES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tamper_detection", (
+        r"\btamper", r"\bmanipulat", r"\bauthentic", r"\bforg(?:e|ed|ery)",
+        r"\bphotoshop", r"\bdeepfake", r"\bela\b", r"\bedit(?:ed)?\b",
+    )),
+    ("device_attribution", (
+        r"\bdevice\b", r"\bcamera\b", r"\battribut", r"\bsame (?:phone|camera)\b",
+        r"\bwhich (?:device|camera|phone)\b",
+    )),
+    ("source_discovery", (
+        r"\breverse[- ]?image", r"\bsource\b", r"\boriginal(?:ly)?\b",
+        r"\bfirst (?:post|upload|appear)", r"\bprovenance\b", r"\bc2pa\b",
+        r"\bwhere (?:did|was) (?:this|it) (?:come|originate|appear|first)\b",
+    )),
+    ("verify_location_credibility", (
+        r"\bverif\w*\b.*\b(location|coordinate|gps|place|where)\b",
+        r"\b(location|coordinate|gps)\b.*\b(verif|credib|claim|true|accurate)\b",
+        r"\bgeolocat", r"\bwhere (?:was|is) (?:this|it|the photo|the image)\b",
+        r"\bexif\b.*\b(gps|location)\b",
+    )),
+)
+_INVESTIGATION_GOAL_RE: list[tuple[str, re.Pattern]] = [
+    (goal, re.compile("|".join(cues), re.IGNORECASE))
+    for goal, cues in _INVESTIGATION_GOAL_CUES
+]
+_INVESTIGATION_SUBJECT_RE = re.compile(
+    r"\b(image|photo|picture|jpeg|jpg|png|evidence|artifact|file|screenshot|"
+    r"case|investigation|sample)\b",
+    re.IGNORECASE,
+)
+_INVESTIGATION_VERB_RE = re.compile(
+    r"\b(investigat\w*|verif\w*|establish|corroborat\w*|forensic\w*|"
+    r"analyse|analyze|authenticat\w*|provenance|determine|find out)\b",
+    re.IGNORECASE,
+)
+
+
+def detect_investigation(text: str, detected_target: str | None = None) -> dict | None:
+    """Return a proposed objective dict if ``text`` is investigation-shaped.
+
+    Purely heuristic and side-effect free: it proposes, it never executes and
+    never invokes a model. The caller decides whether to route into the
+    existing ``/investigate`` flow (which still requires human approval).
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    # Require a forensic signal (subject or explicit verb) so a bare
+    # "verify the account identity" (a general task) does not become a case.
+    if not (_INVESTIGATION_SUBJECT_RE.search(raw) or _INVESTIGATION_VERB_RE.search(raw)):
+        return None
+
+    goal = None
+    for candidate, pattern in _INVESTIGATION_GOAL_RE:
+        if pattern.search(raw):
+            goal = candidate
+            break
+    if goal is None:
+        # Investigation-shaped subject/verb but no specific goal → full profile.
+        if _INVESTIGATION_SUBJECT_RE.search(raw):
+            goal = "full_forensic_profile"
+        else:
+            return None
+
+    return {
+        "goal": goal,
+        "subject": detected_target or "uploaded-evidence",
+        "domain": "image",
+        "natural_language": raw,
+    }
 
 
 def classify_intent(text: str) -> RouteDecision:
@@ -218,6 +306,7 @@ def classify_intent(text: str) -> RouteDecision:
         )
 
     role = _detect_role(raw, mode)
+    objective = detect_investigation(raw, detected_target)
     return RouteDecision(
         mode=mode,
         confidence=confidence,
@@ -225,6 +314,8 @@ def classify_intent(text: str) -> RouteDecision:
         detected_target=detected_target,
         rationale=rationale,
         raw=raw,
+        investigation=objective is not None,
+        objective=objective,
     )
 
 
@@ -233,4 +324,5 @@ __all__ = [
     "SpecialistRole",
     "RouteDecision",
     "classify_intent",
+    "detect_investigation",
 ]

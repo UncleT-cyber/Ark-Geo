@@ -1223,3 +1223,39 @@
 @media (max-width: 540px) {
   .ark-control .ark-model-selector-compact { flex-basis: 130px; max-width: 130px; }
 }
+
+
+/* Readable assistant responses: formatted Markdown, comfortable measure and rhythm. */
+.ark-control .ark-message:not(.ark-user) {
+  width: min(100%, 760px);
+  max-width: 100%;
+  white-space: normal;
+  font-size: 13px;
+  line-height: 1.65;
+  padding: 14px 17px;
+}
+.ark-control .ark-markdown { min-width: 0; overflow-wrap: anywhere; color: #e6e6e9; }
+.ark-control .ark-markdown > :first-child { margin-top: 0; }
+.ark-control .ark-markdown > :last-child { margin-bottom: 0; }
+.ark-control .ark-markdown p { margin: 0 0 12px; }
+.ark-control .ark-markdown h3 { margin: 18px 0 8px; font-size: 15px; line-height: 1.4; font-weight: 650; color: #f5f5f6; }
+.ark-control .ark-markdown h4 { margin: 16px 0 7px; font-size: 13px; line-height: 1.45; font-weight: 650; color: #f2f2f4; }
+.ark-control .ark-markdown ul, .ark-control .ark-markdown ol { margin: 4px 0 14px; padding-left: 23px; }
+.ark-control .ark-markdown li { padding-left: 2px; margin: 5px 0; }
+.ark-control .ark-markdown strong { color: #f7f7f9; font-weight: 650; }
+.ark-control .ark-markdown em { color: #dedee3; }
+.ark-control .ark-markdown a { color: #80c9ee; text-decoration: underline; text-underline-offset: 3px; }
+.ark-control .ark-markdown code {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  font-size: .88em;
+  padding: 2px 5px;
+  border: 1px solid #323238;
+  border-radius: 5px;
+  background: #1b1b20;
+  color: #dce9f7;
+  overflow-wrap: anywhere;
+}
+.ark-control .ark-markdown pre { margin: 10px 0 15px; padding: 12px; overflow-x: auto; border-radius: 9px; border: 1px solid #303037; background: #101014; white-space: pre; }
+.ark-control .ark-markdown pre code { padding: 0; border: 0; background: transparent; white-space: pre; overflow-wrap: normal; }
+.ark-control .ark-markdown hr { border: 0; border-top: 1px solid #303036; margin: 16px 0; }
+@media (max-width: 540px) { .ark-control .ark-message:not(.ark-user) { padding: 12px 13px; font-size: 12px; } }

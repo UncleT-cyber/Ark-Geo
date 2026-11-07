@@ -1259,3 +1259,89 @@
 .ark-control .ark-markdown pre code { padding: 0; border: 0; background: transparent; white-space: pre; overflow-wrap: normal; }
 .ark-control .ark-markdown hr { border: 0; border-top: 1px solid #303036; margin: 16px 0; }
 @media (max-width: 540px) { .ark-control .ark-message:not(.ark-user) { padding: 12px 13px; font-size: 12px; } }
+
+
+/* Refined conversation rhythm: readable roles, generous separation, quiet actions. */
+.ark-control .ark-conversation {
+  gap: 0;
+  padding: 24px clamp(16px, 3vw, 34px) 32px;
+}
+.ark-control .ark-conversation > .ark-message {
+  position: relative;
+  flex: 0 0 auto;
+  margin-top: 24px;
+  border: 1px solid #2b2b30;
+  border-radius: 17px;
+  background: #101013;
+  box-shadow: 0 5px 22px rgba(0,0,0,.12);
+}
+.ark-control .ark-conversation > .ark-message.ark-user {
+  max-width: min(78%, 620px);
+  padding: 12px 15px;
+  background: #202024;
+  border-color: #36363c;
+  border-radius: 17px 17px 5px 17px;
+  box-shadow: none;
+}
+.ark-control .ark-conversation > .ark-message:not(.ark-user) {
+  max-width: min(100%, 800px);
+  padding: 18px 21px 20px;
+  border-radius: 5px 17px 17px 17px;
+}
+.ark-control .ark-message-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 20px;
+  margin-bottom: 13px;
+}
+.ark-control .ark-user .ark-message-heading { margin-bottom: 8px; }
+.ark-control .ark-message-speaker {
+  color: #a2a2ad;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+.ark-control .ark-message:not(.ark-user) .ark-message-speaker { color: #8ed9e8; }
+.ark-control .ark-message-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #9b9ba5;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.ark-control .ark-message-copy:hover,
+.ark-control .ark-message-copy:focus-visible {
+  color: #f1f1f4;
+  border-color: #38383f;
+  background: #26262b;
+}
+.ark-control .ark-message-content {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ark-control .ark-message:not(.ark-user) .ark-message-content { white-space: normal; }
+.ark-control .ark-markdown { line-height: 1.75; }
+.ark-control .ark-markdown p { margin-bottom: 15px; }
+.ark-control .ark-markdown h3 { margin: 24px 0 10px; }
+.ark-control .ark-markdown h4 { margin: 20px 0 9px; }
+.ark-control .ark-markdown li { margin: 7px 0; }
+.ark-control .ark-markdown ul,
+.ark-control .ark-markdown ol { margin-bottom: 17px; }
+@media (max-width: 540px) {
+  .ark-control .ark-conversation { padding: 16px 12px 24px; }
+  .ark-control .ark-conversation > .ark-message { margin-top: 18px; }
+  .ark-control .ark-conversation > .ark-message.ark-user { max-width: 90%; }
+  .ark-control .ark-conversation > .ark-message:not(.ark-user) { padding: 14px 15px 16px; }
+}

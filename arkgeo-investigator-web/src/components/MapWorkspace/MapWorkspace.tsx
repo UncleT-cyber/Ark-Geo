@@ -18,6 +18,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { LayerControl } from '../map/LayerControl';
+import {
+  classifyGeoEvidence,
+  geoEvidenceLegend,
+  type GeoEvidenceKind,
+} from './geoEvidence';
 
 export interface MapPoint {
   lat: number;
@@ -34,6 +39,8 @@ export interface MapPoint {
   bounding?: boolean;
   /** Render a spinning cell-sector radar sweep (Tier-2 unlocked). */
   sector?: boolean;
+  /** Backend consensus tier (metadata|telemetry|vision|consensus) — provenance hint. */
+  tier?: string;
 }
 
 interface GeofencePolygon {
@@ -121,6 +128,12 @@ function confidenceColor(conf: number): string {
   return '#EF4444';
 }
 
+/** Marker glyph colour encodes PROVENANCE, not just confidence (C.3):
+ *  verified fixes are solid cyan; inferred locations are hollow amber. */
+function evidenceColor(kind: GeoEvidenceKind, conf: number): string {
+  return kind === 'inferred' ? '#F59E0B' : confidenceColor(conf);
+}
+
 // Custom ARKGEO tactical marker — cyan diamond with dark border
 function createTacticalMarker(
   lat: number,
@@ -128,16 +141,27 @@ function createTacticalMarker(
   color: string,
   thumbnailUrl?: string,
   onCopyCoords?: () => void,
+  evidence?: { kind: GeoEvidenceKind; label: string; basis: string },
 ): L.Marker {
   const thumbHtml = thumbnailUrl
     ? `<img src="${thumbnailUrl}" style="width:60px;height:60px;object-fit:cover;border-radius:4px;border:1px solid #38BDF8;" />`
     : `<div style="width:60px;height:60px;background:#0D1421;border-radius:4px;border:1px solid #334155;display:flex;align-items:center;justify-content:center;color:#64748B;font-size:11px;letter-spacing:1px;">NO IMAGE</div>`;
 
+  const kind = evidence?.kind ?? 'inferred';
+  const badgeColor = kind === 'verified' ? '#22C55E' : '#F59E0B';
+  const badgeLabel = evidence?.label ?? 'INFERRED LOCATION';
+  const badgeHtml = `
+      <div style="padding:6px 10px;border-bottom:1px solid #1E293B;display:flex;align-items:center;gap:6px;">
+        <span style="width:7px;height:7px;border-radius:50%;background:${badgeColor};box-shadow:0 0 6px ${badgeColor};"></span>
+        <span style="color:${badgeColor};font-size:10px;font-weight:700;letter-spacing:1px;">${badgeLabel}</span>
+      </div>
+      ${evidence?.basis ? `<div style="padding:6px 10px;color:#94A3B8;font-size:10px;line-height:1.4;border-bottom:1px solid #1E293B;">${evidence.basis}</div>` : ''}`;
+
   const popupHtml = `
     <div class="arkgeo-blueprint-popup" style="
       font-family: 'JetBrains Mono', monospace;
       min-width: 200px; padding: 0; overflow: hidden;
-      background: #0B0C10; border: 1px solid #38BDF8; border-radius: 6px;
+      background: #0B0C10; border: 1px solid ${badgeColor}; border-radius: 6px;
     ">
       <div style="
         background: #0D1421; padding: 6px 10px; border-bottom: 1px solid #1E293B;
@@ -146,6 +170,7 @@ function createTacticalMarker(
         <div style="width:8px;height:8px;background:#38BDF8;border-radius:50%;box-shadow:0 0 6px #38BDF8;"></div>
         <span style="color:#38BDF8;font-size:11px;font-weight:700;letter-spacing:1px;">THE ARK TARGET</span>
       </div>
+      ${badgeHtml}
       <div style="padding:10px;display:flex;gap:10px;align-items:flex-start;">
         ${thumbHtml}
         <div style="display:flex;flex-direction:column;gap:4px;">
@@ -178,8 +203,8 @@ function createTacticalMarker(
       <div style="
         position: absolute; top: 0; left: 0;
         width: 28px; height: 28px;
-        background: ${color};
-        border: 2px solid #0B0C10;
+        background: ${kind === 'inferred' ? 'transparent' : color};
+        border: 2px ${kind === 'inferred' ? 'dashed' : 'solid'} ${kind === 'inferred' ? color : '#0B0C10'};
         border-radius: 50% 50% 50% 0;
         transform: rotate(-45deg);
         box-shadow: 0 0 12px ${color}99, 0 2px 6px rgba(0,0,0,0.6);
@@ -187,7 +212,7 @@ function createTacticalMarker(
       <div style="
         position: absolute; top: 11px; left: 11px;
         width: 6px; height: 6px;
-        background: #0B0C10;
+        background: ${kind === 'inferred' ? color : '#0B0C10'};
         border-radius: 50%;
       "></div>
     </div>`,
@@ -344,7 +369,6 @@ export function MapWorkspace({ points, history, candidatePoints, onCopyCoords, o
         .bindTooltip(`CANDIDATE · ${pt.label || pt.source || 'OCR'}\n${pt.lat.toFixed(4)}, ${pt.lon.toFixed(4)}`)
         .addTo(layer);
     });
-
     // A malformed point (missing/non-finite coordinate) is dropped rather than
     // plotted or flown to — an unproject of NaN crashes the whole Leaflet map.
     const validPoints = (points || []).filter((p) => p && isFiniteCoord(p.lat, p.lon));
@@ -456,13 +480,15 @@ export function MapWorkspace({ points, history, candidatePoints, onCopyCoords, o
       );
       cellMarker.addTo(layer);
     } else {
-      const markerColor = confidenceColor(activePoint.confidence);
+      const evidence = classifyGeoEvidence(activePoint.source, activePoint.tier);
+      const markerColor = evidenceColor(evidence.kind, activePoint.confidence);
       const marker = createTacticalMarker(
         activePoint.lat,
         activePoint.lon,
         markerColor,
         activePoint.thumbnailUrl,
         onCopyCoords,
+        evidence,
       );
       marker.addTo(layer);
     }
@@ -501,6 +527,16 @@ export function MapWorkspace({ points, history, candidatePoints, onCopyCoords, o
         style={{ width: '100%', height: '100%', background: 'var(--bg-darkest)' }}
       />
       {mapReady && <LayerControl map={mapRef.current} />}
+      {/* C.3 — provenance legend: the map never lets an inferred pin read as a
+          confirmed fix. Persistent, not tooltip-only. */}
+      <div className="ark-geo-legend" role="note" aria-label="Geolocation evidence provenance">
+        {geoEvidenceLegend().map((item) => (
+          <div className="ark-geo-legend-row" key={item.kind} title={item.detail}>
+            <span className={`ark-geo-legend-dot ark-geo-legend-dot-${item.kind}`} aria-hidden="true" />
+            <span className="ark-geo-legend-label">{item.label}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

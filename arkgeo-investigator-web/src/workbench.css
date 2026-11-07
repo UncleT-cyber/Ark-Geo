@@ -733,6 +733,29 @@ body.ark-desktop .ark-tab { -webkit-app-region: no-drag; }
   padding: 6px 10px;
   pointer-events: none;
 }
+
+/* --- C.3 geolocation provenance legend ----------------------------------- */
+.ark-geo-legend {
+  position: absolute;
+  right: 10px;
+  bottom: 22px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(11, 12, 16, 0.86);
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  padding: 6px 9px;
+  pointer-events: none;
+}
+.ark-geo-legend-row { display: flex; align-items: center; gap: 7px; }
+.ark-geo-legend-dot {
+  width: 9px; height: 9px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); flex: none;
+}
+.ark-geo-legend-dot-verified { background: var(--success); }
+.ark-geo-legend-dot-inferred { background: transparent; border: 1.5px dashed #F59E0B; }
+.ark-geo-legend-label { color: var(--text-secondary); font-size: 10px; letter-spacing: .04em; }
 .map-location-banner-dot {
   width: 8px;
   height: 8px;

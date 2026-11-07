@@ -135,6 +135,7 @@ export function SpatialTool({ result, thumbnailUrl, onCopyCoords, onGeofenceViol
         radius: result.consensus.search_radius_meters,
         confidence: result.consensus.confidence_score,
         source: result.source,
+        tier: result.consensus.tier_used,
         label: `${result.address?.display_name || result.consensus.primary_country || 'Location'} · ${Math.round(result.consensus.confidence_score * 100)}%`,
         thumbnailUrl,
       }]

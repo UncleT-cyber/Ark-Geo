@@ -240,7 +240,9 @@ def _ports_approved(ports: list[int], scope: dict) -> tuple[bool, str]:
 # Public API
 # --------------------------------------------------------------------------- #
 def check(tool_id: str, args: Optional[dict] = None,
-          path: Optional[str] = None) -> ScopeDecision:
+          path: Optional[str] = None, *,
+          scope: Optional[dict] = None,
+          require_scope: bool = False) -> ScopeDecision:
     """Decide whether ``tool_id`` may run with ``args`` under the active scope.
 
     Returns :class:`ScopeDecision`. ``allowed=True`` when no fixture exists
@@ -249,7 +251,15 @@ def check(tool_id: str, args: Optional[dict] = None,
     exists but is broken/expired, or when no fixture exists and the call
     names a network target (fail-closed).
     """
-    state, scope = _load(path)
+    # Multi-user callers must pass an engagement resolved from their
+    # authenticated identity. Never silently fall back to a process-global
+    # lab fixture when require_scope=True.
+    if require_scope:
+        state = "ok" if isinstance(scope, dict) else "missing"
+    elif scope is not None:
+        state = "ok" if isinstance(scope, dict) else "invalid"
+    else:
+        state, scope = _load(path)
     if state == "missing":
         # Fail-closed: no scope fixture configured — deny target-bearing
         # calls. Non-target calls (evidence hashing, system diagnostics,
@@ -273,6 +283,13 @@ def check(tool_id: str, args: Optional[dict] = None,
         )
     assert scope is not None
     eng_id = scope.get("engagement_id")
+
+    # A caller supplying a user-scoped engagement must not be able to
+    # substitute an empty/invalid scope and receive an implicit grant.
+    if require_scope and (not eng_id or not isinstance(scope.get("approved_addresses"), list)
+                          or not isinstance(scope.get("approved_ports"), list)):
+        return ScopeDecision(False, "user engagement is missing required authorization fields",
+                             rule_id="scope.invalid")
 
     targets = _iter_targets(args or {})
     if not targets:

@@ -10,6 +10,7 @@ import { ChevronDown, ChevronRight, FileSearch, BarChart3, Check } from 'lucide-
 import type { AnalyzeResponse, ConsistencyFinding, ReverseSearchResult } from '../../../types';
 import { api } from '../../../api';
 import { ExifViewer } from '../../ExifViewer/ExifViewer';
+import { classifyMetadataState } from './metadataAbsence';
 
 interface FileForensicsToolProps {
   result: AnalyzeResponse;
@@ -90,6 +91,14 @@ export function FileForensicsTool({ result, thumbnailUrl, file }: FileForensicsT
 
   const deep = result.deep_metadata;
   const groups = deep?.groups || {};
+  const fieldCount = Object.values(groups).reduce(
+    (n, entries) => n + (Array.isArray(entries) ? entries.length : 0), 0);
+  const metadataState = classifyMetadataState({
+    metadataStatus: result.metadata_status,
+    exifMissing: result.exif_missing,
+    deepAvailable: deep?.available,
+    fieldCount,
+  });
   const findings = result.consistency_findings || [];
   const hasFindings = findings.length > 0;
   const hexBytes = result.image_sha256.slice(0, 64).match(/.{1,2}/g) || [];
@@ -127,15 +136,22 @@ export function FileForensicsTool({ result, thumbnailUrl, file }: FileForensicsT
 
         {tab === 'metadata' && (
           <div className="tool-metadata">
-            {!deep?.available ? (
-              <div className="tool-empty">
-                <div className="tool-empty-icon"><FileSearch className="w-8 h-8" /></div>
-                <div className="tool-empty-title">ExifTool Unavailable</div>
-                <div className="tool-empty-text">{deep?.error || 'ExifTool is not installed on the server.'}</div>
+            {/* C.4 — state the metadata situation explicitly. An empty tree,
+                stripped EXIF, and an unavailable tool are different findings. */}
+            {metadataState.kind !== 'PRESENT' && (
+              <div className={`meta-absence meta-absence-${metadataState.tone}`}>
+                <div className="meta-absence-head">
+                  <span className={`meta-absence-dot meta-absence-dot-${metadataState.tone}`} aria-hidden="true" />
+                  <span className="meta-absence-label">{metadataState.label}</span>
+                  {metadataState.significant && <span className="meta-absence-flag">FINDING</span>}
+                </div>
+                <div className="meta-absence-body">{metadataState.explanation}</div>
+                {metadataState.kind === 'TOOL_UNAVAILABLE' && deep?.error && (
+                  <div className="meta-absence-detail">{deep.error}</div>
+                )}
               </div>
-            ) : Object.keys(groups).length === 0 ? (
-              <div className="tool-empty"><div className="tool-empty-text">No metadata fields discovered.</div></div>
-            ) : (
+            )}
+            {!deep?.available ? null : Object.keys(groups).length === 0 ? null : (
               Object.entries(groups).map(([name, entries]) => (
                 <MetadataGroup key={name} name={name} entries={entries as any} />
               ))

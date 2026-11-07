@@ -20,3 +20,12 @@ This branch introduces an explicit per-request `scope=` / `require_scope=True` i
 
 ## Security note
 The explicit `scope` argument is an **internal server-side API**, not an authorization token. Caller identity and ownership checks are prerequisites before any user-controlled scope may be passed. Existing production execution must not be considered secured by this foundation alone.
+
+## Phase 2 implementation (committed)
+- `app/agent/engagement_store.py`: local SQLite-backed engagement persistence with UUID identifiers, owner isolation, target/port validation, UTC validity window, and revocation.
+- `tests/test_engagement_store.py`: owner isolation, scope evaluation, revocation, invalid targets and expired records.
+- This registry is not yet exposed via HTTP and has no trusted principal resolver. It is intentionally **not wired** into live execution.
+- SQLite local files are **not** a production multi-instance database. Production needs shared persistence, migrations, backups, and operational controls.
+- No self-declared user ID or client-submitted engagement JSON may be trusted as authorization.
+- A scope snapshot resolved at planning time is insufficient: re-resolve immediately before each network tool invocation so revocation takes effect.
+- Current `ToolCallingLoop.run` calls `authorize(tool_id)` without tool arguments; before wiring target enforcement, update this boundary to pass exact parsed arguments and fail closed on malformed arguments. Other executor paths require the same review.

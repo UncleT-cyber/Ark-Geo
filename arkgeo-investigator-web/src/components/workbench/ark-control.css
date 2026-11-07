@@ -1396,3 +1396,34 @@
 @media (prefers-reduced-motion: reduce) {
   .ark-control .ark-idle .ark-idle-logo { animation: none; will-change: auto; filter: none; }
 }
+
+
+/* Animated welcome emblem: orbital light, luminous breathing and gentle lift.
+   The approved image remains untouched; effects live in CSS only. */
+.ark-control .ark-idle .ark-idle-logo {
+  position: relative;
+  isolation: isolate;
+  animation: ark-welcome-alive 3.6s ease-in-out infinite;
+  will-change: transform, filter;
+}
+@keyframes ark-welcome-alive {
+  0%, 100% { transform: translateY(2px) scale(.97); filter: drop-shadow(0 0 8px rgba(18,238,239,.45)) drop-shadow(0 0 16px rgba(104,65,255,.26)); }
+  50% { transform: translateY(-5px) scale(1.055); filter: drop-shadow(0 0 20px rgba(18,238,239,.9)) drop-shadow(0 0 36px rgba(104,65,255,.68)); }
+}
+/* Moving conic light halo is drawn behind the image, not over its lettering. */
+.ark-control .ark-idle:has(> .ark-idle-logo)::before {
+  content: "";
+  position: absolute;
+  width: 148px;
+  height: 148px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0deg, transparent 190deg, rgba(30,238,241,.04) 230deg, rgba(24,234,245,.58) 268deg, rgba(123,67,255,.72) 300deg, transparent 340deg);
+  filter: blur(15px);
+  animation: ark-welcome-orbit 3.8s linear infinite;
+  pointer-events: none;
+}
+@keyframes ark-welcome-orbit { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .ark-control .ark-idle .ark-idle-logo { animation: none; will-change: auto; transform: none; }
+  .ark-control .ark-idle:has(> .ark-idle-logo)::before { animation: none; opacity: .2; }
+}

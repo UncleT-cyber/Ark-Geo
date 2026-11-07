@@ -59,6 +59,8 @@ from app.services.bus import bus, publish_tool_start, publish_tool_output, publi
 # no longer decides precedence itself.
 _DEFAULT_MODEL_ENV = os.environ.get("ARKGEO_CAI_MODEL")
 
+logger = logging.getLogger(__name__)
+
 # Persona is bound dynamically from the central prompts module — never hardcoded
 # inside individual tool functions.
 from app.engine.prompts import advisory_system, autonomous_system  # noqa: E402
@@ -70,6 +72,9 @@ ITER_BUDGET = 50          # operational tasks may run up to 50 seamless steps
 CHECKPOINT = 15           # HITL continuation prompt every 15 steps
 COMPACT_KEEP = 14         # keep only the last N messages (context compaction)
 HITL_TIMEOUT = 30         # seconds to wait for operator approval
+
+# Bounded provider-retry defaults (retries are OFF unless the operator opts in).
+_RETRY_BASE_SLEEP_S = 2.0
 
 # The live ARK engine runs with the authorized-investigator capability set:
 # read evidence, call external providers, query external sources. Active /
@@ -307,9 +312,69 @@ async def _litellm_kwargs(session: SessionState, system: str, with_tools: bool, 
     return kw
 
 
+async def _acompletion(kw: dict):
+    """``litellm.acompletion`` with bounded, opt-in retry on a genuine throttle.
+
+    Retries are **disabled by default** (``ARKGEO_PROVIDER_RETRY=0`` or the admin
+    ``provider_retry_enabled`` flag) so a run can never silently multiply spend.
+    When enabled, only genuine rate limits are retried — never a credit or
+    authentication failure (retrying those cannot succeed). The attempt count is
+    bounded by ``ARKGEO_PROVIDER_RETRY_MAX`` (default 2), the wait honours a
+    ``Retry-After`` header when present and otherwise uses exponential backoff
+    capped at ``ARKGEO_PROVIDER_RETRY_MAX_SLEEP_S``.
+    """
+    from app.engine.provider_errors import classify_exception, is_retryable, retry_after_seconds
+
+    attempts = 0
+    while True:
+        try:
+            return await litellm.acompletion(**kw)
+        except Exception as exc:  # noqa: BLE001 — classify, then re-raise verbatim
+            code = classify_exception(exc)
+            if attempts >= _retry_max() or not is_retryable(code):
+                raise
+            attempts += 1
+            delay = retry_after_seconds(exc)
+            if delay is None:
+                delay = min(_RETRY_BASE_SLEEP_S * (2 ** (attempts - 1)), _retry_max_sleep())
+            logger.warning(
+                "Provider throttled (%s); retry %d/%d in %.1fs",
+                code, attempts, _retry_max(), delay,
+            )
+            await asyncio.sleep(delay)
+
+
+def _retry_enabled() -> bool:
+    """Operator opt-in for bounded retries (default OFF)."""
+    env = os.environ.get("ARKGEO_PROVIDER_RETRY")
+    if env is not None:
+        return env.strip().lower() in ("1", "true", "yes", "on")
+    try:
+        from app.services.admin_store import admin_store
+        return bool(admin_store.get_gateway().get("provider_retry_enabled", False))
+    except Exception:  # noqa: BLE001 — config read must never break a run
+        return False
+
+
+def _retry_max() -> int:
+    if not _retry_enabled():
+        return 0
+    try:
+        return max(0, min(int(os.environ.get("ARKGEO_PROVIDER_RETRY_MAX", "2")), 5))
+    except (TypeError, ValueError):
+        return 2
+
+
+def _retry_max_sleep() -> float:
+    try:
+        return max(0.0, float(os.environ.get("ARKGEO_PROVIDER_RETRY_MAX_SLEEP_S", "20")))
+    except (TypeError, ValueError):
+        return 20.0
+
+
 async def _stream_completion(kw: dict):
     """Yield ('token', text) for an advisory (no-tool) streaming completion."""
-    response = await litellm.acompletion(**kw)
+    response = await _acompletion(kw)
     async for chunk in response:
         if not chunk.choices:
             continue
@@ -321,7 +386,7 @@ async def _stream_completion(kw: dict):
 
 async def _complete(kw: dict):
     """Non-streaming completion — reliable structured tool calls (Ollama)."""
-    resp = await litellm.acompletion(**kw)
+    resp = await _acompletion(kw)
     msg = resp.choices[0].message
     calls = []
     seen = set()

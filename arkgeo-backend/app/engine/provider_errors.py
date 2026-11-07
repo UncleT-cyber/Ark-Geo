@@ -16,6 +16,7 @@ operator-safe message.
 from __future__ import annotations
 
 import re
+from typing import Optional
 
 from app.agent.provider_tools import InvalidToolSchema
 
@@ -117,6 +118,43 @@ def public_error(exc: Exception) -> dict[str, str]:
     else:
         code = classify_code(getattr(exc, "status_code", None), _provider_body(exc))
     return {"event": "error", "code": code, "message": _MESSAGES[code]}
+
+
+def classify_exception(exc: Exception) -> str:
+    """Stable code for an exception, reading status + body (never headers)."""
+    if isinstance(exc, InvalidToolSchema):
+        return "invalid_tool_schema"
+    return classify_code(getattr(exc, "status_code", None), _provider_body(exc))
+
+
+def retry_after_seconds(exc: Exception) -> Optional[float]:
+    """Seconds to wait from a ``Retry-After`` header, or ``None``.
+
+    Reads only the ``Retry-After`` header — never the body or any credential
+    header — and accepts both the delta-seconds and HTTP-date forms. Any parse
+    failure returns ``None`` so the caller falls back to exponential backoff.
+    """
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None) if response is not None else None
+    if not headers:
+        return None
+    try:
+        raw = headers.get("retry-after") or headers.get("Retry-After")
+    except Exception:  # noqa: BLE001 — header read must never raise
+        return None
+    if raw is None:
+        return None
+    try:
+        return max(0.0, float(str(raw).strip()))
+    except (TypeError, ValueError):
+        pass
+    try:
+        from email.utils import parsedate_to_datetime
+        when = parsedate_to_datetime(str(raw))
+        import time as _time
+        return max(0.0, when.timestamp() - _time.time())
+    except Exception:  # noqa: BLE001 — malformed date falls back to backoff
+        return None
 
 
 # Codes that a caller may safely retry. A credit failure is never retryable

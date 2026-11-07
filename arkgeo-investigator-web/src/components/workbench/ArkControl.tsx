@@ -10,6 +10,7 @@ import { useDictation } from './useDictation';
 import { type ImageReview } from './useImageReview';
 import { BottomPanel } from './BottomPanel';
 import { ExecutionActivity, InvestigationReport } from './ExecutionPanels';
+import { ArkMarkdown } from './ArkMarkdown';
 import {
   summarizeRun, toolDisplayName,
   type ExecutionEvent,
@@ -338,6 +339,16 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
       if (typeof v === 'string' && v) return v;
     }
     return null;
+  }
+
+  const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
+  async function copyMessage(text: string, index: number) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedMessageIndex(index);
+    } catch {
+      setCopiedMessageIndex(null);
+    }
   }
 
   async function copyRunId() {
@@ -815,7 +826,6 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
     <aside className={`ark-control ${expanded ? 'ark-control-expanded' : ''}`} aria-label="ARK Control" data-expanded={expanded || undefined}>
       <header className="ark-dock-header">
         <div className="ark-dock-identity">
-          <strong className="ark-dock-brand">ARK</strong>
           <small className="ark-dock-mode">
             <span className={`ark-dock-mode-dot ${execution.lifecycle_status !== 'idle' ? 'ark-dock-mode-dot-live' : ''}`} aria-hidden="true" />
             {execution.lifecycle_status === 'running' ? 'Executing'
@@ -880,13 +890,14 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
       <div className="ark-conversation-region">
         <div className="ark-output-scroll ark-conversation" ref={feed} role="log" aria-label="Investigation conversation">
         {(execution.run_id || execution.lifecycle_status !== 'idle') && (
-          <ExecutionActivity
-            execution={execution}
-          />
-        )}
-        {execution.lifecycle_status !== 'idle' && execution.lifecycle_status !== 'running'
-          && execution.lifecycle_status !== 'approval_pending' && execution.events.length > 0 && (
-          <InvestigationReport summary={summarizeRun(execution)} onCopyRunId={() => void copyRunId()} />
+          <details className="ark-run-details">
+            <summary>Execution details · {execution.lifecycle_status === 'idle' ? 'Ready' : execution.lifecycle_status.replace(/_/g, ' ')}</summary>
+            <ExecutionActivity execution={execution} />
+            {execution.lifecycle_status !== 'idle' && execution.lifecycle_status !== 'running'
+              && execution.lifecycle_status !== 'approval_pending' && execution.events.length > 0 && (
+              <InvestigationReport summary={summarizeRun(execution)} onCopyRunId={() => void copyRunId()} />
+            )}
+          </details>
         )}
 
         {reviewOpen && imageReview && (
@@ -920,12 +931,20 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
         )}
 
         <>
-            {!messages.length && <div className="ark-idle"><strong>ARK</strong><span className="ark-idle-sub">Cybersecurity Super Intelligence</span><p>Ask a question, attach evidence, or run a command to begin an investigation.</p></div>}
+            {!messages.length && <div className="ark-idle"><img className="ark-idle-logo" src="/branding/ark/ark-emblem-256.png" alt="ARK emblem" width={112} height={112} /><span className="ark-idle-sub">Cybersecurity Super Intelligence</span><p>Ask a question, attach evidence, or run a command to begin an investigation.</p></div>}
             {messages.map((message, i) => <article key={i} className={message.user ? 'ark-message ark-user' : 'ark-message'}>
-              {message.image && <img src={message.image} alt="Attached evidence" />}
-              {message.text || (busy && i === messages.length - 1 && !message.approval && !message.tools?.length ? 'Working…' : '')}
-              {message.tools?.map(tool => <span key={tool} className="ark-tool-chip">{tool}</span>)}
-              {message.approval && <div>Approve {message.approval.tool}? <button disabled={approving} onClick={() => void approve(i, message.approval!, true)}>Approve</button> <button disabled={approving} onClick={() => void approve(i, message.approval!, false)}>Deny</button></div>}
+              <div className="ark-message-heading">
+                <span className="ark-message-speaker">{message.user ? 'You' : 'ARK'}</span>
+                {message.text && <button className="ark-message-copy" type="button" onClick={() => void copyMessage(message.text, i)} aria-label={`Copy ${message.user ? 'your message' : 'ARK response'}`} title="Copy message">
+                  {copiedMessageIndex === i ? <><CheckCircle size={13} /> Copied</> : <><Copy size={13} /> Copy</>}
+                </button>}
+              </div>
+              <div className="ark-message-content">
+                {message.image && <img src={message.image} alt="Attached evidence" />}
+                {message.user ? message.text : <ArkMarkdown text={message.text || (busy && i === messages.length - 1 && !message.approval && !message.tools?.length ? 'Working…' : '')} />}
+                {message.tools?.map(tool => <span key={tool} className="ark-tool-chip">{tool}</span>)}
+                {message.approval && <div>Approve {message.approval.tool}? <button disabled={approving} onClick={() => void approve(i, message.approval!, true)}>Approve</button> <button disabled={approving} onClick={() => void approve(i, message.approval!, false)}>Deny</button></div>}
+              </div>
             </article>)}
         </>
         </div>
@@ -1038,7 +1057,7 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
                   onClick={() => setModelMenuOpen(v => !v)}
                   title={effectiveModelId ? `${models.find(m => m.id === effectiveModelId)?.name || effectiveModelId} · ${effectiveModelId}` : 'Select model'}
                 >
-                  <span className="ark-model-name">{effectiveModelId ? models.find(m => m.id === effectiveModelId)?.name || effectiveModelId : 'Select model'}</span>
+                  <span className="ark-model-name">{effectiveModelId ? (models.find(m => m.id === effectiveModelId)?.name || effectiveModelId.split('/').pop() || effectiveModelId).replace(/[-_]/g, ' ').replace(/:free$/i, '').replace(/\b\w/g, c => c.toUpperCase()) : 'Choose model'}</span>
                   <ChevronDown size={14} />
                 </button>
                 {modelMenuOpen && (

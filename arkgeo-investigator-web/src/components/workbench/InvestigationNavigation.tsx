@@ -61,8 +61,8 @@ export function InvestigationNavigation(props: Props) {
         </button>
       </div>
       <div className="investigation-nav-scroll">
-        <nav className="investigation-nav-group" aria-label="System overview">
-          {!props.collapsed && <div className="investigation-nav-label">System</div>}
+        <nav className="investigation-nav-group" aria-label="Operations">
+          {!props.collapsed && <div className="investigation-nav-label">Operations</div>}
           <button type="button" className="investigation-nav-item" aria-label="System Overview" title="System Overview"
             aria-current={props.domain === 'system' ? 'page' : undefined} onClick={props.onSystem}>
             <Gauge size={16} /><span>System Overview</span>

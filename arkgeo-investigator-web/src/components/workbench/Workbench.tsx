@@ -1,5 +1,5 @@
 /** The ARK investigation workbench and its shared workspace context. */
-import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { adminAuth, api, ensureBaseUrl, type AiStatusResponse } from '../../api';
 import type { AnalyzeResponse, NextStep } from '../../types';
 import { TopBar, type ApiKeyStatus } from './TopBar';
@@ -479,6 +479,27 @@ function WorkbenchInner() {
     }
     tabApi.createTab({ title: 'System Overview', domain: 'system' });
   }, [tabApi]);
+
+  // Default landing destination: a window with no active investigation opens
+  // the System Overview (a system-level destination) rather than dropping
+  // straight into Image Intelligence. A restored investigation is left
+  // untouched, and the overview stays an ordinary, closable tab afterwards.
+  // Runs once, before paint, so the first frame is already the overview.
+  const landed = useRef(false);
+  useLayoutEffect(() => {
+    if (landed.current) return;
+    landed.current = true;
+    // `activeTab` (resolved), not `activeId`: a stale active id whose tab was
+    // closed must still land on the overview rather than an orphaned image view.
+    if (tabApi.activeTab) return;
+    const existing = tabApi.tabs.find(t => t.domain === 'system');
+    const id = existing ? existing.id : tabApi.createTab({ title: 'System Overview', domain: 'system' });
+    // Seed the workspace selection now so the domain resolves to 'system' on
+    // the first render instead of flashing the Image Intelligence landing.
+    invStore.ensure(id, { workspace: { ...defaultWorkspaceSelection(), domain: 'system', neutral: false } });
+    if (existing) tabApi.selectTab(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** Map a live CAI event to a notification + tab run-status update. */
   const handleInvestigationEvent = useCallback((ev: Record<string, any>) => {

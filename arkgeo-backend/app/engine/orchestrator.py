@@ -40,20 +40,23 @@ import litellm
 from app.agent.policy_guard import PolicyGuard
 from app.agent.provider_tools import ProviderTools, valid_provider_name
 from app.agent.schemas import ApprovalTier
+from app.agent import schemas as S
 from app.agent.unified_registry import unified_registry
 from app.agent import engagement_scope
+from app.engine import run_control
 from app.engine.router import classify_intent, IntentMode, SpecialistRole
 from app.engine.cai.registry import get_workspace_system
 from app.engine.evidence_recorder import EvidenceRecorder
 from app.services.ai_gateway import get_active_litellm_model
+from app.services.entitlements import ANONYMOUS, Principal
+from app.services.session_store import session_store, RUN_COMPLETED, RUN_FAILED, RUN_CANCELLED
 from app.services.bus import bus, publish_tool_start, publish_tool_output, publish_agent_status
 
 
-# The active model is the single source of truth from the Admin Console /
-# Settings panel (central config). We no longer hardcode a default provider
-# here — CAI resolves it dynamically via ``get_active_litellm_model`` so every
-# workspace uses the same AI. ``ARKGEO_CAI_MODEL`` remains only as an explicit
-# escape hatch that overrides the admin selection when set.
+# The active model is resolved by the model-selection authority
+# (``app.services.model_router``): explicit selection → saved user preference →
+# administrator default, then availability + entitlement checks.  This module
+# no longer decides precedence itself.
 _DEFAULT_MODEL_ENV = os.environ.get("ARKGEO_CAI_MODEL")
 
 # Persona is bound dynamically from the central prompts module — never hardcoded
@@ -67,6 +70,17 @@ ITER_BUDGET = 50          # operational tasks may run up to 50 seamless steps
 CHECKPOINT = 15           # HITL continuation prompt every 15 steps
 COMPACT_KEEP = 14         # keep only the last N messages (context compaction)
 HITL_TIMEOUT = 30         # seconds to wait for operator approval
+
+# The live ARK engine runs with the authorized-investigator capability set:
+# read evidence, call external providers, query external sources. Active /
+# subprocess capabilities (exec:shell) are intentionally NOT granted here, so
+# network-scanning tools stay denied and are never advertised to the model —
+# those belong to the dedicated, explicitly-authorized RE-ACT chain.
+_CAI_PERMISSIONS = [
+    S.Permission.READ_EVIDENCE,
+    S.Permission.QUERY_EXTERNAL,
+    S.Permission.CALL_PROVIDER,
+]
 
 
 @dataclass
@@ -85,6 +99,14 @@ class SessionState:
     auto_approve_announced: bool = False
     last_execution_id: Optional[str] = None
     case_context: Optional[dict] = None
+    principal: Principal = field(default_factory=lambda: ANONYMOUS)
+    # Backend-owned execution mode: "auto" (agent sequences permitted tools
+    # inside the active scope) or "manual" (operator approves every
+    # target-directed security-sensitive dispatch). Set from the request, never
+    # inferred from the prompt.
+    execution_mode: str = run_control.MODE_AUTO
+    # The model that executed the most recent run (for run metadata / status).
+    resolved_model: Optional[str] = None
 
 
 _SESSIONS: dict[str, SessionState] = {}
@@ -109,7 +131,41 @@ def get_session(session_id: str, **kw) -> SessionState:
             s.workspace = kw["workspace"]
         if kw.get("case_context"):
             s.case_context = kw["case_context"]
+        if kw.get("principal"):
+            s.principal = kw["principal"]
     return _SESSIONS[session_id]
+
+
+def _session_zero_retention(session: SessionState) -> bool:
+    ctx = session.case_context or {}
+    return bool(ctx.get("zero_retention"))
+
+
+def _persist_session_meta(session: SessionState) -> None:
+    """Mirror durable session metadata. Never raises into the run loop."""
+    try:
+        session_store.upsert_session(
+            session.session_id,
+            principal_subject=getattr(session.principal, "subject", None),
+            principal_org=getattr(session.principal, "organization", None),
+            case_id=session.case_id,
+            workspace=session.workspace,
+            role=session.role,
+            model=session.model,
+            zero_retention=_session_zero_retention(session),
+        )
+    except Exception:  # persistence must never break execution
+        logging.getLogger(__name__).warning("session meta persist failed", exc_info=True)
+
+
+def _persist_message(session: SessionState, role: str, content: Optional[str], *, tool_call_id: Optional[str] = None) -> None:
+    try:
+        session_store.append_message(
+            session.session_id, role, content,
+            tool_call_id=tool_call_id, zero_retention=_session_zero_retention(session),
+        )
+    except Exception:
+        logging.getLogger(__name__).warning("message persist failed", exc_info=True)
 
 
 def approve(session_id: str, decision: bool, allow_always: bool = False, execution_id: Optional[str] = None) -> bool:
@@ -171,6 +227,11 @@ def _adapter_available(tool_id: str) -> bool:
     binary = _CAI_TOOL_BINARIES.get(tool_id)
     if binary and not shutil.which(binary):
         return False
+    if tool_id.startswith("browser."):
+        # Never advertise managed-browser tools when Playwright/Chromium is
+        # absent — the model must not be offered a capability that cannot run.
+        from app.tools.web_intel import browser as _browser
+        return bool(_browser.availability().get("available"))
     if tool_id == "siem.query":
         return bool(os.environ.get("ARKGEO_SIEM_URL"))
     provider_keys = {
@@ -217,33 +278,31 @@ def _compact(session: SessionState) -> None:
         session.messages = session.messages[start:]
 
 
+def _resolve_model(session: SessionState):
+    """Resolve the executing model via the model-selection authority."""
+    from app.services.model_router import resolve
+
+    return resolve(session.principal, session.model)
+
+
 async def _litellm_kwargs(session: SessionState, system: str, with_tools: bool, stream: bool, provider_tools: ProviderTools | None = None) -> dict:
     msgs = [{"role": "system", "content": system}] + session.messages
-    # Single source of truth: resolve the active model from central config
-    # (Admin Console / Settings). An explicit per-session pin in session.model
-    # (e.g. /model) still wins; otherwise we inherit the admin selection.
-    if _DEFAULT_MODEL_ENV:
-        resolved = get_active_litellm_model(model_override=_DEFAULT_MODEL_ENV)
-    elif session.model:
-        if "/" in session.model:
-            prov, mdl = session.model.split("/", 1)
-        else:
-            prov, mdl = None, session.model
-        resolved = get_active_litellm_model(provider_override=prov, model_override=mdl)
-    else:
-        resolved = get_active_litellm_model()
+    # explicit selection → saved user preference → administrator default, then
+    # availability + entitlement checks.  ``ARKGEO_CAI_MODEL`` is folded into
+    # the admin layer inside the router, so an explicit user choice still wins.
+    resolved = _resolve_model(session)
     kw = {
-        "model": resolved["model"],
+        "model": resolved.kwargs["model"],
         "messages": msgs,
-        "api_base": resolved.get("api_base", "http://localhost:11434"),
-        "api_key": resolved.get("api_key", "ollama"),
+        "api_base": resolved.kwargs.get("api_base", "http://localhost:11434"),
+        "api_key": resolved.kwargs.get("api_key", "ollama"),
         "stream": stream,
         "temperature": 0.2,
     }
     if with_tools and provider_tools and provider_tools.schemas:
         kw["tools"] = provider_tools.schemas
         kw["tool_choice"] = "auto"
-        if resolved["model"].startswith("openrouter/"):
+        if resolved.kwargs["model"].startswith("openrouter/"):
             kw["extra_body"] = {"provider": {"require_parameters": True}}
     return kw
 
@@ -309,6 +368,54 @@ async def _await_approval(session: SessionState, tool_id: str) -> bool:
 
 
 # _run_cai_tool removed — CAI tools are now in the unified registry.
+
+
+def _drain_steering(control: "run_control.RunControl | None", session: SessionState) -> list[dict]:
+    """Deliver pending steering at a safe checkpoint.
+
+    Each instruction is acknowledged honestly. A steering instruction that
+    changes the requested permissions is **deferred** for the operator to
+    approve explicitly rather than silently widening authority; one that names
+    a new target is revalidated against the engagement scope by the normal
+    per-call scope check on the next dispatch (it cannot bypass it).
+    """
+    if control is None:
+        return []
+    pending = control.drain_steering()
+    events: list[dict] = []
+    for msg in pending:
+        text = (msg.message or "").strip()
+        lowered = text.lower()
+        # Steering must never silently escalate authority.
+        escalates = any(
+            kw in lowered
+            for kw in ("sudo", "root", "privilege", "escalat", "bypass",
+                       "disable", "unrestricted", "all ports", "any target")
+        )
+        if not text:
+            msg.status = "rejected"
+            msg.reason = "empty instruction"
+        elif escalates:
+            msg.status = "deferred"
+            msg.reason = ("instruction would change the requested permissions — "
+                          "operator confirmation required before it is applied")
+        else:
+            msg.status = "accepted"
+            msg.reason = "delivered to the active run at a safe checkpoint"
+            # Accepted guidance is injected as an operator turn so the model
+            # sees it at the next model call, without replacing the objective.
+            session.messages.append({
+                "role": "user",
+                "content": f"[OPERATOR STEERING — {msg.instruction_type}] {text}",
+            })
+        events.append({
+            "type": "steer_ack",
+            "steering_id": msg.id,
+            "status": msg.status,
+            "reason": msg.reason,
+            "message": text,
+        })
+    return events
 
 
 async def _dispatch_tool(tool_id: str, args: dict) -> dict:
@@ -482,12 +589,82 @@ def _build_case_context_block(ctx: dict) -> str:
 
 
 async def run(session: SessionState, prompt: str, workspace: Optional[str] = None, *, advisory_only: bool = False) -> AsyncIterator[dict]:
-    """Execute a prompt through ARK-CAI and stream SSE-style event dicts."""
+    """Execute a prompt through ARK and stream SSE-style event dicts.
+
+    Durable persistence is layered here, not in ``_run``: session metadata is
+    mirrored, the run lifecycle (running → completed/failed) is tracked, and
+    every message the loop appends is written to the session store. A browser
+    refresh or backend restart therefore preserves the transcript and an
+    accurate run status. Zero-retention sessions persist metadata only.
+    """
+    _persist_session_meta(session)
+    run_id: Optional[str] = None
+    control: Optional[run_control.RunControl] = None
+    status = RUN_COMPLETED
+    error: Optional[str] = None
+    persisted = len(session.messages)  # messages already durable before this run
+    try:
+        async for ev in _run(session, prompt, workspace=workspace, advisory_only=advisory_only):
+            etype = ev.get("type")
+            if etype == "run_created" and not run_id:
+                run_id = ev.get("run_id")
+                # The control surface was registered by _run at the same run id;
+                # capture it so the terminal status is reflected honestly.
+                control = run_control.get(run_id)
+                try:
+                    session_store.start_run(run_id, session.session_id, session.model)
+                except Exception:
+                    logging.getLogger(__name__).warning("start_run persist failed", exc_info=True)
+            # Persist only messages appended since the last flush (the loop may
+            # emit several events per message; the cursor keeps it idempotent).
+            # Context compaction can drop older messages mid-run; already-durable
+            # content is safe, so just re-anchor the cursor.
+            if persisted > len(session.messages):
+                persisted = len(session.messages)
+            while persisted < len(session.messages):
+                msg = session.messages[persisted]
+                _persist_message(session, msg.get("role", "assistant"),
+                                 msg.get("content"), tool_call_id=msg.get("tool_call_id"))
+                persisted += 1
+            if etype == "error":
+                status = RUN_FAILED
+                error = ev.get("message")
+            if etype == "run_cancelled":
+                status = RUN_CANCELLED
+                if control is not None:
+                    control.cancelled = True
+                    control.status = "cancelled"
+            yield ev
+    except Exception as exc:
+        status = RUN_FAILED
+        error = str(exc)
+        raise
+    finally:
+        if control is not None and control.status == "running":
+            control.status = "completed" if status == RUN_COMPLETED else "failed"
+        if run_id:
+            try:
+                refs = [session.last_execution_id] if session.last_execution_id else []
+                session_store.finish_run(run_id, status, error=error, evidence_refs=refs)
+            except Exception:
+                logging.getLogger(__name__).warning("finish_run persist failed", exc_info=True)
+        if run_id:
+            run_control.unregister(run_id)
+
+
+async def _run(session: SessionState, prompt: str, workspace: Optional[str] = None, *, advisory_only: bool = False) -> AsyncIterator[dict]:
+    """Execute a prompt through ARK and stream SSE-style event dicts."""
     if workspace:
         session.workspace = workspace
     session.messages.append({"role": "user", "content": prompt})
 
     recorder = EvidenceRecorder()
+
+    # Register the operator control surface for this run before any work: stop,
+    # steering and the backend-owned execution mode are consulted by the loop at
+    # safe checkpoints. Removed by :func:`run` when the run reaches a terminal
+    # state.
+    control = run_control.register(recorder.run_id, session.session_id, session.execution_mode)
 
     # Emit run creation event
     recorder.record_event(
@@ -499,6 +676,36 @@ async def run(session: SessionState, prompt: str, workspace: Optional[str] = Non
         prompt=prompt,
     )
     yield {"type": "run_created", "run_id": recorder.run_id, "session_id": session.session_id}
+
+    # Model-selection authority: resolve BEFORE any work.  A denied or
+    # unavailable selection fails here with a clear, non-silent error; the
+    # requested/resolved model, provider, credential source and routing reason
+    # are recorded in run metadata (never a secret value).
+    model_resolution = _resolve_model(session)
+    if not model_resolution.ok:
+        recorder.record_event(
+            "model_denied",
+            source="model_router",
+            **model_resolution.metadata(),
+            error_code=model_resolution.error_code,
+            error=model_resolution.error,
+        )
+        recorder.record_run_failed(model_resolution.error or "model unavailable")
+        yield {
+            "type": "error",
+            "code": model_resolution.error_code or "model_unavailable",
+            "message": model_resolution.error,
+            "model": model_resolution.metadata(),
+            "run_id": recorder.run_id,
+        }
+        return
+    session.resolved_model = model_resolution.resolved_model
+    recorder.record_event("model_resolved", source="model_router", **model_resolution.metadata())
+    yield {
+        "type": "model_resolved",
+        "run_id": recorder.run_id,
+        "model": model_resolution.metadata(),
+    }
 
     # Local command interception - check if this is a local command before classification
     from app.engine.local_command_router import process_input
@@ -544,9 +751,10 @@ async def run(session: SessionState, prompt: str, workspace: Optional[str] = Non
         _active_model_str = "unknown"
     _runtime_block = (
         "\n\n[ARK RUNTIME STATE — authoritative application-owned context]\n"
-        "Application identity: THE ARK Integrated Security Environment, powered by the CAI "
-        "cybersecurity agent framework. You are THE ARK's cybersecurity assistant; the "
-        "underlying model/provider is a separate transport layer and not the application identity.\n"
+        "Application identity: THE ARK Integrated Security Environment. You are ARK — "
+        "Cybersecurity Super Intelligence, THE ARK's sole user-facing intelligence, running on "
+        "the CAI cybersecurity agent framework as an internal engine; the underlying "
+        "model/provider is a separate transport layer and not the application identity.\n"
         "Execution mode: " + ("ADVISORY — no tools are bound this turn"
                               if is_advisory else "AUTONOMOUS — tools are bound this turn as function schemas") + "\n"
         "Active specialist role: " + str(session.role) + "\n"
@@ -583,10 +791,32 @@ async def run(session: SessionState, prompt: str, workspace: Optional[str] = Non
 
     # AUTONOMOUS adaptive ReAct loop
     domains = _task_domains(prompt, decision.suggested_role, session.workspace)
-    guard = PolicyGuard()
+    guard = PolicyGuard(granted_permissions=_CAI_PERMISSIONS)
+    yield {
+        "type": "execution_mode",
+        "mode": control.mode if control else run_control.MODE_AUTO,
+        "run_id": recorder.run_id,
+        "session_id": session.session_id,
+    }
     iteration = 0
     while iteration < ITER_BUDGET:
         iteration += 1
+        # Safe checkpoint: honour an operator stop before starting new work.
+        if control is not None and control.stop_requested:
+            recorder.record_event("run_cancelled", source="operator",
+                                  reason=control.stop_reason, stop_type=control.stop_type)
+            yield {
+                "type": "run_cancelled",
+                "run_id": recorder.run_id,
+                "session_id": session.session_id,
+                "reason": control.stop_reason or "operator requested stop",
+                "stop_type": control.stop_type,
+                "preserved_evidence": True,
+            }
+            return
+        # Safe checkpoint: deliver any pending steering instruction.
+        for ev in _drain_steering(control, session):
+            yield {**ev, "run_id": recorder.run_id, "session_id": session.session_id}
         yield {"type": "status", "stage": "calling_model", "turn": iteration}
         publish_agent_status("calling_model", {"turn": iteration}, session.workspace, session.session_id)
         provider_tools = _select_provider_tools(domains, guard, prompt)
@@ -675,39 +905,58 @@ async def run(session: SessionState, prompt: str, workspace: Optional[str] = Non
             eid = uuid.uuid4().hex
             risk = tool.risk
             needs_policy_approval = policy is not None and policy.approval_tier != ApprovalTier.AUTO
-            if risk in _RISK_GATED or needs_policy_approval:
+            # Manual execution mode is a standing operator directive: every
+            # target-directed security-sensitive dispatch is confirmed at a
+            # checkpoint. A pure/read-only dispatch (no network target and not
+            # security-sensitive) still runs so Manual mode does not turn
+            # evidence inspection into a wall of approvals. Manual always
+            # prompts — the "Allow Always" grant cannot bypass an explicit
+            # manual directive (switch to Automatic to restore seamless
+            # execution).
+            target_directed = bool(engagement_scope._iter_targets(args))
+            manual_gate = (
+                control is not None
+                and run_control.is_manual(control.mode)
+                and (target_directed or risk in _RISK_GATED)
+            )
+            prompt_required = (
+                manual_gate
+                or needs_policy_approval
+                or (risk in _RISK_GATED and not session.auto_approve)
+            )
+            if prompt_required:
+                if needs_policy_approval:
+                    session.pre_approval = None
+                recorder.record_approval_required(tool_id, args, eid, str(risk))
+                yield {
+                    "type": "hitl", "tool": tool_id, "args": args,
+                    "function": {"name": tool_id, "arguments": args},
+                    "execution_id": eid, "risk": risk,
+                    "mode": "manual" if manual_gate else "auto",
+                    "session_id": session.session_id,
+                    "prompt": f"ARK: wants to run {tool_id}({args}). Approve? [Y/n/A]",
+                    "run_id": recorder.run_id,
+                }
+                allowed = await _await_approval(session, tool_id)
+            else:
                 # "Allow Always" — operator granted continuous auto-approval for
-                # this investigation turn; skip the prompt and run without asking.
-                if session.auto_approve and not needs_policy_approval:
-                    if not session.auto_approve_announced:
-                        yield {
-                            "type": "status", "stage": "auto_approve",
-                            "text": "ARK-CAI: Auto-approval session grant enabled by operator.",
-                            "session_id": session.session_id,
-                        }
-                        session.auto_approve_announced = True
-                    allowed = True
-                else:
-                    if needs_policy_approval:
-                        session.pre_approval = None
-                    recorder.record_approval_required(tool_id, args, eid, str(risk))
+                # this investigation turn; run without asking.
+                if session.auto_approve and not session.auto_approve_announced:
                     yield {
-                        "type": "hitl", "tool": tool_id, "args": args,
-                        "function": {"name": tool_id, "arguments": args},
-                        "execution_id": eid, "risk": risk,
+                        "type": "status", "stage": "auto_approve",
+                        "text": "ARK: Auto-approval session grant enabled by operator.",
                         "session_id": session.session_id,
-                        "prompt": f"ARK: wants to run {tool_id}({args}). Approve? [Y/n/A]",
-                        "run_id": recorder.run_id,
                     }
-                    allowed = await _await_approval(session, tool_id)
-                if not allowed:
-                    yield {"type": "status", "stage": "tool_denied", "tool": tool_id}
-                    session.messages.append({
-                        "role": "tool", "tool_call_id": tc["id"],
-                        "content": json.dumps({"status": "denied", "tool": tool_id,
-                                               "error": "operator denied execution"}),
-                    })
-                    continue
+                    session.auto_approve_announced = True
+                allowed = True
+            if not allowed:
+                yield {"type": "status", "stage": "tool_denied", "tool": tool_id}
+                session.messages.append({
+                    "role": "tool", "tool_call_id": tc["id"],
+                    "content": json.dumps({"status": "denied", "tool": tool_id,
+                                           "error": "operator denied execution"}),
+                })
+                continue
             # Dynamic, frontend-parseable tool-call event (OpenAI-style
             # `function` envelope). The SSE listener renders the RUNNING badge
             # from this structure without any hardcoded target/regex matching.
@@ -780,6 +1029,20 @@ async def run(session: SessionState, prompt: str, workspace: Optional[str] = Non
                 "role": "tool", "tool_call_id": tc["id"],
                 "content": json.dumps(result, default=str)[:8000],
             })
+            # Safe checkpoint: a stop requested while the tool was executing is
+            # honoured now that the tool has returned — no new work starts.
+            if control is not None and control.stop_requested:
+                recorder.record_event("run_cancelled", source="operator",
+                                      reason=control.stop_reason, stop_type=control.stop_type)
+                yield {
+                    "type": "run_cancelled",
+                    "run_id": recorder.run_id,
+                    "session_id": session.session_id,
+                    "reason": control.stop_reason or "operator requested stop",
+                    "stop_type": control.stop_type,
+                    "preserved_evidence": True,
+                }
+                return
 
         _compact(session)
 

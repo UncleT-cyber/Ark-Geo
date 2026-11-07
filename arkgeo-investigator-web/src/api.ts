@@ -16,6 +16,7 @@ import type {
   PhoneOsintResponse, PhoneAnalysisResponse,
   AgentTaskResponse,
   AgentCapabilities,
+  BrowserSessionInfo,
   ReactRequestPayload, ReactSession, ReactSessionSummary,
   GeoCandidate, ReverseSearchResult,
 } from './types';
@@ -39,6 +40,28 @@ const client = axios.create({
   baseURL: BASE_URL,
   timeout: 120000,
 });
+
+/**
+ * Operator principal id — a stable, per-browser identifier sent as
+ * `X-ARK-Principal`. It scopes the user's model preference, BYOK credentials
+ * and entitlements on the server. This is a development stand-in for a real
+ * authenticated session (see app/services/principal.py); it is never an admin
+ * secret and never touches the admin token store.
+ */
+const PRINCIPAL_KEY = 'ark_principal_id';
+function getPrincipalId(): string {
+  try {
+    let id = localStorage.getItem(PRINCIPAL_KEY);
+    if (!id) {
+      id = 'op-' + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem(PRINCIPAL_KEY, id);
+    }
+    return id;
+  } catch {
+    return 'op-local';
+  }
+}
+client.defaults.headers.common['X-ARK-Principal'] = getPrincipalId();
 
 /**
  * Ensure BASE_URL is resolved for Electron (synchronous preload should have
@@ -974,11 +997,11 @@ export const api = {
   },
 
   // ----------------------------------------------------------------------- //
-  // ARK-CAI unified engine — embedded CAI as THE ARK's AI core.
+  // ARK unified engine — embedded CAI as THE ARK's AI core.
   // ----------------------------------------------------------------------- //
 
   /**
-   * ARK-CAI unified engine — intent classification preview.
+   * ARK unified engine — intent classification preview.
    */
   async caiClassify(prompt: string): Promise<{
     mode: string; confidence: number; suggested_role: string; detected_target: string | null; rationale: string;
@@ -988,7 +1011,7 @@ export const api = {
   },
 
   /**
-   * ARK-CAI unified slash command catalogue (autocomplete source).
+   * ARK unified slash command catalogue (autocomplete source).
    * `prefix` includes the leading slash, e.g. "/a".
    */
   async caiCommands(prefix?: string): Promise<Array<{
@@ -1007,7 +1030,7 @@ export const api = {
   },
 
   /**
-   * Stream an ARK-CAI task as Server-Sent Events over a POST body.
+   * Stream an ARK task as Server-Sent Events over a POST body.
    * `onEvent` receives each parsed SSE payload; `onDone` fires on stream end.
    * Falls back gracefully — the caller decides how to render each event.
    */
@@ -1031,7 +1054,7 @@ export const api = {
       }),
       signal,
     });
-    if (!resp.ok) throw new Error(`ARK-CAI request failed (HTTP ${resp.status}).`);
+    if (!resp.ok) throw new Error(`ARK request failed (HTTP ${resp.status}).`);
     if (!resp.body) { onDone?.(); return; }
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -1055,14 +1078,14 @@ export const api = {
   },
 
   /**
-   * ARK-CAI TERMINAL — stream a task through THE ARK's real CAI orchestrator
+   * ARK TERMINAL — stream a task through THE ARK's real CAI orchestrator
    * (advisory Path A / autonomous Path B with HITL-gated real tool execution).
    * Event contract: status / token / tool / hitl / final / error / done.
    * `onEvent` receives each parsed SSE payload; `onDone` fires on stream end.
    */
   async caiTerminalStream(
     prompt: string,
-    opts: { sessionId?: string; model?: string; caseId?: string; workspace?: string; caseContext?: any },
+    opts: { sessionId?: string; model?: string; caseId?: string; workspace?: string; caseContext?: any; executionMode?: 'auto' | 'manual' },
     onEvent: (ev: any) => void,
     onDone?: () => void,
     signal?: AbortSignal,
@@ -1078,10 +1101,11 @@ export const api = {
         case_id: opts.caseId ?? null,
         workspace: opts.workspace ?? null,
         case_context: opts.caseContext ?? null,
+        execution_mode: opts.executionMode ?? null,
       }),
       signal,
     });
-    if (!resp.ok) throw new Error(`ARK-CAI request failed (HTTP ${resp.status}).`);
+    if (!resp.ok) throw new Error(`ARK request failed (HTTP ${resp.status}).`);
     if (!resp.body) { onDone?.(); return; }
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
@@ -1112,9 +1136,93 @@ export const api = {
     return data;
   },
 
-  /** List available AI models grouped by provider. */
-  async caiModels(): Promise<{ providers: Record<string, any[]>; active_model: string; active_provider: string }> {
+  // ------------------------------------------------------------------------ #
+  // Managed browser — operator transport (screenshot-first, CAI-driven)
+  // ------------------------------------------------------------------------ #
+  /** Managed-browser runtime availability plus live sessions. */
+  async browserStatus(): Promise<{ available: boolean; reason: string | null; executable: string | null; engine: string; sessions: BrowserSessionInfo[] }> {
+    const { data } = await client.get('/browser/status');
+    return data;
+  },
+
+  /** Operator-initiated managed session (optional start URL). */
+  async browserOpen(url = '', investigationId = '', caseId = ''): Promise<BrowserSessionInfo> {
+    const { data } = await client.post('/browser/sessions', { url, investigation_id: investigationId, case_id: caseId });
+    return data;
+  },
+
+  /** One managed browser session's state. */
+  async browserSession(sessionId: string): Promise<BrowserSessionInfo> {
+    const { data } = await client.get(`/browser/sessions/${encodeURIComponent(sessionId)}`);
+    return data;
+  },
+
+  /** Take or return operator control of a managed browser session. */
+  async browserControl(sessionId: string, action: 'take' | 'return'): Promise<BrowserSessionInfo> {
+    const { data } = await client.post(`/browser/sessions/${encodeURIComponent(sessionId)}/control`, { action });
+    return data;
+  },
+
+  /** Operator navigation within a managed browser session. */
+  async browserNavigate(sessionId: string, url: string): Promise<any> {
+    const { data } = await client.post(`/browser/sessions/${encodeURIComponent(sessionId)}/navigate`, { url });
+    return data;
+  },
+
+  /** Operator history move — back / forward / reload on the active tab. */
+  async browserHistory(sessionId: string, action: 'back' | 'forward' | 'reload'): Promise<any> {
+    const { data } = await client.post(`/browser/sessions/${encodeURIComponent(sessionId)}/history`, { action });
+    return data;
+  },
+
+  /** Close a managed browser session. */
+  async browserClose(sessionId: string): Promise<any> {
+    const { data } = await client.post(`/browser/sessions/${encodeURIComponent(sessionId)}/close`);
+    return data;
+  },
+
+  /** URL of the most recent captured frame (PNG) for a session. */
+  async browserFrameUrl(sessionId: string): Promise<string> {
+    const url = await ensureBaseUrl();
+    return `${url}/browser/sessions/${encodeURIComponent(sessionId)}/frame`;
+  },
+
+  /** Capture a fresh frame and return its URL (cache-busted). */
+  async browserCaptureUrl(sessionId: string): Promise<string> {
+    const url = await ensureBaseUrl();
+    return `${url}/browser/sessions/${encodeURIComponent(sessionId)}/capture?t=${Date.now()}`;
+  },
+
+  /** Normalized model catalogue (Phase 4) for the picker. */
+  async caiModels(): Promise<{
+    providers: Record<string, any[]>;
+    active_model: string;
+    selected_model: string | null;
+    principal: string;
+  }> {
     const { data } = await client.get('/cai/models');
+    return data;
+  },
+
+  /** The model that will actually run for this caller, with routing provenance. */
+  async caiActiveModel(): Promise<{
+    model: string; provider: string; model_name: string; ok: boolean;
+    requested_model: string | null; resolved_model: string | null;
+    credential_source: string; routing_reason: string; error: string | null;
+  }> {
+    const { data } = await client.get('/cai/model');
+    return data;
+  },
+
+  /** The caller's saved model preference (independent of the admin default). */
+  async caiGetPreference(): Promise<{ selected_model: string | null; model_pins: Record<string, string> }> {
+    const { data } = await client.get('/user/model/preference');
+    return data;
+  },
+
+  /** Persist the caller's explicit model selection (Phase 2 rule 2). */
+  async caiSetPreference(selectedModel: string | null): Promise<any> {
+    const { data } = await client.put('/user/model/preference', { selected_model: selectedModel });
     return data;
   },
 
@@ -1124,9 +1232,30 @@ export const api = {
     return data;
   },
 
+  /** Queue a message for execution after the current run completes. */
+  async caiEnqueue(body: { session_id: string; prompt: string; conversation_id?: string; run_id?: string }): Promise<any> {
+    const { data } = await client.post('/cai/queue', body);
+    return data;
+  },
+
   /** Submit a steering instruction for an active run. */
-  async caiSteer(body: { session_id: string; run_id: string; message: string; instruction_type?: string }): Promise<any> {
+  async caiSteer(body: { session_id: string; run_id?: string; message: string; instruction_type?: string }): Promise<any> {
     const { data } = await client.post('/cai/steer', body);
+    return data;
+  },
+
+  /** Set the backend-owned execution mode (auto | manual) for a session/run. */
+  async caiMode(body: { session_id: string; run_id?: string; mode: 'auto' | 'manual' }): Promise<any> {
+    const { data } = await client.post('/cai/mode', body);
+    return data;
+  },
+
+  /** Live control state of a run (stop / steer / mode). */
+  async caiRun(sessionId: string, runId?: string): Promise<{
+    session_id: string; run_id?: string; active: boolean; status: string;
+    mode: string | null; stop_requested: boolean; steering: any[];
+  }> {
+    const { data } = await client.get('/cai/run', { params: { session_id: sessionId, run_id: runId ?? null } });
     return data;
   },
 
@@ -1139,12 +1268,6 @@ export const api = {
   /** Pin a model for a session. */
   async caiModelSwitch(body: { session_id: string; model: string }): Promise<any> {
     const { data } = await client.post('/cai/model/switch', body);
-    return data;
-  },
-
-  /** Fetch the live active model (single source of truth from backend settings). */
-  async caiActiveModel(): Promise<{ model: string; provider: string; model_name: string }> {
-    const { data } = await client.get('/cai/model');
     return data;
   },
 
@@ -1238,6 +1361,38 @@ export const api = {
   /** THE ARK unified tool & agent registry (all workspaces). */
   async caiRegistry(): Promise<any> {
     const { data } = await client.get('/cai/registry');
+    return data;
+  },
+
+  /** Durable investigation sessions for this caller (restoration surface). */
+  async caiSessions(limit = 50): Promise<{
+    sessions: Array<{
+      session_id: string; case_id: string | null; workspace: string | null;
+      role: string | null; model: string | null; zero_retention: boolean;
+      created_at: string; updated_at: string;
+      last_run_id: string | null; last_run_status: string | null;
+    }>;
+  }> {
+    const { data } = await client.get('/cai/sessions', { params: { limit } });
+    return data;
+  },
+
+  /** One durable investigation session: metadata, transcript, runs, evidence refs. */
+  async caiSession(sessionId: string): Promise<{
+    ok: boolean;
+    session?: any;
+    messages?: Array<{ role: string; content: string; tool_call_id?: string }>;
+    runs?: any[];
+    evidence_refs?: string[];
+    transcript_available?: boolean;
+    error?: string;
+  }> {
+    const { data } = await client.get(`/cai/sessions/${encodeURIComponent(sessionId)}`);
+    return data;
+  },
+
+  async caiDeleteSession(sessionId: string): Promise<any> {
+    const { data } = await client.delete(`/cai/sessions/${encodeURIComponent(sessionId)}`);
     return data;
   },
 };

@@ -29,6 +29,19 @@ from app.services.agent.stream import task_streams
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+# Strong references to in-flight background streams. ``asyncio.create_task``
+# returns a task the event loop only holds a weak reference to; without this
+# set the task can be garbage-collected mid-run and the stream would silently
+# stall (only the SSE keepalives would arrive).
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_background(coro) -> asyncio.Task:
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
+
 
 @router.get("/agent/capabilities")
 async def get_capabilities():
@@ -96,7 +109,7 @@ async def run_agent_task(body: AgentTaskRequest):
     """
     if body.stream:
         stream = task_streams.create()
-        asyncio.create_task(_run_streamed(body, stream.task_id))
+        _spawn_background(_run_streamed(body, stream.task_id))
         return {"task_id": stream.task_id, "stream": True, "status": "running"}
     result = await agent_loop.run(
         prompt=body.prompt,

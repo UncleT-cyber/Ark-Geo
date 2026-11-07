@@ -123,11 +123,15 @@ export function ByokPanel() {
       </div>
 
       <div className="ark-cs-card" style={{ borderColor: 'rgba(245, 158, 11, 0.25)' }}>
-        <div className="ark-cs-card-title" style={{ color: '#FCD34D' }}><ShieldAlert className="w-3.5 h-3.5" /> SECURITY NOTE</div>
+        <div className="ark-cs-card-title" style={{ color: '#FCD34D' }}><ShieldAlert className="w-3.5 h-3.5" /> SECURITY NOTE — READ THIS</div>
         <p style={{ fontSize: 11.5, color: '#9CA3AF', lineHeight: 1.6, margin: 0 }}>
-          Keys are obfuscated in your browser's local storage — usable against casual reading but NOT strong
-          encryption. The backend never logs or echoes them. For production-grade protection store keys in a
-          password manager / hardware vault and leave the Admin system key as the source of truth.
+          Personal keys are stored <strong style={{ color: '#FCD34D' }}>obfuscated, not encrypted</strong>, in this
+          browser's local storage (<span className="mono">ark.byok.vault.v1</span>). The obfuscation only deters
+          casual reading of devtools — it is <strong style={{ color: '#FCD34D' }}>not</strong> strong cryptography and
+          gives no protection against anyone with access to this machine or its disk. Keys are per-device and are
+          never written to our servers, logs, analytics or error messages; they leave this device only inside an
+          explicit connection test. For production-grade protection use a hardware vault / OS keychain and keep the
+          platform key as the source of truth.
         </p>
       </div>
 

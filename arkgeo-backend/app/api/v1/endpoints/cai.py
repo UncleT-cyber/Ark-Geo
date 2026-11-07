@@ -1,4 +1,4 @@
-"""ARK-CAI unified engine endpoint (REAL execution back-end).
+"""ARK unified engine endpoint (REAL execution back-end).
 
 Exposes THE ARK's CAI orchestrator over HTTP:
 * ``POST /cai/stream``     — SSE stream of advisory / autonomous execution.
@@ -17,17 +17,22 @@ import logging
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.engine import run_control
 from app.engine import slash
 from app.engine.provider_errors import public_error
 from app.engine.orchestrator import SessionState, get_session, approve, run as orchestrate
 from app.engine.router import IntentMode, SpecialistRole, classify_intent
 from app.services.ai_gateway import ai_gateway, get_active_litellm_model, get_active_model_string, CLOUD_PROVIDERS
 from app.services.admin_store import admin_store
+from app.services.entitlements import ANONYMOUS
+from app.services.principal import principal_from_request
+from app.models.model_registry import lookup as _lookup
 from app.services.bus import bus
+from app.services.session_store import session_store
 
 router = APIRouter(prefix="/cai")
 logger = logging.getLogger(__name__)
@@ -44,6 +49,8 @@ class StreamRequest(BaseModel):
     case_id: Optional[str] = None
     workspace: Optional[str] = None
     case_context: Optional[dict] = None
+    # Backend-owned execution mode for this run: "auto" | "manual".
+    execution_mode: Optional[str] = None
 
 
 class ClassifyRequest(BaseModel):
@@ -62,6 +69,8 @@ class TerminalRequest(BaseModel):
     case_id: Optional[str] = None
     workspace: Optional[str] = None
     case_context: Optional[dict] = None
+    # Backend-owned execution mode for this run: "auto" | "manual".
+    execution_mode: Optional[str] = None
 
 
 class ApproveRequest(BaseModel):
@@ -74,9 +83,9 @@ class ApproveRequest(BaseModel):
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _resolve_session(session_id: Optional[str], model: Optional[str], case_id: Optional[str], role: Optional[str], workspace: Optional[str] = None):
+def _resolve_session(session_id: Optional[str], model: Optional[str], case_id: Optional[str], role: Optional[str], workspace: Optional[str] = None, principal=None):
     sid = session_id or str(uuid.uuid4())
-    s = get_session(sid, model=model or None, case_id=case_id or None, workspace=workspace or None)
+    s = get_session(sid, model=model or None, case_id=case_id or None, workspace=workspace or None, principal=principal)
     if model:
         s.model = model
     if case_id:
@@ -85,6 +94,8 @@ def _resolve_session(session_id: Optional[str], model: Optional[str], case_id: O
         s.role = role
     if workspace:
         s.workspace = workspace
+    if principal is not None:
+        s.principal = principal
     return s, sid
 
 
@@ -119,188 +130,127 @@ async def tools(domain: Optional[str] = None):
 
 
 @router.get("/model")
-async def active_model():
-    """Live active model (single source of truth from central config).
+async def active_model(request: Request):
+    """The model that will actually run for THIS caller.
 
-    Surfaces the provider/model string the CAI engine and every workspace are
-    currently bound to, so clients (terminal banner, settings panel) can show
-    exactly what the Admin Console selected — no hardcoded defaults.
+    Resolved through the model-selection authority: an explicit/saved user
+    selection wins over the administrator default, and the response discloses
+    the requested vs. resolved model plus the routing reason.
     """
-    info = get_active_litellm_model()
-    model_string = info.get("model", "unknown")
-    provider = model_string.split("/", 1)[0] if "/" in model_string else model_string
+    from app.services.model_router import resolve
+
+    principal = principal_from_request(request)
+    resolution = resolve(principal)
+    meta = resolution.metadata()
+    model_string = resolution.resolved_model or resolution.requested_model or "unknown"
+    provider = resolution.provider or (model_string.split("/", 1)[0] if "/" in model_string else model_string)
     return {
         "model": model_string,
         "provider": provider,
-        "model_name": model_string.split("/", 1)[1] if "/" in model_string else model_string,
+        "model_name": resolution.model_name or model_string,
+        "ok": resolution.ok,
+        "requested_model": meta["requested_model"],
+        "resolved_model": meta["resolved_model"],
+        "credential_source": meta["credential_source"],
+        "routing_reason": meta["routing_reason"],
+        "error": resolution.error,
+        "principal": principal.subject,
     }
 
 
 @router.get("/models")
-async def list_models():
-    """List available AI models grouped by provider.
+async def list_models(request: Request):
+    """Normalized model catalogue for the picker (Phase 4).
 
-    Discovers providers from the ARK AI Gateway configuration and
-    Ollama runtime. Returns provider-grouped model metadata including
-    name, provider, pricing class, tool-calling capability, context
-    window, availability, and local-vs-remote execution mode.
+    Every entry is a normalized record: stable id, provider, display name, logo,
+    availability (+reason), pricing, context/token limits and the modality/tool
+    capabilities we can actually justify.  A capability we have not verified is
+    reported as ``"unknown"`` — never invented.  ``availability`` reflects both
+    provider configuration and the caller's entitlement, so a model the user may
+    not run is marked unavailable with a reason.
     """
-    from app.services.ai_gateway import ai_gateway
+    from app.models.model_registry import PROVIDER_MODELS, PROVIDER_IDENTITY
+    from app.services.model_router import _availability
+    from app.services.user_preferences import user_preferences
 
-    # Build provider-grouped model catalogue from the gateway config
-    providers = {}
+    principal = principal_from_request(request)
 
-    # Helper to determine if a model supports tool calling
-    def _supports_tools(model_name: str) -> bool:
-        name = model_name.lower()
-        # Most modern instruct/chat models support tool calling
-        tool_capable_patterns = [
-            "qwen2.5-coder", "qwen2.5", "qwen3", "codestral", "deepseek-coder",
-            "llama-3.1", "llama-3.2", "llama-3.3", "claude-3", "claude-3.5",
-            "gpt-4", "gpt-4o", "nemotron", "nvidia/nemotron", "mistral",
-            "mixtral", "dbrx", "command-r", "aya", "solar",
-        ]
-        return any(p in name for p in tool_capable_patterns)
+    # Administrator policy gates which providers appear at all.
+    gw = admin_store.get_gateway()
+    allowed_providers = (gw.get("entitlements", {}) or {}).get("default", {}).get(
+        "allowed_providers", ["*"]) if isinstance(gw.get("entitlements"), dict) else ["*"]
+    import fnmatch
 
-    # Helper to estimate context window
-    def _context_window(model_name: str) -> int:
-        name = model_name.lower()
-        context_map = {
-            "qwen2.5-coder:3b": 131072,
-            "qwen2.5-coder:7b": 131072,
-            "qwen2.5-coder:14b": 131072,
-            "qwen2.5-coder:32b": 131072,
-            "nemotron-3.5-lightning": 131072,
-            "nemotron-3.5-super-vl": 131072,
-            "gpt-4o": 128000,
-            "gpt-4o-mini": 128000,
-            "claude-3-5-sonnet": 200000,
-            "claude-3-haiku": 200000,
-            "gemini-2.0-flash": 1000000,
-            "gemini-2.5-flash": 1000000,
-            "llama-3.1-8b": 131072,
-            "llama-3.1-70b": 131072,
-            "llama-3.2-3b": 131072,
-            "llama-3.2-11b": 131072,
-        }
-        for key, size in context_map.items():
-            if key in name:
-                return size
-        return 32768  # Default conservative estimate
+    def _provider_permitted(pid: str) -> bool:
+        return any(fnmatch.fnmatch(pid, pat) for pat in (allowed_providers or ["*"]))
 
-    # Ollama local models
-    ollama_models = ai_gateway._ollama_models_sync()
-    if ollama_models:
-        providers["Ollama (Local)"] = []
-        for model_name in ollama_models:
-            is_vision = bool(_VISION_NAME_RE.search(model_name)) if '_VISION_NAME_RE' in dir(ai_gateway) else False
-            providers["Ollama (Local)"].append({
-                "id": f"ollama/{model_name}",
-                "name": model_name,
-                "provider": "ollama",
-                "provider_group": "local",
-                "pricing": "free",
-                "pricing_detail": "Local execution — no API cost",
-                "tool_calling": _supports_tools(model_name),
-                "context_window": _context_window(model_name),
-                "available": True,
-                "local": True,
-                "vision": is_vision,
-            })
+    prefs = user_preferences.get(principal.namespace())
+    selected = prefs.get("selected_model")
 
-    # Cloud providers from config
-    for provider in CLOUD_PROVIDERS:
-        key = ai_gateway._cloud_key(provider)
-        if not key:
+    providers: dict[str, list] = {}
+    order = ["openrouter", "openai", "anthropic", "gemini", "huggingface", "ollama"]
+
+    # Ollama local runtime (live discovery — no invented models).
+    try:
+        ollama_tags = ai_gateway._ollama_models_sync()
+    except Exception:
+        ollama_tags = []
+    local_records = []
+    for name in ollama_tags:
+        rec = _lookup("ollama", name)
+        avail, reason, _src = _availability(principal, "ollama", name)
+        rec.availability = "available" if avail else "unavailable"
+        rec.availability_reason = reason
+        local_records.append(rec)
+    if local_records:
+        providers["Ollama (Local)"] = local_records
+
+    for provider in order:
+        if provider == "ollama" or provider not in PROVIDER_MODELS:
             continue
-        gw = admin_store.get_gateway()
-        gw_providers = gw.get("providers", {})
-        prov_cfg = gw_providers.get(provider, {})
-        provider_configured = prov_cfg.get("configured", bool(key))
-        model_field = {
-            "openai": "openai_model",
-            "anthropic": "anthropic_model",
-            "gemini": "gemini_model",
-            "openrouter": "openrouter_model",
-            "huggingface": "huggingface_model",
-        }.get(provider)
-        configured_model = ""
-        if model_field:
-            configured_model = (gw.get(model_field) or "").strip()
+        if not _provider_permitted(provider):
+            continue
+        configured = bool(ai_gateway._cloud_key(provider))
+        records = []
+        for model in PROVIDER_MODELS[provider]:
+            rec = _lookup(provider, model)
+            avail, reason, _src = _availability(principal, provider, model)
+            if not configured:
+                avail, reason = False, f"{PROVIDER_IDENTITY.get(provider, {}).get('name', provider)} is not configured."
+            rec.availability = "available" if avail else "unavailable"
+            rec.availability_reason = reason
+            records.append(rec)
+        display = PROVIDER_IDENTITY.get(provider, {}).get("name", provider.capitalize())
+        providers[display] = records
 
-        # Determine available models for this provider
-        provider_models = []
-        if provider == "openrouter":
-            # OpenRouter exposes many models; list common ones
-            provider_models = [
-                "openai/gpt-4o",
-                "openai/gpt-4o-mini",
-                "openai/gpt-4-turbo",
-                "anthropic/claude-3.5-sonnet",
-                "anthropic/claude-3-haiku",
-                "google/gemini-2.0-flash",
-                "google/gemini-2.5-flash",
-                "meta-llama/llama-3.1-8b-instruct",
-                "meta-llama/llama-3.1-70b-instruct",
-                "nvidia/nemotron-3.5-lightning",
-                "nvidia/nemotron-3.5-super-vl",
-                "qwen/qwen2.5-coder:3b",
-                "qwen/qwen2.5-coder:7b",
-                "cohere/north-mini-code:free",
-            ]
-        elif provider == "openai":
-            provider_models = [
-                "gpt-4o",
-                "gpt-4o-mini",
-                "gpt-4-turbo",
-                "gpt-3.5-turbo",
-            ]
-        elif provider == "anthropic":
-            provider_models = [
-                "claude-3-5-sonnet-latest",
-                "claude-3-haiku-latest",
-                "claude-3-opus-latest",
-            ]
-        elif provider == "gemini":
-            provider_models = [
-                "gemini-2.0-flash",
-                "gemini-2.5-flash",
-                "gemini-1.5-pro",
-            ]
-        elif provider == "huggingface":
-            provider_models = [
-                "Qwen/Qwen2.5-Coder-7B-Instruct",
-                "Qwen/Qwen2.5-Coder-32B-Instruct",
-                "Qwen/Qwen2.5-VL-7B-Instruct",
-                "meta-llama/Llama-3.2-3B-Instruct",
-                "meta-llama/Llama-3.2-11B-Instruct",
-                "meta-llama/Llama-3.1-8B-Instruct",
-            ]
+    # ARK-managed (subscription) models — declared, denied until granted.
+    from app.models.model_registry import subscription_records
+    from app.services.entitlements import resolve_entitlement
+    eff, _src = resolve_entitlement(principal)
+    granted = set(eff.get("subscription_models") or [])
+    ark_records = []
+    for rec in subscription_records():
+        ok = rec.id in granted or rec.model in granted
+        rec.availability = "available" if ok else "unavailable"
+        rec.availability_reason = "" if ok else "Requires an ARK subscription plan."
+        ark_records.append(rec)
+    if ark_records:
+        providers["ARK Managed"] = ark_records
 
-        provider_display = provider.capitalize()
-        providers[provider_display] = []
-        for model_name in provider_models:
-            is_configured = (configured_model == model_name) or not configured_model
-            providers[provider_display].append({
-                "id": f"{provider}/{model_name}",
-                "name": model_name,
-                "provider": provider,
-                "provider_group": "cloud",
-                "pricing": "paid",
-                "pricing_detail": f"Provider API billing via {provider}",
-                "tool_calling": _supports_tools(model_name),
-                "context_window": _context_window(model_name),
-                "available": provider_configured,
-                "local": False,
-                "vision": provider in ("openai", "anthropic", "gemini"),
-                "configured": bool(configured_model),
-                "is_active": configured_model == model_name,
-            })
+    def _ser(rec):
+        d = rec.to_dict()
+        d["is_active"] = (d["id"] == selected)
+        # Convenience aliases for the picker (normalized fields remain present).
+        d["available"] = d["availability"] == "available"
+        d["name"] = d["display_name"]
+        d["configured"] = d["availability"] == "available"
+        return d
 
     return {
-        "providers": providers,
+        "providers": {name: [_ser(r) for r in recs] for name, recs in providers.items()},
         "active_model": get_active_litellm_model().get("model", "unknown"),
-        "active_provider": get_active_litellm_model().get("provider", "unknown"),
+        "selected_model": selected,
+        "principal": principal.subject,
     }
 
 
@@ -350,10 +300,6 @@ async def run_command(body: CommandRequest):
 #   id, session_id, conversation_id, run_id, prompt, status,
 #   created_at, delivered_at, error
 _QUEUE_STORE: dict[str, list[dict]] = {}
-# Active run state per session: {session_id: {"run_id": str, "status": str}}
-_ACTIVE_RUNS: dict[str, dict] = {}
-# Steering messages per active run: {run_id: [steering_messages]}
-_STEERING_STORE: dict[str, list[dict]] = {}
 
 
 class QueueRequest(BaseModel):
@@ -365,7 +311,7 @@ class QueueRequest(BaseModel):
 
 class SteerRequest(BaseModel):
     session_id: str
-    run_id: str
+    run_id: Optional[str] = None
     message: str
     instruction_type: str = "steer"  # steer | replan | pause | resume
 
@@ -374,6 +320,12 @@ class StopRequest(BaseModel):
     session_id: str
     run_id: Optional[str] = None
     stop_type: str = "stop"  # stop | cancel_pending | cancel_tool | stop_all
+
+
+class ModeRequest(BaseModel):
+    session_id: str
+    run_id: Optional[str] = None
+    mode: str  # auto | manual
 
 
 class ModelSwitchRequest(BaseModel):
@@ -390,8 +342,7 @@ async def queue_message(body: QueueRequest):
     delivered automatically. Returns a queue entry ID that can be used
     to cancel or inspect the queued message.
     """
-    import uuid as _uuid
-    qid = f"q-{_uuid.uuid4().hex[:8]}"
+    qid = f"q-{uuid.uuid4().hex[:8]}"
     entry = {
         "id": qid,
         "session_id": body.session_id,
@@ -423,47 +374,106 @@ async def get_queue(session_id: str):
     }
 
 
+@router.get("/run")
+async def run_status(session_id: str, run_id: Optional[str] = None):
+    """Return the live control state of a run (stop / steer / mode).
+
+    ``status`` is one of ``running`` | ``stopping`` | ``cancelled`` |
+    ``completed`` | ``failed``. A stop is *requested* here and honoured by the
+    orchestrator at its next safe checkpoint, so the UI can distinguish
+    "requested" from "stopped" instead of claiming execution has halted.
+    """
+    control = run_control.resolve(session_id, run_id)
+    if control is None:
+        return {"session_id": session_id, "run_id": run_id, "active": False, "status": "idle",
+                "mode": None, "stop_requested": False, "steering": []}
+    return {
+        "session_id": control.session_id,
+        "run_id": control.run_id,
+        "active": control.status in ("running", "stopping"),
+        "status": control.status,
+        "mode": control.mode,
+        "stop_requested": control.stop_requested,
+        "stop_type": control.stop_type,
+        "stop_reason": control.stop_reason,
+        "steering": control.steering_snapshot(),
+    }
+
+
 @router.post("/steer")
 async def steer_run(body: SteerRequest):
     """Submit a steering instruction for an active run.
 
-    The steering message is stored durably and delivered to the CAI
-    orchestrator at the next safe checkpoint (after the current tool
-    completes). The orchestrator treats it as operator guidance that
-    may trigger re-planning.
+    The instruction is queued and delivered to the orchestrator at its next
+    safe checkpoint, which acknowledges it as ``accepted``, ``deferred`` or
+    ``rejected`` (streamed as a ``steer_ack`` event). Steering never silently
+    widens authority — an instruction that would change the requested
+    permissions is deferred for explicit operator confirmation, and any new
+    target it names is still revalidated against the engagement scope.
     """
-    _STEERING_STORE.setdefault(body.run_id, []).append({
-        "id": f"steer-{_uuid.uuid4().hex[:8]}",
-        "run_id": body.run_id,
-        "session_id": body.session_id,
-        "message": body.message,
-        "instruction_type": body.instruction_type,
+    control = run_control.resolve(body.session_id, body.run_id)
+    if control is None:
+        return {"ok": False, "error": "no active run for this session", "status": "rejected"}
+    msg = control.submit_steer(body.message, body.instruction_type)
+    return {
+        "ok": True,
+        "steering_id": msg.id,
         "status": "submitted",
-        "created_at": _utc_now_iso(),
-        "applied_at": None,
-        "applied": False,
-    })
-    return {"ok": True, "steering_id": f"steer-{_uuid.uuid4().hex[:8]}", "status": "submitted", "run_id": body.run_id}
+        "run_id": control.run_id,
+        "note": "Delivered to the orchestrator at its next safe checkpoint.",
+    }
+
+
+@router.post("/mode")
+async def set_execution_mode(body: ModeRequest):
+    """Set the backend-owned execution mode for a session (and its active run).
+
+    ``auto`` lets the agent sequence permitted tools inside the active scope;
+    ``manual`` requires operator confirmation at every target-directed
+    security-sensitive dispatch. Mode is enforced by the orchestrator, never
+    inferred from the prompt, and can be changed mid-run — it takes effect at
+    the next dispatch.
+    """
+    mode = (body.mode or "").lower()
+    if mode not in run_control.MODES:
+        return {"ok": False, "error": f"mode must be one of {sorted(run_control.MODES)}"}
+    session, sid = _resolve_session(body.session_id, None, None, None)
+    session.execution_mode = mode
+    control = run_control.resolve(sid, body.run_id)
+    applied_live = False
+    if control is not None:
+        control.mode = mode
+        applied_live = control.status in ("running", "stopping")
+    return {
+        "ok": True,
+        "mode": mode,
+        "session_id": sid,
+        "run_id": control.run_id if control else None,
+        "applied_live": applied_live,
+        "note": "Applies to the next dispatch." if applied_live else "Applies to the next run.",
+    }
 
 
 @router.post("/stop")
 async def stop_run(body: StopRequest):
-    """Stop or cancel an active run or pending queued message.
+    """Request a stop of an active run, or cancel pending queued messages.
 
     stop_type:
-      - stop: Stop the overall investigation run (stop after current tool)
-      - cancel_pending: Cancel pending queued messages for this session
-      - cancel_tool: Cancel the current tool operation
-      - stop_all: Stop everything (run + queue)
+      - stop: stop the overall run at its next safe checkpoint
+      - cancel_pending: cancel pending queued messages for this session
+      - cancel_tool: cancel the current tool operation
+      - stop_all: stop everything (run + queue)
+
+    A running tool cannot be safely interrupted mid-syscall, so the stop is
+    *requested* and honoured by the orchestrator at the next safe checkpoint.
+    The response reports ``stop_requested`` — never a fabricated ``stopped``.
     """
     session_id = body.session_id
     run_id = body.run_id
     stop_type = body.stop_type
-
     results = []
 
     if stop_type in ("cancel_pending", "stop_all"):
-        # Cancel pending queued messages for this session
         queue = _QUEUE_STORE.get(session_id, [])
         cancelled = 0
         for entry in queue:
@@ -473,36 +483,68 @@ async def stop_run(body: StopRequest):
                 cancelled += 1
         results.append({"action": "cancel_pending", "cancelled": cancelled})
 
-    if stop_type in ("stop", "stop_all") and run_id:
-        # Mark the active run as stopped
-        if session_id in _ACTIVE_RUNS:
-            _ACTIVE_RUNS[session_id]["status"] = "stopped"
-            _ACTIVE_RUNS[session_id]["stopped_at"] = _utc_now_iso()
-        results.append({"action": "stop", "run_id": run_id, "status": "stopped"})
+    control = None
+    if stop_type in ("stop", "stop_all", "cancel_tool"):
+        control = run_control.request_stop(session_id, run_id, stop_type=stop_type,
+                                           reason="operator requested stop")
+        if control is not None:
+            results.append({
+                "action": stop_type,
+                "run_id": control.run_id,
+                "status": "stopping",
+                "stop_requested": True,
+            })
 
-    if stop_type == "cancel_tool" and run_id:
-        # Mark the current tool as cancelled
-        results.append({"action": "cancel_tool", "run_id": run_id, "status": "cancelled"})
-
-    return {"ok": True, "session_id": session_id, "results": results}
+    return {
+        "ok": True,
+        "session_id": session_id,
+        "run_id": control.run_id if control else run_id,
+        "stop_requested": bool(control and control.stop_requested),
+        "results": results,
+        "note": "Stop honoured at the next safe checkpoint; completed tool output is preserved.",
+    }
 
 
 @router.post("/model/switch")
-async def switch_model(body: ModelSwitchRequest):
-    """Pin a model for the session. Takes effect on the next run.
+async def switch_model(body: ModelSwitchRequest, request: Request):
+    """Select the model for this session AND persist it as the user's preference.
 
-    For idle sessions, the pin applies immediately to the next request.
-    For running sessions, the pin is recorded and applied at the next
-    safe run boundary.
+    Phase 2 rules: an explicit selection takes precedence over the admin default,
+    persists in user settings, and is shared by Chat and Console (both resolve
+    through the same session + preference).  For running sessions the pin is
+    recorded and applied at the next safe run boundary.
     """
-    session, sid = _resolve_session(body.session_id, body.model, None, None)
+    from app.services.model_router import resolve
+    from app.services.user_preferences import user_preferences
+
+    principal = principal_from_request(request)
+    session, sid = _resolve_session(body.session_id, body.model, None, None, principal=principal)
+
+    # Validate up front — a denied/unavailable model returns a clear error and
+    # is NOT silently substituted.
+    resolution = resolve(principal, body.model)
+    if not resolution.ok:
+        return {
+            "ok": False,
+            "action": "model",
+            "requested_model": body.model,
+            "error": resolution.error,
+            "code": resolution.error_code,
+            "session_id": sid,
+        }
+
     session.model = body.model
+    user_preferences.set_selected_model(principal.namespace(), body.model)
     return {
         "ok": True,
         "action": "model",
         "model": session.model,
+        "resolved_model": resolution.resolved_model,
+        "credential_source": resolution.credential_source,
+        "routing_reason": resolution.routing_reason,
+        "persisted": True,
         "session_id": sid,
-        "note": "Model pinned for next run",
+        "note": "Model pinned for next run and saved as your preference",
     }
 
 
@@ -512,21 +554,29 @@ def _utc_now_iso() -> str:
 
 
 @router.post("/stream")
-async def stream(body: StreamRequest):
-    return _stream_response(body, advisory_only=False)
+async def stream(body: StreamRequest, request: Request):
+    return _stream_response(body, advisory_only=False, principal=principal_from_request(request))
 
 
 @router.post("/review/stream")
-async def review_stream(body: StreamRequest):
-    return _stream_response(body, advisory_only=True)
+async def review_stream(body: StreamRequest, request: Request):
+    return _stream_response(body, advisory_only=True, principal=principal_from_request(request))
 
 
-def _stream_response(body: StreamRequest, *, advisory_only: bool):
+def _apply_mode(session, execution_mode: Optional[str]) -> None:
+    """Set the backend-owned execution mode on the session (validated)."""
+    mode = (execution_mode or "").lower()
+    if mode in run_control.MODES:
+        session.execution_mode = mode
+
+
+def _stream_response(body: StreamRequest, *, advisory_only: bool, principal=None):
     if advisory_only:
         sid = str(uuid.uuid4())
-        session = SessionState(session_id=sid, model=body.model)
+        session = SessionState(session_id=sid, model=body.model, principal=principal or ANONYMOUS)
     else:
-        session, sid = _resolve_session(body.session_id, body.model, body.case_id, body.role, body.workspace)
+        session, sid = _resolve_session(body.session_id, body.model, body.case_id, body.role, body.workspace, principal=principal)
+    _apply_mode(session, body.execution_mode)
     if body.case_context:
         session.case_context = body.case_context
 
@@ -559,7 +609,11 @@ def _stream_response(body: StreamRequest, *, advisory_only: bool):
                 })
                 current_prompt = next_msg["prompt"]
                 # Re-resolve session with the same session_id to preserve state
-                current_session, _ = _resolve_session(current_session.session_id, current_session.model, current_session.case_id, current_session.role, current_session.workspace)
+                current_session, _ = _resolve_session(
+                    current_session.session_id, current_session.model,
+                    current_session.case_id, current_session.role,
+                    current_session.workspace, principal=principal)
+                _apply_mode(current_session, body.execution_mode)
         except Exception as exc:
             logger.exception("CAI stream error")
             yield _sse(public_error(exc))
@@ -573,8 +627,9 @@ def _stream_response(body: StreamRequest, *, advisory_only: bool):
 # CAI-TUI terminal endpoints
 # --------------------------------------------------------------------------- #
 @router.post("/terminal/stream")
-async def terminal_stream(body: TerminalRequest):
-    session, sid = _resolve_session(body.session_id, body.model, body.case_id, None, body.workspace)
+async def terminal_stream(body: TerminalRequest, request: Request):
+    session, sid = _resolve_session(body.session_id, body.model, body.case_id, None, body.workspace, principal=principal_from_request(request))
+    _apply_mode(session, body.execution_mode)
     if body.case_context:
         session.case_context = body.case_context
 
@@ -639,10 +694,11 @@ _WORKSPACES = {"imint", "recon", "network", "siem", "blueteam", "case"}
 
 
 @router.post("/workspace/{workspace}/run")
-async def workspace_run(workspace: str, body: TerminalRequest):
+async def workspace_run(workspace: str, body: TerminalRequest, request: Request):
     if workspace.lower() not in _WORKSPACES:
         return {"ok": False, "error": f"Unknown workspace: {workspace}"}
-    session, sid = _resolve_session(body.session_id, body.model, body.case_id, None, workspace)
+    session, sid = _resolve_session(body.session_id, body.model, body.case_id, None, workspace, principal=principal_from_request(request))
+    _apply_mode(session, body.execution_mode)
     if body.case_context:
         session.case_context = body.case_context
 
@@ -658,6 +714,85 @@ async def workspace_run(workspace: str, body: TerminalRequest):
 
     return StreamingResponse(event_gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"})
+
+
+# --------------------------------------------------------------------------- #
+# Durable investigation sessions (restoration surface)
+#
+# These expose the persisted session metadata, transcript, run history and
+# evidence *references* so a reopened tab can rehydrate. The backend remains
+# the authoritative source; the transcript here is the durable mirror of the
+# CAI conversation (metadata only for zero-retention sessions).
+# --------------------------------------------------------------------------- #
+@router.get("/sessions")
+async def list_sessions(request: Request, limit: int = 50):
+    """List durable investigation sessions for the caller's principal.
+
+    A run left ``running`` by a previous process is reported as ``interrupted``
+    — never as live.
+    """
+    principal = principal_from_request(request)
+    if principal is ANONYMOUS:
+        # The anonymous principal owns rows recorded without a subject (legacy
+        # rows) *and* rows the orchestrator stamped with the literal
+        # ``ANONYMOUS.subject`` ("anonymous"). Both are its own; nothing else is.
+        subject = ANONYMOUS.subject
+        sessions = session_store.list_sessions(
+            principal_subject=subject, limit=limit, include_unowned=True
+        )
+    else:
+        sessions = session_store.list_sessions(
+            principal_subject=getattr(principal, "subject", None), limit=limit
+        )
+    return {"sessions": sessions}
+
+
+def _session_visible_to(meta: dict, principal) -> bool:
+    """Owner check for a durable session.
+
+    A caller may only reach its own sessions. The stored owner is the resolved
+    principal's subject (``ANONYMOUS.subject`` for anonymous runs); a legacy row
+    with no recorded owner is treated as anonymous. One principal's transcript,
+    evidence references and run history can therefore never be read or deleted
+    by another. A cross-principal request is reported exactly like an unknown
+    session, so the endpoint is not an existence oracle.
+    """
+    owner = meta.get("principal_subject") or ANONYMOUS.subject
+    return owner == getattr(principal, "subject", ANONYMOUS.subject)
+
+
+@router.get("/sessions/{session_id}")
+async def get_session_detail(request: Request, session_id: str):
+    """Return persisted metadata, transcript, runs and evidence references.
+
+    ``zero_retention`` sessions return an empty transcript by design — the
+    protected content was never written and cannot be reconstructed.
+    """
+    principal = principal_from_request(request)
+    meta = session_store.get_session_meta(session_id)
+    if meta is None or not _session_visible_to(meta, principal):
+        return {"ok": False, "error": "unknown session", "session_id": session_id}
+    messages = session_store.load_messages(session_id) if not meta["zero_retention"] else []
+    return {
+        "ok": True,
+        "session": meta,
+        "messages": messages,
+        "runs": session_store.list_runs(session_id),
+        "evidence_refs": [
+            ref for run in session_store.list_runs(session_id) for ref in run.get("evidence_refs", [])
+        ],
+        "transcript_available": not meta["zero_retention"],
+    }
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(request: Request, session_id: str):
+    principal = principal_from_request(request)
+    meta = session_store.get_session_meta(session_id)
+    if meta is None or not _session_visible_to(meta, principal):
+        return {"ok": False, "error": "unknown session", "session_id": session_id}
+    session_store.delete_session(session_id)
+    return {"ok": True, "session_id": session_id}
 
 
 __all__ = ["router"]

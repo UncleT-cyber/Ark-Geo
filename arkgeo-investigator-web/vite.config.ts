@@ -9,7 +9,7 @@ export default defineConfig({
     port: 12001,
     allowedHosts: true,
     proxy: {
-      '/api': 'http://127.0.0.1:12000',
+      '/api': process.env.ARKGEO_BACKEND_URL || 'http://127.0.0.1:12000',
     },
   },
   build: {

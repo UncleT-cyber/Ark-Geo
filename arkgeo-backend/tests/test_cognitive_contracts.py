@@ -167,9 +167,10 @@ class TestSpecialists:
         assert img is not None
         registered = specialists.registered_tools("image")
         ids = {t.tool_id for t in registered}
-        # All 16 Phase A tools are registered under the image domain.
+        # Every declared tool is registered under the image domain, and the
+        # domain has grown past the original Phase A set of 16.
         assert ids == set(specialists.get("image").tool_ids)
-        assert len(ids) == 16
+        assert len(ids) == len(img.tool_ids) >= 16
 
     def test_planned_domains_declare_but_do_not_route_yet(self):
         # OSINT now routes its first real tool (inspect_local_path); WEB is

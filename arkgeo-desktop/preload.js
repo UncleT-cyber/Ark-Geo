@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld('ark', {
   getStatus: () => ipcRenderer.invoke('ark:get-status'),
   getBackendPort: () => Promise.resolve(cachedPort ?? ipcRenderer.invoke('ark:get-backend-port')),
   isElectron: true,
+  // Renderer needs the platform to pick the correct titlebar safe zones and
+  // window-control strategy (macOS traffic lights vs Windows/Linux overlay).
+  platform: process.platform,
   get backendPort() {
     return cachedPort;
   },

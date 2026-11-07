@@ -89,8 +89,10 @@ _HF_VISION_MODELS: frozenset[str] = frozenset({
 })
 
 # Models whose name indicates vision capability (local Ollama routing).
+# Text-only models (e.g. ``qwen2.5-coder``) must NOT match — they cannot
+# accept an image payload.
 _VISION_NAME_RE = re.compile(
-    r"(vision|llava|minicpm-v|qwen2-vl|qwen2\.5-vl|qwen2\.5-coder|bakllava|moondream|gemma3)",
+    r"(vision|llava|minicpm-v|qwen2-vl|qwen2\.5-vl|bakllava|moondream|gemma3)",
     re.IGNORECASE,
 )
 
@@ -631,11 +633,15 @@ class AIGateway:
             if not self._vision_enabled():
                 return self._resolve_ollama_model(tags, False)
             candidate = configured or DEFAULT_VISION_MODEL
-            if candidate in tags:
+            # A configured text-only model must never receive an image — prefer
+            # any installed vision-capable model over it.
+            if candidate in tags and _VISION_NAME_RE.search(candidate):
                 return candidate
             for m in tags:
                 if _VISION_NAME_RE.search(m):
                     return m
+            if candidate in tags:
+                return candidate
             for m in tags:
                 if m == DEFAULT_OLLAMA_MODEL or m.startswith("qwen2.5-coder"):
                     return m

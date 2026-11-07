@@ -6,7 +6,7 @@
   border-radius: 0;
   background: #000000;
 }
-.ark-command-center .topbar { flex: 0 0 48px; height: 48px; min-height: 48px; }
+.ark-command-center .topbar { flex: 0 0 44px; height: 44px; min-height: 44px; }
 .ark-command-center .workbench-sidebar:not(.workbench-sidebar-collapsed) { flex: 0 0 260px; width: 260px; min-width: 260px; }
 .ark-command-center .workbench-viewport { overflow-y: auto; }
 .ark-control {
@@ -89,25 +89,96 @@
 .ark-control [hidden] { display: none !important; }
 .ark-control .ark-dock-header {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 10px;
+  padding: 8px 12px;
+  min-height: 44px;
   border-color: var(--border-dim);
 }
-.ark-dock-header > div { display: grid; gap: 3px; }
-.ark-dock-header nav { display: flex; gap: 2px; background: var(--bg-darkest); border-radius: 8px; padding: 3px; }
+.ark-dock-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+.ark-dock-brand { font-size: 12px; letter-spacing: .08em; color: var(--text-primary); line-height: 1.2; }
+.ark-dock-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.ark-dock-mode-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted, #6b7280); flex-shrink: 0; }
+.ark-dock-mode-dot-live { background: var(--success, #22c55e); box-shadow: 0 0 0 3px rgb(34 197 94 / 15%); }
+.ark-dock-identity strong,
+.ark-dock-identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ark-dock-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
 .ark-control .ark-dock-header button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
   border-color: transparent;
   background: transparent;
   color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
 }
 .ark-control .ark-dock-header button[aria-pressed="true"] { background: var(--bg-elevated); color: var(--text-primary); }
-.ark-feed { min-height: 0; padding: 16px 14px; gap: 14px; }
+/* The `+` operational-tools trigger and its anchored popover. */
+.ark-tools-menu-wrap { position: relative; display: inline-flex; }
+.ark-control .ark-dock-tool-btn { width: 30px; height: 30px; padding: 0; justify-content: center; }
+.ark-control .ark-dock-tool-btn:hover:not(:disabled),
+.ark-control .ark-dock-tool-btn[aria-expanded="true"] { background: var(--bg-elevated); color: var(--text-primary); }
+.ark-tools-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 232px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: #0b0b0b;
+  border: 1px solid var(--border-dim);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgb(0 0 0 / 55%);
+}
+.ark-tools-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+.ark-tools-item:hover:not(:disabled) { background: #161616; }
+.ark-tools-item:disabled { opacity: .42; cursor: default; }
+.ark-tools-item-active { background: #161616; }
+.ark-tools-item-icon { flex: none; color: var(--text-secondary); }
+.ark-tools-item:hover:not(:disabled) .ark-tools-item-icon,
+.ark-tools-item-active .ark-tools-item-icon { color: var(--cyan-bright); }
+.ark-tools-item-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ark-tools-item-label { font-size: 12px; line-height: 1.2; }
+.ark-tools-item-desc { font-size: 10px; color: var(--text-muted); line-height: 1.2; }
+.ark-conversation { padding: 16px 14px; gap: 14px; }
 .ark-message {
   background: var(--bg-darkest);
   border-color: var(--border-dim);
@@ -124,16 +195,103 @@
 .ark-input-box:focus-within { border-color: var(--cyan-dim); }
 .ark-input-box textarea:focus { outline: none; box-shadow: none; }
 .ark-control .ark-toolbar button { background: transparent; border-color: transparent; }
+/* Composer controls. Neutral by default — colour is reserved for live run state. */
+.ark-control .ark-toolbar .ark-mode-toggle {
+  padding: 0 6px; border-color: transparent; background: transparent;
+  color: var(--text-muted); font-size: 11px; font-weight: 500;
+}
+.ark-control .ark-toolbar .ark-mode-toggle:hover:not(:disabled) { color: var(--text-secondary); }
+.ark-control .ark-toolbar .ark-queue-pill,
+.ark-control .ark-toolbar .ark-steer-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 24px; padding: 0 9px; border-radius: 6px;
+  border: 1px solid var(--border-dim); color: var(--text-secondary); font-size: 11px;
+}
+.ark-control .ark-toolbar .ark-steer-pill[aria-pressed="true"] { border-color: var(--border); color: var(--text-primary); }
+.ark-steer-inline { display: flex; align-items: flex-end; gap: 6px; margin-top: 6px; }
+.ark-steer-inline textarea { flex: 1; font-size: 11px; line-height: 1.4; resize: vertical; }
+.ark-steer-list { margin-top: 6px; }
 .ark-shortcuts summary { cursor: pointer; color: var(--text-secondary); font-size: 11px; }
 .ark-shortcuts[open] .ark-chips { margin-top: 6px; }
-.ark-console { flex: 1; display: flex; min-height: 0; }
-.ark-console .bottom-panel-docked { flex: 1; height: auto; min-height: 0; min-width: 0; border: 0; }
-.ark-console .bottom-panel-header { height: auto; padding: 6px 8px; }
-.ark-console .bottom-panel-tabs { flex-wrap: wrap; height: auto; gap: 3px; }
-.ark-console .bottom-tab { height: 26px; padding: 0 6px; border-color: transparent; font-size: 10px; background: transparent; }
-.ark-console .bottom-tab-active { background: var(--bg-elevated); color: var(--text-primary); }
-.ark-console .bottom-tab-active::after { display: none; }
-.ark-console .bottom-panel-content { min-height: 0; overflow: auto; overflow-wrap: anywhere; }
+/* === ARK Operational Inspector ====================================== */
+/* Docked mode: a dismissible overlay over the conversation (never a second
+   permanent column). Expanded mode promotes it to a side drawer (below). */
+.ark-inspector {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #080808;
+  border-top: 1px solid var(--border-dim);
+}
+.ark-inspector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-dim);
+  flex: none;
+}
+.ark-inspector-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.ark-inspector-title svg { color: var(--cyan-bright); }
+.ark-control .ark-inspector-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px; height: 24px; padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+}
+.ark-control .ark-inspector-close:hover { border-color: var(--cyan-dim); color: var(--cyan-bright); }
+.ark-inspector-body { flex: 1 1 auto; min-height: 0; display: flex; overflow: hidden; }
+.ark-inspector-body > * { flex: 1 1 auto; min-width: 0; min-height: 0; }
+.bottom-panel-inspector { height: auto; border-top: 0; background: transparent; }
+.bottom-inspector-content { padding: 8px 12px; }
+
+/* The conversation region holds the scrollable conversation; the inspector is
+   its sibling so it can overlay (docked) or sit as a drawer (expanded). */
+.ark-conversation-region { flex: 1 1 auto; min-height: 0; display: flex; position: relative; }
+.ark-conversation-region > .ark-output-scroll { flex: 1 1 auto; min-width: 0; }
+.ark-conversation-region > .ark-inspector { flex: 0 0 auto; }
+
+/* Docked inspector floats over the conversation rather than shrinking it. */
+.ark-command-center .workbench-body:not(.ark-cai-expanded) .ark-conversation-region > .ark-inspector {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  background: #080808f2;
+  backdrop-filter: blur(1px);
+}
+/* Expanded inspector is a dismissible side drawer; the conversation keeps the
+   majority of the width. */
+.ark-command-center .workbench-body.ark-cai-expanded .ark-conversation-region { flex-direction: row; }
+.ark-command-center .workbench-body.ark-cai-expanded .ark-conversation-region > .ark-inspector {
+  flex: 0 0 clamp(320px, 34%, 460px);
+  border-top: 0;
+  border-left: 1px solid var(--border-dim);
+}
+@media (max-width: 900px) {
+  /* On smaller screens the drawer becomes an overlay so the conversation is not
+     squeezed. */
+  .ark-command-center .workbench-body.ark-cai-expanded .ark-conversation-region > .ark-inspector {
+    position: absolute;
+    inset: 0;
+    flex-basis: auto;
+    z-index: 12;
+    background: #080808f2;
+  }
+}
 @media (max-width: 900px) {
   .ark-command-center .workbench-sidebar:not(.workbench-sidebar-collapsed) { flex-basis: 190px; width: 190px; min-width: 190px; }
 }
@@ -141,14 +299,30 @@
   .ark-control { flex-basis: min(48vw, 300px); }
   .ark-command-center .workbench-sidebar:not(.workbench-sidebar-collapsed) { flex-basis: 145px; width: 145px; min-width: 145px; }
 }
-.ark-view-indicator { width: 6px; height: 6px; border-radius: 50%; background: var(--warning); }
-
 .ark-command-center .ark-input-box {
   background: linear-gradient(165deg, #171717, #080808);
   box-shadow: inset 0 1px rgb(255 255 255 / 6%);
 }
 .ark-command-center .ark-message.ark-user { background: #1c1c1c; }
-.ark-review { flex: 1; min-height: 0; overflow: auto; padding: 14px; }
+/* Inline image-review block — part of the conversation scroll, not a separate view. */
+.ark-review { margin-bottom: 10px; }
+.ark-review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 10px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.ark-control .ark-review-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0;
+  border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary);
+}
+.ark-control .ark-review-close:hover { border-color: var(--cyan-dim); color: var(--cyan-bright); }
 .ark-review-heading, .ark-review-card {
   background: linear-gradient(155deg, #181818, #0a0a0a 75%);
   border: 1px solid var(--border-dim);
@@ -189,18 +363,6 @@
 }
 @media print { .ark-dock-divider { display: none; } }
 
-.ark-workspace-context {
-  flex: none;
-  max-height: 30%;
-  overflow: auto;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--border-dim);
-  color: var(--text-secondary);
-  font-size: 11px;
-  overflow-wrap: anywhere;
-}
-.ark-workspace-context summary { cursor: pointer; }
-.ark-workspace-context p { margin: 6px 0; }
 
 /* === Structured Execution UI (CAI Execution Integrity) === */
 .ark-investigation-header {
@@ -335,156 +497,6 @@
 .ark-section-title { color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin: 0 0 8px; padding: 0 2px; }
 
 
-/* Model selector in composer */
-.ark-model-selector {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.ark-model-select {
-  font-size: 11px;
-  padding: 4px 8px;
-  background: #101010;
-  border: 1px solid #282828;
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  min-width: 180px;
-}
-.ark-model-select:focus {
-  outline: none;
-  border-color: #38BDF8;
-}
-.ark-model-pin {
-  font-size: 11px;
-  padding: 4px 8px;
-  background: #101010;
-  border: 1px solid #282828;
-  border-radius: 4px;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-.ark-model-pin:hover {
-  border-color: #00d4ff;
-  color: var(--text-primary);
-}
-
-/* Model selector in composer */
-.ark-model-selector {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.ark-model-select {
-  font-size: 11px;
-  padding: 4px 8px;
-  background: #101010;
-  border: 1px solid #282828;
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  min-width: 180px;
-}
-.ark-model-select:focus {
-  outline: none;
-  border-color: #38BDF8;
-}
-.ark-model-pin {
-  font-size: 11px;
-  padding: 4px 8px;
-  background: #101010;
-  border: 1px solid #282828;
-  border-radius: 4px;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-.ark-model-pin:hover {
-  border-color: #00d4ff;
-  color: var(--text-primary);
-}
-
-/* Model selector popover */
-.ark-model-selector {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.ark-model-selector .ark-model-select {
-  width: auto;
-  min-width: 160px;
-}
-.ark-model-selector .ark-model-pin {
-  margin-left: 4px;
-}
-
-/* Model popover menu */
-.ark-model-popover {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  right: 0;
-  width: 320px;
-  background: #101010;
-  border: 1px solid var(--border-dim);
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-  z-index: 50;
-  overflow: hidden;
-}
-.ark-model-search {
-  width: 100%;
-  padding: 8px 12px;
-  border: none;
-  border-bottom: 1px solid var(--border-dim);
-  background: #0a0a0a;
-  color: var(--text-primary);
-  font-size: 12px;
-  outline: none;
-}
-.ark-model-search:focus {
-  outline: none;
-  border-color: #38BDF8;
-}
-.ark-model-group {
-  padding: 6px 8px 4px;
-}
-.ark-model-group-label {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.ark-model-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  cursor: pointer;
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-.ark-model-item:hover {
-  background: #1a1a1a;
-  color: var(--text-primary);
-}
-.ark-model-item.selected {
-  background: #0f3d50;
-  color: var(--cyan-bright);
-}
-.ark-model-item.disabled {
-  color: #444;
-  cursor: not-allowed;
-}
-.ark-model-status {
-  font-size: 10px;
-  font-weight: 500;
-}
-.ark-model-status.available { color: var(--success); }
-.ark-model-status.unavailable { color: var(--text-muted); }
-
 /* Queue and steer in composer */
 .ark-queue {
   margin-top: 8px;
@@ -601,34 +613,6 @@
 .ark-steer-status.rejected { color: var(--error); }
 .ark-steer-status.superseded { color: var(--text-muted); }
 
-/* Stop button */
-.ark-stop-control {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-.ark-stop-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: #7f1d1d;
-  border: 1px solid #991b1b;
-  color: #fecaca;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-}
-.ark-stop-btn:hover {
-  background: #991b1b;
-  color: #ffffff;
-}
-.ark-stop-btn.crack {
-  background: #991b1b;
-  color: #ffffff;
-}
-
 /* Form */
 .ark-composer {
   position: relative;
@@ -673,18 +657,29 @@
   position: absolute;
   bottom: calc(100% + 6px);
   left: 0;
-  width: 260px;
-  max-height: 320px;
+  width: 300px;
+  max-width: min(300px, calc(100vw - 16px));
   background: #0a0a0a;
   border: 1px solid var(--border-dim);
   border-radius: 8px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.6);
   z-index: 50;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
+/* The scroll container: header/search/footer stay pinned, only the list scrolls. */
+.ark-model-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 .ark-model-search {
+  flex: 0 0 auto;
   width: 100%;
-  padding: 8px;
+  padding: 8px 10px;
   border: none;
   border-bottom: 1px solid var(--border-dim);
   background: transparent;
@@ -714,24 +709,49 @@
   cursor: pointer;
   border-radius: 4px;
   font-size: 12px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: inherit;
+  text-align: left;
 }
-.ark-model-item:hover {
+.ark-model-item:hover:not(:disabled) {
   background: #151a20;
 }
 .ark-model-item.selected {
   background: #0a2a3a;
   color: #38BDF8;
 }
+.ark-model-item:disabled,
 .ark-model-item.disabled {
-  color: #444;
+  color: #555;
   cursor: not-allowed;
 }
 .ark-model-item-name {
   flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.ark-model-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+}
+.ark-model-badge {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #1a2028;
+  color: var(--text-secondary);
+}
+.ark-model-badge.free { background: #0d2a1a; color: #4ade80; }
+.ark-model-badge.local { background: #2a1a0d; color: #fbbf24; }
 .ark-model-status {
   font-size: 10px;
   font-weight: 600;
+  white-space: nowrap;
 }
 .ark-model-status.available {
   color: var(--success);
@@ -739,21 +759,279 @@
 .ark-model-status.unavailable {
   color: #6b7280;
 }
-
-/* Stop button styling for run state */
-.ark-stop-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: #1a1a1a;
+.ark-model-empty {
+  padding: 14px 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.ark-model-footer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--border-dim);
+  padding: 6px 8px;
+}
+.ark-model-clear {
+  width: 100%;
+  font-size: 11px;
+  padding: 5px 8px;
+  background: transparent;
   border: 1px solid #282828;
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 11px;
 }
-.ark-stop-btn:hover {
-  border-color: var(--cyan-bright);
+.ark-model-clear:hover {
+  border-color: #00d4ff;
+  color: var(--text-primary);
+}
+
+/* === ARK expand / restore ============================================ */
+/* Expanded mode is layout-driven: the dock grows to fill the workbench body
+   while the navigation sidebar keeps its column, so the panel stops at the
+   sidebar's real boundary (no hardcoded offsets — works collapsed or not). */
+.ark-cai-region { display: contents; }
+
+.ark-command-center .workbench-body.ark-cai-expanded .ark-cai-region {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  min-height: 0;
+}
+.ark-command-center .workbench-body.ark-cai-expanded .workbench-main { display: none; }
+.ark-command-center .workbench-body.ark-cai-expanded .ark-dock-divider { display: none; }
+.ark-command-center .workbench-body.ark-cai-expanded .ark-control {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  border-left: 1px solid var(--border-dim);
+}
+
+.ark-control .ark-dock-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+}
+.ark-control .ark-dock-expand:hover:not(:disabled) {
+  border-color: var(--cyan-dim);
   color: var(--cyan-bright);
 }
+.ark-control .ark-dock-expand[aria-pressed="true"] {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+/* In expanded mode the conversation reads comfortably on wide screens while the
+   execution timeline, tool results and long messages stay fully scrollable. */
+.ark-command-center .workbench-body.ark-cai-expanded .ark-control .ark-message,
+.ark-command-center .workbench-body.ark-cai-expanded .ark-control .ark-investigation-header,
+.ark-command-center .workbench-body.ark-cai-expanded .ark-control .ark-output-scroll > * {
+  max-width: 1080px;
+  width: 100%;
+  margin-inline: auto;
+  box-sizing: border-box;
+}
+.ark-command-center .workbench-body.ark-cai-expanded .ark-control .ark-composer {
+  width: 100%;
+  max-width: 1080px;
+  margin-inline: auto;
+  box-sizing: border-box;
+}
+
+/* ==========================================================================
+   Unified conversation canvas — Milestone B
+   The conversation is the primary surface. Execution detail lives in one
+   compact, collapsible inline card instead of a permanent upper region.
+   ========================================================================== */
+
+/* --- composer: Chat/Console view toggle ---------------------------------- */
+.ark-composer .ark-composer .ark-composer 
+/* --- inline execution activity card -------------------------------------- */
+.ark-exec {
+  position: relative;
+  margin: 4px 0 10px;
+  border: 1px solid var(--border-dim);
+  border-radius: 9px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.ark-exec-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.ark-exec-bar:hover { background: var(--bg-elevated); }
+.ark-exec-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text-muted); flex-shrink: 0;
+}
+.ark-exec-dot-live { background: var(--cyan-bright); box-shadow: 0 0 0 3px rgba(56,189,248,.16); animation: ark-pulse 1.4s ease-in-out infinite; }
+.ark-exec-dot-ok { background: var(--success); }
+.ark-exec-dot-bad { background: var(--emergency); }
+.ark-exec-dot-warn { background: var(--warning); }
+.ark-exec-label { font-weight: 600; letter-spacing: .02em; white-space: nowrap; }
+.ark-exec-current {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text-secondary); font-size: 11px;
+}
+.ark-exec-current em { color: var(--text-muted); font-style: normal; }
+.ark-exec-objective { max-width: 46%; }
+.ark-exec-meta {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-left: auto; color: var(--text-muted); font-size: 10px;
+  letter-spacing: .04em; white-space: nowrap;
+}
+.ark-exec-mode {
+  padding: 1px 6px; border: 1px solid var(--border-dim); border-radius: 999px;
+  color: var(--text-secondary); text-transform: uppercase; font-size: 9px;
+}
+.ark-exec-body { border-top: 1px solid var(--border-dim); padding: 6px 10px 10px; }
+.ark-exec-timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ark-exec-event {
+  display: grid; grid-template-columns: 12px 1fr auto; align-items: baseline;
+  gap: 8px; padding: 3px 0;
+}
+.ark-exec-event-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); margin-top: 5px; }
+.ark-exec-event-ok .ark-exec-event-dot { background: var(--success); }
+.ark-exec-event-bad .ark-exec-event-dot { background: var(--emergency); }
+.ark-exec-event-warn .ark-exec-event-dot { background: var(--warning); }
+.ark-exec-event-label { font-size: 11px; color: var(--text-primary); }
+.ark-exec-event-detail { font-size: 10px; color: var(--text-secondary); margin-top: 1px; }
+.ark-exec-event-time { font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ark-exec-empty { font-size: 11px; color: var(--text-muted); padding: 4px 0; }
+.ark-spin { animation: ark-spin 1s linear infinite; }
+@keyframes ark-spin { to { transform: rotate(360deg); } }
+@keyframes ark-pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+
+/* --- structured final report --------------------------------------------- */
+.ark-report {
+  margin: 4px 0 12px;
+  border: 1px solid var(--border-dim);
+  border-radius: 9px;
+  background: var(--bg-card);
+  padding: 10px 12px;
+}
+.ark-report-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 8px;
+}
+.ark-report-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  border: 1px solid transparent;
+}
+.ark-report-badge-ok { color: var(--success); border-color: rgba(16,185,129,.35); background: rgba(16,185,129,.08); }
+.ark-report-badge-bad { color: var(--emergency); border-color: rgba(239,68,68,.35); background: rgba(239,68,68,.08); }
+.ark-report-badge-warn { color: var(--warning); border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.08); }
+.ark-report-runid {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: none; background: transparent; color: var(--text-muted);
+  font-size: 10px; cursor: pointer;
+}
+.ark-report-runid:hover { color: var(--cyan-bright); }
+.ark-report-objective { display: flex; gap: 8px; margin-bottom: 10px; }
+.ark-report-k {
+  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--text-secondary); font-size: 10px; letter-spacing: .05em;
+  text-transform: uppercase; white-space: nowrap;
+}
+.ark-report-v { color: var(--text-primary); font-size: 12px; }
+.ark-report-section { margin-bottom: 10px; }
+.ark-report-empty { margin: 4px 0 0; color: var(--text-muted); font-size: 11px; }
+.ark-report-tools { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.ark-report-tool {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px; border-radius: 5px; background: var(--bg-dark);
+  font-size: 11px;
+}
+.ark-report-tool-ico.ok { color: var(--success); display: inline-flex; }
+.ark-report-tool-ico.bad { color: var(--emergency); display: inline-flex; }
+.ark-report-tool-name { color: var(--text-primary); }
+.ark-report-tool-id { color: var(--text-muted); font-size: 10px; }
+.ark-report-tool-ms { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.ark-report-tool-status { margin-left: auto; text-transform: uppercase; font-size: 9px; letter-spacing: .05em; }
+.ark-report-tool-status.ok { color: var(--success); }
+.ark-report-tool-status.bad { color: var(--emergency); }
+.ark-report-grid { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.ark-report-cell {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 6px 10px; border: 1px solid var(--border-dim); border-radius: 6px;
+  background: var(--bg-dark); color: var(--text-secondary); min-width: 90px;
+}
+.ark-report-cell .ark-report-v { font-size: 15px; font-weight: 600; }
+.ark-report-warn { color: var(--warning); }
+.ark-report-evidence { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ark-report-evidence li { color: var(--text-secondary); font-size: 10px; }
+.ark-report-basis {
+  margin: 0; padding-top: 8px; border-top: 1px solid var(--border-dim);
+  color: var(--text-muted); font-size: 10px; line-height: 1.5;
+}
+
+/* --- console view -------------------------------------------------------- */
+
+/* --- composer stop button ------------------------------------------------ */
+.ark-composer .ark-stop {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 7px;
+  border: 1px solid var(--emergency); background: transparent;
+  color: var(--emergency); cursor: pointer;
+}
+.ark-composer .ark-stop:hover:not(:disabled) { background: rgba(239,68,68,.14); }
+.ark-composer .ark-stop:disabled { opacity: .5; cursor: default; }
+
+/* --- execution card: facts, specialist, raw output ----------------------- */
+.ark-exec-specialist {
+  padding: 1px 7px; border-radius: 999px;
+  border: 1px solid var(--border-dim); color: var(--text-secondary); font-size: 10px;
+}
+.ark-exec-target { color: var(--cyan-bright); font-size: 10px; }
+.ark-exec-facts {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px 14px; margin: 2px 0 10px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-dim);
+}
+.ark-exec-facts > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ark-exec-facts dt {
+  color: var(--text-muted); font-size: 9px; letter-spacing: .06em; text-transform: uppercase;
+}
+.ark-exec-facts dd { margin: 0; color: var(--text-primary); font-size: 11px; overflow-wrap: anywhere; }
+.ark-exec-ok { color: var(--success); }
+.ark-exec-bad { color: var(--emergency); }
+.ark-exec-raw { margin-top: 4px; }
+.ark-exec-raw > summary {
+  color: var(--text-muted); font-size: 10px; cursor: pointer; list-style: none;
+}
+.ark-exec-raw > summary::-webkit-details-marker { display: none; }
+.ark-exec-raw > summary::before { content: '▸ '; }
+.ark-exec-raw[open] > summary::before { content: '▾ '; }
+.ark-exec-raw > pre {
+  margin: 4px 0 0; padding: 6px 8px; max-height: 240px; overflow: auto;
+  border: 1px solid var(--border-dim); border-radius: 5px; background: var(--bg-dark);
+  color: var(--text-secondary); font-size: 10px; line-height: 1.45; white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --- console context header ---------------------------------------------- */
+
+/* --- report: summary, failure, recommendations --------------------------- */
+.ark-report-summary { margin: 4px 0 0; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+.ark-report-failure {
+  margin: 4px 0 0; color: var(--emergency); font-size: 11px; line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.ark-report-reco { margin: 4px 0 0; padding-left: 18px; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }

@@ -1,8 +1,13 @@
 import React, { Component, type ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { applyDesktopClasses } from './core/desktop';
 import './styles.css';
 import './workbench.css';
+
+// Desktop shell flag + platform class before first paint, so the titlebar drag
+// regions and safe zones are correct on the very first frame.
+applyDesktopClasses();
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null };

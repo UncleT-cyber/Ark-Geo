@@ -161,9 +161,10 @@ class TestConfigured:
         monkeypatch.setattr(ai_gateway, "_ollama_models_sync", lambda: ["llava:latest"])
         assert ai_gateway.has_vision_llm() is True
 
-    def test_vision_with_qwen25_coder(self, monkeypatch):
+    def test_vision_with_qwen25_coder_is_not_a_vision_path(self, monkeypatch):
+        """qwen2.5-coder is a text-only model — it must never count as vision."""
         monkeypatch.setattr(ai_gateway, "_ollama_models_sync", lambda: ["qwen2.5-coder:3b"])
-        assert ai_gateway.has_vision_llm() is True
+        assert ai_gateway.has_vision_llm() is False
 
     def test_vision_disabled_gates_has_vision_llm(self, monkeypatch):
         """The vision master switch overrides an installed vision model."""
@@ -405,4 +406,5 @@ class TestAIStatusEndpoint:
         assert "route" in data and "cloud" in data and "ollama" in data
         assert "openai" in data["cloud"] and "anthropic" in data["cloud"]
         assert data["ollama"]["available"] is True
-        assert data["vision"] is True
+        # qwen2.5-coder is text-only → no vision path is available.
+        assert data["vision"] is False

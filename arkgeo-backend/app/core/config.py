@@ -190,7 +190,7 @@ class Settings(BaseSettings):
     )
     admin_jwt_expiry_minutes: int = 120
 
-    # --- ARK-CAI unified AI core -------------------------------------
+    # --- ARK unified AI core ------------------------------------------
     # Embedded CAI engine (app/engine/cai) acts as THE ARK's intelligence core.
     # ``cai_license_off`` bypasses the upstream license gate so CAI integrates
     # seamlessly with local (Ollama) and cloud (OpenAI/Claude/Gemini) models.

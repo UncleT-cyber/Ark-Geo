@@ -24,10 +24,17 @@ import sys
 # project). We inject that directory onto sys.path so ``import cai`` resolves
 # to the real CAI runtime. The embedded snapshot under ``./cai`` is kept only
 # as a fallback if the original is absent.
+#
+# NOTE: the embedded package directory is ``<here>/cai`` — i.e. the ``cai``
+# package sits *directly* under ``app/engine/cai``. The sys.path entry must
+# therefore be ``<here>`` itself (the package's PARENT), not ``<here>/cai``.
+# Getting this wrong lets an empty ``arkgeo-backend/cai`` directory (a git
+# submodule that is not checked out) win the import as a namespace package,
+# which silently drops the entire CAI-native tool tier.
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _BACKEND_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 _ORIGINAL_CAI_SRC = os.path.join(_BACKEND_ROOT, "cai", "src")
-_EMBEDDED_CAI = os.path.join(_HERE, "cai")
+_EMBEDDED_CAI = _HERE  # parent dir that contains the embedded ``cai`` package
 
 for _p in (_ORIGINAL_CAI_SRC, _EMBEDDED_CAI):
     if os.path.isdir(os.path.join(_p, "cai")) and _p not in sys.path:

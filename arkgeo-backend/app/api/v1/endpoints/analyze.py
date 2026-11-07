@@ -50,7 +50,7 @@ async def _run_cascade(
     # ---- Storage (skipped entirely in zero-retention RAM-only mode) -------
     stored = storage.store_image(image_bytes, zero_retention=retention)
 
-    # ---- Run the full cascade pipeline (unified ARK-CAI engine) -----------
+    # ---- Run the full cascade pipeline (unified ARK engine) ---------------
     # The IMAGE workspace analysis is executed through the agent/tool_registry
     # substrate's ``brain_analyze`` tool, so image intelligence flows through the
     # same single engine as every other workspace.

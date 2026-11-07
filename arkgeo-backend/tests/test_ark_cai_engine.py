@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.engine import router, slash, tool_adapter, orchestrator as orch
+from app.agent.provider_tools import provider_name
 
 
 # --------------------------------------------------------------------------- #
@@ -128,7 +129,7 @@ def _fake_completion(response_plan):
                 self.content = content
                 self.tool_calls = tcs
 
-        return _Msg(spec.get("content"), [_TC(spec["tool"], spec["args"])] if spec.get("tool") else [])
+        return _Msg(spec.get("content"), [_TC(provider_name(spec["tool"]), spec["args"])] if spec.get("tool") else [])
 
     async def fake(**kw):
         idx = state["i"]
@@ -151,99 +152,127 @@ async def _collect(session, prompt):
     return events
 
 
-def test_orchestrator_advisory_streams_answer(monkeypatch):
+async def _stub_dispatch(tool_id, args):
+    """Stand-in for real tool execution in orchestrator unit tests."""
+    return {"status": "ok", "tool": tool_id, "result": "stub"}
+
+
+@pytest.fixture()
+def _scoped(monkeypatch, tmp_path):
+    """Authorize the loopback/localhost targets the orchestrator tests use.
+
+    Engagement scope is fail-closed: without a fixture every target-bearing
+    tool call is denied before dispatch. These tests exercise the ReAct loop,
+    so they install a lab-style fixture covering localhost + the 172.30.250.x
+    lab range used by the HITL cases.
+    """
+    scope = {
+        "engagement_id": "ORCH-TEST",
+        "start": "2026-01-01T00:00:00Z",
+        "expiry": "2099-01-01T00:00:00Z",
+        "approved_addresses": ["localhost", "127.0.0.1", "172.30.250.10", "172.30.250.0/24"],
+        "approved_ports": [8080],
+        "targets": [],
+        "credentials": {},
+    }
+    scope_file = tmp_path / "orch_scope.json"
+    scope_file.write_text(json.dumps(scope))
+    monkeypatch.setenv("ARKGEO_ENGAGEMENT_SCOPE", str(scope_file))
+    return scope_file
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_advisory_streams_answer(monkeypatch):
     monkeypatch.setattr(orch.litellm, "acompletion", _fake_completion([
         {"content": "Advisory insight about SMB risk."},
     ]))
     s = orch.get_session("adv-1")
-    events = asyncio.get_event_loop().run_until_complete(_collect(s, "what are the risks of SMB?"))
+    events = await _collect(s, "what are the risks of SMB?")
     assert any(e["type"] == "final" for e in events)
     assert not any(e["type"] == "tool" for e in events)
 
 
-def test_orchestrator_autonomous_runs_real_tool(monkeypatch):
+@pytest.mark.asyncio
+async def test_orchestrator_autonomous_runs_real_tool(monkeypatch, _scoped):
     monkeypatch.setattr(orch.litellm, "acompletion", _fake_completion([
         {"tool": "net.dns_lookup", "args": {"host": "localhost"}},
         {"content": "DNS resolved to 127.0.0.1."},
     ]))
     s = orch.get_session("auto-1")
-    events = asyncio.get_event_loop().run_until_complete(_collect(s, "resolve DNS for localhost"))
+    events = await _collect(s, "resolve DNS for localhost")
     assert any(e["type"] == "tool" and e["tool"] == "net.dns_lookup" for e in events)
     assert any(e["type"] == "final" for e in events)
 
 
-def test_orchestrator_hitl_denied_blocks_risky_tool(monkeypatch):
+@pytest.mark.asyncio
+async def test_orchestrator_hitl_denied_blocks_risky_tool(monkeypatch, _scoped):
     monkeypatch.setattr(orch, "HITL_TIMEOUT", 0.2)
     monkeypatch.setattr(orch.litellm, "acompletion", _fake_completion([
         {"tool": "net.nmap_scan", "args": {"target": "172.30.250.10", "ports": "8080"}},
         {"content": "No tools run — engagement closed."},
     ]))
     s = orch.get_session("hitl-1")
-    events = asyncio.get_event_loop().run_until_complete(_collect(s, "nmap scan 172.30.250.10"))
+    events = await _collect(s, "nmap scan 172.30.250.10")
     assert any(e["type"] == "hitl" for e in events)
     assert any(e["type"] == "status" and e["stage"] == "tool_denied" for e in events)
 
 
-def test_orchestrator_hitl_approved_runs_tool(monkeypatch):
+@pytest.mark.asyncio
+async def test_orchestrator_hitl_approved_runs_tool(monkeypatch, _scoped):
     monkeypatch.setattr(orch, "HITL_TIMEOUT", 5)
     monkeypatch.setattr(orch.litellm, "acompletion", _fake_completion([
         {"tool": "net.nmap_scan", "args": {"target": "172.30.250.10", "ports": "8080"}},
         {"content": "Scan complete."},
     ]))
+    # Never run a real scan from a unit test — dispatch is stubbed.
+    monkeypatch.setattr(orch, "_dispatch_tool", _stub_dispatch)
 
-    async def scenario():
-        import asyncio as _a
-        s = orch.get_session("hitl-2")
-        events = []
+    s = orch.get_session("hitl-2")
+    events = []
 
-        async def runner():
-            async for ev in orch.run(s, "nmap scan 127.0.0.1"):
-                events.append(ev)
+    async def runner():
+        async for ev in orch.run(s, "nmap scan 172.30.250.10"):
+            events.append(ev)
 
-        task = _a.create_task(runner())
-        for _ in range(200):
-            if s.pending_tool:
-                break
-            await _a.sleep(0.01)
-        orch.approve(s.session_id, True)
-        await task
-        return events
+    task = asyncio.create_task(runner())
+    for _ in range(200):
+        if s.pending_tool:
+            break
+        await asyncio.sleep(0.01)
+    orch.approve(s.session_id, True)
+    await task
 
-    events = asyncio.get_event_loop().run_until_complete(scenario())
     assert any(e["type"] == "status" and e["stage"] == "tool_running" and e["tool"] == "net.nmap_scan" for e in events)
     assert any(e["type"] == "final" for e in events)
 
 
-def test_orchestrator_hitl_allow_always_auto_approves(monkeypatch):
+@pytest.mark.asyncio
+async def test_orchestrator_hitl_allow_always_auto_approves(monkeypatch, _scoped):
     """`Allow Always` approves the first call, then auto-approves the rest."""
     monkeypatch.setattr(orch, "HITL_TIMEOUT", 5)
     monkeypatch.setattr(orch.litellm, "acompletion", _fake_completion([
-        {"tool": "net.nmap_scan", "args": {"target": "127.0.0.1"}},
-        {"tool": "net.nmap_scan", "args": {"target": "127.0.0.1"}},
+        {"tool": "net.nmap_scan", "args": {"target": "127.0.0.1", "ports": "8080"}},
+        {"tool": "net.nmap_scan", "args": {"target": "127.0.0.1", "ports": "8080"}},
         {"content": "Both scans complete."},
     ]))
     # Avoid real network scans in the unit test.
-    monkeypatch.setattr(orch.tools, "call_tool", lambda tid, **kw: {"status": "ok", "tool": tid, "result": "stub"})
+    monkeypatch.setattr(orch, "_dispatch_tool", _stub_dispatch)
 
-    async def scenario():
-        import asyncio as _a
-        s = orch.get_session("hitl-always")
-        events = []
+    s = orch.get_session("hitl-always")
+    events = []
 
-        async def runner():
-            async for ev in orch.run(s, "scan both hosts"):
-                events.append(ev)
+    async def runner():
+        async for ev in orch.run(s, "scan both hosts"):
+            events.append(ev)
 
-        task = _a.create_task(runner())
-        for _ in range(400):
-            if s.pending_tool:
-                break
-            await _a.sleep(0.01)
-        orch.approve(s.session_id, True, allow_always=True)
-        await task
-        return events
+    task = asyncio.create_task(runner())
+    for _ in range(400):
+        if s.pending_tool:
+            break
+        await asyncio.sleep(0.01)
+    orch.approve(s.session_id, True, allow_always=True)
+    await task
 
-    events = asyncio.get_event_loop().run_until_complete(scenario())
     hitls = [e for e in events if e["type"] == "hitl"]
     assert len(hitls) == 1, f"expected 1 HITL prompt, got {len(hitls)}"
     assert any(e.get("stage") == "auto_approve" for e in events)

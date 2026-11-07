@@ -49,7 +49,7 @@ rigor and operational safety:
 |---|---|---|
 | **Operator (Human)** | Intent, judgment, policy authorization, final assessment | Objectives, gating approvals, case disposition |
 | **ARK Core** | Deterministic analysis, evidence preservation, cryptographic hashing, tool runtime | Verified facts, sensor readings, raw logs, tool execution outputs |
-| **ARK AI / CAI Engine** | Tactical planning, tool orchestration, multi-step reasoning, cross-domain correlation | Investigation plans, hypothesis generation, execution graph |
+| **ARK — Cybersecurity Super Intelligence** | The platform's sole user-facing AI: tactical planning, tool orchestration, multi-step reasoning, cross-domain correlation (runs on the CAI framework as an internal engine) | Investigation plans, hypothesis generation, execution graph |
 
 **Epistemic separation is structural, not by prompt.** ARK Core outputs are facts; ARK AI outputs
 are hypotheses. A hypothesis **cannot be promoted to a finding** without corroboration from a higher
@@ -118,7 +118,7 @@ Upload a photo. Get a court-ready forensic report. Predictable, reproducible, au
 Designed for goal-driven, multi-step investigations.
 
 ```
-Operator Objective → CAI ReAct Planner → Policy Guard Validation
+Operator Objective → ARK ReAct Planner (CAI framework) → Policy Guard Validation
                                                     │
 Case Disposition ← Evidence Correlation ← Tool Execution Stream
 ```

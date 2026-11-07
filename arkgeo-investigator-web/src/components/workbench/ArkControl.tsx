@@ -1,13 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
-import { Activity, ScanLine, MessageSquare, Mic, Plus, Send, Square, X, Play, StopCircle, CheckCircle, AlertCircle, RefreshCw, Copy, ChevronDown, ChevronUp, Trash2, Rocket } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Activity, Mic, Plus, Send, Square, X, Play, StopCircle, CheckCircle, AlertCircle, RefreshCw, Copy, ChevronDown, ChevronUp, Trash2, Rocket, Maximize2, Minimize2, Loader2 } from 'lucide-react';
 import type { AnalyzeResponse } from '../../types';
 import { api } from '../../api';
 import type { ToolTabId } from './TabBar';
 import { caseIdFromRequest } from './entities';
 import { useInvestigation } from './useInvestigation';
+import { useInvestigationStore, useInvestigationSlice } from '../../core/investigation/InvestigationStoreContext';
 import { useDictation } from './useDictation';
-import { ARK_CAI_MODEL, type ImageReview } from './useImageReview';
+import { type ImageReview } from './useImageReview';
 import { BottomPanel } from './BottomPanel';
+import { ExecutionActivity, InvestigationReport } from './ExecutionPanels';
+import {
+  summarizeRun, toolDisplayName,
+  type ExecutionEvent,
+} from './executionPresentation';
+import {
+  OPERATIONAL_TOOLS, operationalTool, isConsoleTool, isWorkspaceTool,
+  type OperationalToolId,
+} from './operationalTools';
 import './ark-control.css';
 
 const commands = ['/help', '/agent', '/case', '/tools', '/investigate', '/forensics', '/osint', '/clear'];
@@ -20,28 +30,6 @@ type Message = {
   image?: string;
   tools?: string[];
   approval?: { session: string; execution?: string; tool: string };
-};
-
-type ExecutionEvent = {
-  event: string;
-  run_id?: string;
-  timestamp?: string;
-  source?: string;
-  tool?: string;
-  args?: Record<string, any>;
-  allowed?: boolean;
-  reason?: string;
-  risk?: string;
-  execution_id?: string;
-  session_id?: string;
-  result?: any;
-  elapsed_ms?: number;
-  verified?: boolean;
-  verification_basis?: string;
-  path?: string;
-  role?: string;
-  prompt?: string;
-  [key: string]: any;
 };
 
 type QueueEntry = {
@@ -71,15 +59,22 @@ type SteerEntry = {
 type ModelInfo = {
   id: string;
   name: string;
+  display_name?: string;
   provider: string;
-  provider_group: string;
+  provider_group?: string;
+  logo?: string;
   pricing: string;
   pricing_detail: string;
-  tool_calling: boolean;
-  context_window: number;
+  tool_calling: boolean | 'unknown';
+  context_window: number | null;
   available: boolean;
+  availability?: string;
+  availability_reason?: string;
   local: boolean;
   vision?: boolean;
+  image_input?: boolean | 'unknown';
+  reasoning?: boolean | 'unknown';
+  structured_output?: boolean | 'unknown';
   configured?: boolean;
   is_active?: boolean;
 };
@@ -91,30 +86,54 @@ type ExecutionState = {
   engagement: string | null;
   target: string | null;
   active_agent: string | null;
-  lifecycle_status: 'idle' | 'running' | 'completed' | 'failed' | 'approval_pending';
+  lifecycle_status: 'idle' | 'running' | 'completed' | 'failed' | 'approval_pending' | 'stopped';
+  mode: 'auto' | 'manual';
   events: ExecutionEvent[];
   current_tool: { id: string; name: string; status: 'running' | 'completed' | 'failed'; args: Record<string, any>; result: any; elapsed_ms: number | null; verified: boolean; error: string | null } | null;
   evidence_ref: string | null;
   objective_expanded: boolean;
+  /** Set once the backend confirms the run stopped at a safe checkpoint. */
+  stop_requested?: boolean;
 };
 
-export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, imageReview, workspaceTitle }: {
+export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, imageReview, workspaceTitle, expanded = false, onToggleExpand, onEvent, browserAvailable = false, onOpenWorkspaceTool }: {
   onImage: (file: File) => Promise<AnalyzeResponse | undefined>;
   analyzing: boolean;
   evidenceFile: File | null;
   imageReview?: ImageReview;
   workspaceTitle: string;
   onOpenTool: (tool: ToolTabId) => void;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  /** Emit investigation lifecycle events (used for notifications + tab status). */
+  onEvent?: (ev: Record<string, any>) => void;
+  /** Whether the managed browser runtime is reachable (gates the Browser tool). */
+  browserAvailable?: boolean;
+  /** Open a tool that presents in the central workspace (e.g. Browser). */
+  onOpenWorkspaceTool?: (id: OperationalToolId) => void;
 }) {
   const inv = useInvestigation();
+  const invStore = useInvestigationStore();
   const caseId = inv.activeCase?.id;
-  const [draft, setDraft] = useState('');
-  const [attachment, setAttachment] = useState<{ file: File; url: string }>();
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState('');
-  const [view, setView] = useState<'chat' | 'console' | 'review'>('chat');
-  const [execution, setExecution] = useState<ExecutionState>({
+  // --- Investigation-keyed conversation state -----------------------------
+  // The conversation, execution timeline, queue and inspector belong to the
+  // investigation, not to the ArkControl instance (which is mounted once and
+  // never remounted per tab). Switching tabs therefore swaps these slices
+  // without unmounting, and a run in Investigation A keeps writing to A even
+  // while Investigation B is displayed.
+  const [draft, setDraft] = useInvestigationSlice<string>('draft', () => '');
+  const [attachment, setAttachment] = useInvestigationSlice<{ file: File; url: string } | undefined>('attachment', () => undefined);
+  const [messages, setMessages] = useInvestigationSlice<Message[]>('messages', () => []);
+  const [busy, setBusy] = useInvestigationSlice<boolean>('busy', () => false);
+  const [notice, setNotice] = useInvestigationSlice<string>('notice', () => '');
+  // One unified conversation is the primary execution surface. The operational
+  // inspector is a dismissible overlay over it — never a second permanent view.
+  const [inspectorTool, setInspectorTool] = useInvestigationSlice<OperationalToolId | null>('inspectorTool', () => null);
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
+  const toolsMenuRef = useRef<HTMLDivElement>(null);
+  const toolsTriggerRef = useRef<HTMLButtonElement>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [execution, setExecution] = useInvestigationSlice<ExecutionState>('execution', () => ({
     run_id: null,
     objective: null,
     objective_outcome: null,
@@ -122,56 +141,181 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
     target: null,
     active_agent: null,
     lifecycle_status: 'idle',
+    mode: 'auto',
     events: [],
     current_tool: null,
     evidence_ref: null,
     objective_expanded: false,
-  });
-  const [queue, setQueue] = useState<QueueEntry[]>([]);
-  const [steerings, setSteerings] = useState<SteerEntry[]>([]);
+  }));
+  const [queue, setQueue] = useInvestigationSlice<QueueEntry[]>('queue', () => []);
+  const [steerings, setSteerings] = useInvestigationSlice<SteerEntry[]>('steerings', () => []);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  // Administrator default, used to label the picker when the user has no
+  // explicit preference (the effective model is still the admin default).
+  const [adminDefaultModel, setAdminDefaultModel] = useState<string | null>(null);
+  const [modelSearch, setModelSearch] = useState('');
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const modelPopover = useRef<HTMLDivElement>(null);
+  const modelTrigger = useRef<HTMLButtonElement>(null);
   const [steeringText, setSteeringText] = useState('');
   const [steeringPending, setSteeringPending] = useState(false);
+  const [steerOpen, setSteerOpen] = useState(false);
   const [queueLoaded, setQueueLoaded] = useState(false);
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  // Set once the backend confirms the run stopped at a safe checkpoint; cleared
+  // when a new run starts. Distinguishes "stop requested" from "stopped".
+  const [stopping, setStopping] = useState(false);
 
   const reviewId = imageReview?.id;
   useEffect(() => {
-    if (reviewId !== undefined) setView('review');
-    else setView(prev => prev === 'review' ? 'chat' : prev);
+    if (reviewId !== undefined) setReviewOpen(true);
   }, [reviewId]);
 
+  // A plan awaiting approval surfaces the Plan inspector — the operator still
+  // approves from the conversation; the inspector only shows the detail.
   useEffect(() => {
-    if (inv.session?.status === 'proposed') setView('console');
+    if (inv.session?.status === 'proposed') setInspectorTool('plan');
   }, [inv.session?.plan.revision_id, inv.session?.status]);
 
   useEffect(() => {
-    api.caiModels().then((data: any) => {
+    let cancelled = false;
+    Promise.all([
+      api.caiModels(),
+      api.caiGetPreference().catch(() => ({ selected_model: null, model_pins: {} as Record<string, string> })),
+    ]).then(([data, pref]) => {
+      if (cancelled) return;
       const providers = data.providers || {};
       const allModels: ModelInfo[] = [];
       Object.values(providers).forEach((prov: any) => {
-        if (Array.isArray(prov)) {
-          prov.forEach((m: any) => allModels.push(m));
-        }
+        if (Array.isArray(prov)) prov.forEach((m: any) => allModels.push({ ...m, name: m.display_name || m.name || m.id }));
       });
       setModels(allModels);
       setModelsLoaded(true);
-      const active = data.active_model;
-      if (active) setSelectedModel(active);
+      // The user's saved preference is authoritative for them; the admin
+      // default is only the fallback when they have not chosen (Phase 2).
+      setAdminDefaultModel(data.active_model || null);
+      setSelectedModel(pref.selected_model || data.selected_model || data.active_model || null);
     }).catch(() => {
-      setModelsLoaded(true);
+      if (!cancelled) setModelsLoaded(true);
     });
+    return () => { cancelled = true; };
   }, []);
+
+  // Dismiss the picker on outside click / Escape, and keep it in the viewport.
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (modelPopover.current?.contains(e.target as Node)) return;
+      if (modelTrigger.current?.contains(e.target as Node)) return;
+      setModelMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setModelMenuOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    const node = modelPopover.current;
+    if (node) {
+      const rect = node.getBoundingClientRect();
+      if (rect.left < 8) node.style.left = '0';
+      else if (rect.right > window.innerWidth - 8) node.style.right = '0';
+      if (rect.top < 8) { node.style.bottom = 'auto'; node.style.top = 'calc(100% + 6px)'; }
+    }
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [modelMenuOpen]);
+
+  // Dismiss the operational tools menu on outside click / Escape, and keep it
+  // inside the viewport (repositions if it would overflow either edge).
+  useEffect(() => {
+    if (!toolsMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (toolsMenuRef.current?.contains(e.target as Node)) return;
+      if (toolsTriggerRef.current?.contains(e.target as Node)) return;
+      setToolsMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setToolsMenuOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    const node = toolsMenuRef.current;
+    if (node) {
+      const rect = node.getBoundingClientRect();
+      if (rect.right > window.innerWidth - 8) node.style.right = '0';
+      else if (rect.left < 8) node.style.left = '0';
+    }
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [toolsMenuOpen]);
+
+  // Close the inspector when the active investigation changes so records from
+  // one case can never bleed into another via stale component state.
+  useEffect(() => { setInspectorTool(null); }, [caseId]);
+
+  const openInspector = (id: OperationalToolId) => {
+    setToolsMenuOpen(false);
+    // Workspace tools take over the central application area — they are never
+    // squeezed into the dock. Hand off to the workbench that owns that region.
+    if (isWorkspaceTool(id)) {
+      onOpenWorkspaceTool?.(id);
+      return;
+    }
+    // Console-backed tools share the existing BottomPanel tab state so the
+    // inspector reads the same store as the docked console — no duplicate data.
+    if (isConsoleTool(id)) inv.setBottomTab(id);
+    setInspectorTool(id);
+  };
+
+  const chooseModel = async (id: string) => {
+    setSelectedModel(id);
+    setModelMenuOpen(false);
+    setModelSearch('');
+    try {
+      await api.caiSetPreference(id);
+    } catch {
+      // Selection is still used for the next run; persistence retries next time.
+    }
+  };
 
   const [approving, setApproving] = useState(false);
   const feed = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
   const request = useRef<AbortController | null>(null);
-  const session = useRef<{ id: string; caseId?: string; domain: string }>();
+  // Backend CAI session handle — per investigation. The in-flight `send` closure
+  // captures the investigation that was active when the run started, so its
+  // writes keep landing on that investigation even after a tab switch.
+  const activeInvId = invStore.activeId ?? '__none__';
+  const sessionsRef = useRef<Record<string, { id: string; caseId?: string; domain: string } | undefined>>({});
+  const session = useMemo(() => ({
+    get current() { return sessionsRef.current[activeInvId]; },
+    set current(value: { id: string; caseId?: string; domain: string } | undefined) {
+      sessionsRef.current[activeInvId] = value;
+    },
+  }), [activeInvId]);
   const urls = useRef(new Set<string>());
+
+  // Restore an investigation's transcript from the backend encrypted session
+  // store the first time it is opened with no live conversation. Content lives
+  // in the backend (Zero-Retention honoured); nothing is persisted locally.
+  const restoredSessions = useRef(new Set<string>());
+  useEffect(() => {
+    const sid = invStore.metaFor(activeInvId)?.sessionId;
+    if (!sid || restoredSessions.current.has(sid)) return;
+    restoredSessions.current.add(sid);
+    if (messages.length > 0) return;
+    let cancelled = false;
+    api.caiSession(sid).then(res => {
+      if (cancelled || !res?.transcript_available || !res.messages?.length) return;
+      setMessages(res.messages
+        .filter(m => m.role === 'user' || m.role === 'assistant')
+        .map(m => ({ user: m.role === 'user', text: m.content })));
+    }).catch(() => { /* transcript unavailable — start clean */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeInvId]);
 
   useEffect(() => () => {
     request.current?.abort();
@@ -180,7 +324,7 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
 
   useEffect(() => {
     if (feed.current) feed.current.scrollTop = feed.current.scrollHeight;
-  }, [messages, view, execution.events]);
+  }, [messages, inspectorTool, execution.events]);
 
   const release = (url: string) => {
     URL.revokeObjectURL(url);
@@ -196,69 +340,6 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
     return null;
   }
 
-  function toolDisplayName(toolId: string): string {
-    const map: Record<string, string> = {
-      'net.curl_probe': 'HTTP Probe',
-      'net.nmap_scan': 'Nmap Scan',
-      'net.dns_lookup': 'DNS Lookup',
-      'net.whois': 'WHOIS Lookup',
-      'net.ssl_check': 'SSL/TLS Check',
-      'net.dir_enum': 'Directory Enumeration',
-      'net.subdomain_enum': 'Subdomain Enumeration',
-      'pentest.nmap_scan': 'Pentest Nmap Scan',
-      'pentest.ssh_identity': 'SSH Identity Verification',
-      'pentest.priv_esc': 'Privilege Escalation Analysis',
-      'pentest.webshell_scan': 'Webshell Scan',
-      'pentest.hash_crack': 'Hash Cracking',
-      'pentest.default_creds': 'Default Credential Test',
-      'recon.web_search': 'Web Search',
-      'recon.web_fetch': 'Web Fetch',
-      'system.diagnostics': 'System Diagnostics',
-    };
-    return map[toolId] || toolId.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-  }
-
-  function formatRole(role: string | null | undefined): string {
-    if (!role) return '—';
-    const stripped = role.replace(/^SpecialistRole\./, '');
-    const words = stripped.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
-    return words.join(' ');
-  }
-
-  function eventLabel(ev: ExecutionEvent): string {
-    switch (ev.event) {
-      case 'run_created': return 'Run created';
-      case 'agent_selected': return 'Agent selected';
-      case 'scope_checked': return 'Scope checked';
-      case 'hitl': return 'Approval required';
-      case 'approval_required': return 'Approval required';
-      case 'tool_call': return 'Tool invoked';
-      case 'tool_started': return 'Tool started';
-      case 'tool_completed': return 'Tool completed';
-      case 'tool_failed': return 'Tool failed';
-      case 'result_verified': return 'Result verified';
-      case 'evidence_recorded': return 'Evidence recorded';
-      case 'run_completed': return 'Run completed';
-      case 'run_failed': return 'Run failed';
-      case 'queue_delivered': return 'Queued message delivered';
-      default: return ev.event;
-    }
-  }
-
-  function eventDetail(ev: ExecutionEvent): string {
-    if (ev.event === 'agent_selected') return `Agent: ${formatRole(ev.role)} · Path: ${ev.path ?? '—'}`;
-    if (ev.event === 'scope_checked') return `Scope ${ev.allowed ? 'approved' : 'denied'} · ${ev.reason ?? ''}`;
-    if (ev.event === 'tool_call') return `Tool: ${toolDisplayName(ev.tool ?? 'unknown')}`;
-    if (ev.event === 'tool_completed' || ev.event === 'tool_failed') {
-      return `Tool: ${toolDisplayName(ev.tool ?? 'unknown')} · ${ev.elapsed_ms ?? 0} ms · ${ev.verified ? 'verified' : 'unverified'}`;
-    }
-    if (ev.event === 'hitl' || ev.event === 'approval_required') return `Approval required: ${ev.tool ?? 'unknown'}`;
-    if (ev.event === 'run_completed') return 'Run completed successfully';
-    if (ev.event === 'run_failed') return `Run failed: ${ev.reason ?? ''}`;
-    if (ev.event === 'queue_delivered') return 'Queued message delivered';
-    return '';
-  }
-
   async function copyRunId() {
     if (!execution.run_id) return;
     try {
@@ -266,14 +347,37 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
     } catch { /* clipboard unavailable */ }
   }
 
+  const enqueue = async (prompt: string) => {
+    if (!session.current?.id) return;
+    try {
+      const res = await api.caiEnqueue({
+        session_id: session.current.id,
+        prompt,
+        run_id: execution.run_id ?? undefined,
+      });
+      setDraft('');
+      setNotice(`Queued (position ${res?.queue_position ?? 1}) — runs after the current objective.`);
+      void loadQueue();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Queue failed');
+    }
+  };
+
   const send = async (raw: string, withAttachment = false) => {
     const text = raw.trim();
     const image = withAttachment ? attachment : undefined;
+    // If a run is already active, the composer's job is to queue the message for
+    // execution after the current run completes — not to start a second run.
+    if (request.current && text && !image) {
+      void enqueue(text);
+      return;
+    }
     if (request.current || (image && analyzing) || (!text && !image)) return;
-    setView('chat');
+    setInspectorTool(null);
     setDraft('');
     setNotice('');
-    setExecution({
+    setStopping(false);
+    setExecution(prev => ({
       run_id: null,
       objective: text,
       objective_outcome: null,
@@ -281,11 +385,14 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
       target: null,
       active_agent: null,
       lifecycle_status: 'idle',
+      // Mode is backend-owned; carry the operator's current selection forward.
+      mode: prev.mode,
       events: [],
       current_tool: null,
       evidence_ref: null,
       objective_expanded: false,
-    });
+      stop_requested: false,
+    }));
     if (text === '/clear') {
       messages.forEach(message => { if (message.image) release(message.image); });
       setMessages([]);
@@ -322,9 +429,9 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
             domain: 'image',
             claims_to_verify: [{ field: 'gps.latitude' }],
           });
-          reply('See Plan in the investigation console.');
+          reply('See Plan in the operational inspector.');
           inv.setBottomTab('plan');
-          setView('console');
+          setInspectorTool('plan');
         }
       } else if (text === '/forensics' || text === '/osint') {
         if (!inv.result && !image) reply('Upload image evidence to open this workspace.');
@@ -340,7 +447,7 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
       } else if (!text) reply('Image submitted to the evidence pipeline.');
       else {
         await api.caiTerminalStream(text, {
-          model: selectedModel || ARK_CAI_MODEL,
+          model: selectedModel || undefined,
           sessionId: !image && session.current?.caseId === activeCase && session.current?.domain === inv.domain ? session.current?.id : undefined,
           caseId: activeCase,
           caseContext: {
@@ -363,11 +470,42 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
             consistency_findings: analysis?.consistency_findings?.slice(0, 8),
             contradictions: analysis?.contradictions?.slice(0, 8),
           },
+          executionMode: execution.mode,
         }, event => {
-          if (event.event === 'session') session.current = { id: event.session_id, caseId: activeCase, domain: image ? 'image' : inv.domain };
+          if (event.event === 'session') {
+            session.current = { id: event.session_id, caseId: activeCase, domain: image ? 'image' : inv.domain };
+            onEvent?.(event);
+          }
 
           if (event.event === 'run_created') {
             setExecution(prev => ({ ...prev, run_id: event.run_id ?? null, lifecycle_status: 'running' }));
+            onEvent?.(event);
+            return;
+          }
+          if (event.event === 'execution_mode') {
+            // The backend owns the mode; reflect what it actually reports.
+            if (event.mode === 'auto' || event.mode === 'manual') {
+              setExecution(prev => ({ ...prev, mode: event.mode }));
+            }
+            setExecution(prev => ({ ...prev, events: [...prev.events, event] }));
+            return;
+          }
+          if (event.event === 'steer_ack') {
+            setSteerings(prev => prev.map(s => s.id === event.steering_id
+              ? { ...s, status: event.status, applied: event.status === 'accepted' } : s));
+            setExecution(prev => ({ ...prev, events: [...prev.events, event] }));
+            return;
+          }
+          if (event.event === 'run_cancelled') {
+            setStopping(false);
+            setExecution(prev => ({
+              ...prev,
+              lifecycle_status: 'stopped',
+              objective_outcome: 'failed',
+              stop_requested: true,
+              events: [...prev.events, event],
+            }));
+            onEvent?.(event);
             return;
           }
           if (event.event === 'agent_selected') {
@@ -381,6 +519,7 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
             setExecution(prev => ({ ...prev, events: [...prev.events, event] }));
             if (!event.allowed) {
               setExecution(prev => ({ ...prev, lifecycle_status: 'failed', objective_outcome: 'failed' }));
+              onEvent?.(event);
             }
             return;
           }
@@ -388,6 +527,7 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
             setExecution(prev => ({ ...prev, lifecycle_status: 'approval_pending' }));
             const approval = { session: event.session_id, execution: event.execution_id, tool: event.tool };
             update(message => ({ ...message, approval }));
+            onEvent?.(event);
             return;
           }
           if (event.event === 'tool_call') {
@@ -455,16 +595,18 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
           if (event.event === 'run_completed') {
             const toolSucceeded = execution.current_tool ? execution.current_tool.status === 'completed' && execution.current_tool.verified : false;
             setExecution(prev => ({ ...prev, lifecycle_status: 'completed', objective_outcome: toolSucceeded ? 'succeeded' : 'failed' }));
+            onEvent?.(event);
             return;
           }
           if (event.event === 'run_failed') {
             setExecution(prev => ({ ...prev, lifecycle_status: 'failed', objective_outcome: 'failed' }));
+            onEvent?.(event);
             return;
           }
 
           if (event.event === 'token') update(message => ({ ...message, text: message.text + event.text }));
           if (['final', 'local_command'].includes(event.event) && event.text) reply(event.text);
-          if (event.event === 'error') reply(event.message || 'ARK-CAI returned an error.');
+          if (event.event === 'error') reply(event.message || 'ARK returned an error.');
           const tool = String(event.tool?.name ?? event.tool_name ?? event.name ?? event.tool ?? 'Tool');
           if (event.event === 'tool' || event.event === 'tool_call') {
             const label = event.result?.status === 'error' ? `${tool} · failed` : tool;
@@ -478,10 +620,10 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
             update(message => ({ ...message, approval }));
           }
         }, undefined, controller.signal);
-        update(message => message.text || message.approval ? message : { ...message, text: 'ARK-CAI returned no response.' });
+        update(message => message.text || message.approval ? message : { ...message, text: 'ARK returned no response.' });
       }
     } catch (err) {
-      reply(err instanceof Error ? err.message : 'ARK-CAI request failed.');
+      reply(err instanceof Error ? err.message : 'ARK request failed.');
     } finally {
       request.current = null;
       setBusy(false);
@@ -512,6 +654,41 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
     }
   };
 
+  // Load the pending queue when a run starts so the composer can surface the
+  // Queue control; reset when idle.
+  useEffect(() => {
+    if (execution.lifecycle_status === 'running') {
+      if (!queueLoaded) setQueueLoaded(true);
+      void loadQueue();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [execution.run_id, execution.lifecycle_status]);
+
+  // Execution mode is a composer-level directive. Advisory (Manual) requires
+  // operator confirmation at the checkpoints; Autonomous (Automatic) lets the
+  // agent sequence permitted tools inside the active scope. Neither mode can
+  // bypass scope validation, approvals or the policy guard.
+  const toggleExecutionMode = async () => {
+    const next = execution.mode === 'auto' ? 'manual' : 'auto';
+    setExecution(prev => ({ ...prev, mode: next }));
+    // Persist the mode server-side so it is enforced by the orchestrator on the
+    // next dispatch, and applies mid-run when a run is active.
+    try {
+      const res = await api.caiMode({
+        session_id: session.current?.id || '',
+        run_id: execution.run_id ?? undefined,
+        mode: next,
+      });
+      if (res?.ok === false) {
+        setExecution(prev => ({ ...prev, mode: next === 'auto' ? 'manual' : 'auto' }));
+        setNotice(res.error || 'Could not set execution mode.');
+      }
+    } catch (err) {
+      setExecution(prev => ({ ...prev, mode: next === 'auto' ? 'manual' : 'auto' }));
+      setNotice(err instanceof Error ? err.message : 'Could not set execution mode.');
+    }
+  };
+
   const cancelQueueItem = async (queueId: string) => {
     try {
       await api.caiStop({ session_id: session.current?.id || '', stop_type: 'cancel_pending' });
@@ -532,15 +709,32 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
   };
 
   const sendSteer = async () => {
-    if (!steeringText.trim() || !session.current?.id || !execution.run_id) return;
+    if (!steeringText.trim() || !session.current?.id) return;
     setSteeringPending(true);
     try {
-      await api.caiSteer({
+      const res = await api.caiSteer({
         session_id: session.current.id,
-        run_id: execution.run_id,
+        run_id: execution.run_id ?? undefined,
         message: steeringText,
         instruction_type: 'steer',
       });
+      if (res?.ok === false) {
+        setNotice(res.error || 'No active run to steer.');
+        setSteeringPending(false);
+        return;
+      }
+      // Optimistically show the instruction as submitted; the orchestrator's
+      // steer_ack event replaces this with accepted/deferred/rejected.
+      setSteerings(prev => [...prev, {
+        id: res?.steering_id ?? `steer-${Date.now()}`,
+        run_id: execution.run_id ?? '',
+        session_id: session.current!.id,
+        message: steeringText,
+        instruction_type: 'steer',
+        status: 'awaiting_checkpoint',
+        created_at: new Date().toISOString(),
+        applied: false,
+      }]);
       setSteeringText('');
       setSteeringPending(false);
       loadQueue();
@@ -551,13 +745,25 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
   };
 
   const stopRun = async () => {
-    if (!session.current?.id || !execution.run_id) return;
+    if (!session.current?.id) return;
+    setStopping(true);
     try {
-      await api.caiStop({ session_id: session.current.id, run_id: execution.run_id, stop_type: 'stop' });
-      setExecution(prev => ({ ...prev, lifecycle_status: 'failed', objective_outcome: 'failed' }));
-      setBusy(false);
-    } catch {
-      // ignore
+      const res = await api.caiStop({
+        session_id: session.current.id,
+        run_id: execution.run_id ?? undefined,
+        stop_type: 'stop',
+      });
+      // The backend honours the stop at its next safe checkpoint and streams
+      // run_cancelled; until then the run is "stopping", never "stopped".
+      if (res?.stop_requested === false) {
+        setNotice('No active run to stop.');
+        setStopping(false);
+      } else {
+        setExecution(prev => ({ ...prev, stop_requested: true }));
+      }
+    } catch (err) {
+      setStopping(false);
+      setNotice(err instanceof Error ? err.message : 'Stop failed');
     }
   };
 
@@ -584,303 +790,165 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
     failed: 'Failed',
   };
 
+  const providerLabels: Record<string, string> = {
+    openrouter: 'OpenRouter', openai: 'OpenAI', anthropic: 'Anthropic',
+    gemini: 'Google Gemini', huggingface: 'Hugging Face', ollama: 'Ollama (Local)',
+    ark: 'ARK Managed',
+  };
+  const query = modelSearch.trim().toLowerCase();
+  const filteredModels = query
+    ? models.filter(m => m.name.toLowerCase().includes(query) || m.id.toLowerCase().includes(query))
+    : models;
   const providerGroups: Record<string, ModelInfo[]> = {};
-  models.forEach(m => {
-    if (!providerGroups[m.provider]) providerGroups[m.provider] = [];
-    providerGroups[m.provider].push(m);
+  filteredModels.forEach(m => {
+    const group = providerLabels[m.provider] || m.provider;
+    if (!providerGroups[group]) providerGroups[group] = [];
+    providerGroups[group].push(m);
   });
 
+  // When the user has no explicit preference, the admin default is what runs —
+  // reflect it in the trigger label so the picker never reads "Select model"
+  // while a model is actually in effect.
+  const effectiveModelId = selectedModel || adminDefaultModel;
+
   return (
-    <aside className="ark-control" aria-label="ARK-CAI Control">
+    <aside className={`ark-control ${expanded ? 'ark-control-expanded' : ''}`} aria-label="ARK Control" data-expanded={expanded || undefined}>
       <header className="ark-dock-header">
-        <div><strong>ARK-CAI</strong><small>Operator · {execution.lifecycle_status !== 'idle' ? 'Autonomous' : 'Advisory'}</small></div>
-        <nav aria-label="Dock views">
-          <button type="button" aria-pressed={view === 'chat'} onClick={() => setView('chat')}><MessageSquare size={14} /> Chat{view !== 'chat' && messages.some(message => message.approval) && <span className="ark-view-indicator" aria-label="Approval pending" />}</button>
-          {imageReview && <button type="button" aria-pressed={view === 'review'} onClick={() => setView('review')}><ScanLine size={14} /> Review</button>}
-          <button type="button" aria-pressed={view === 'console'} onClick={() => setView('console')}><Activity size={14} /> Console{view !== 'console' && inv.session?.status === 'proposed' && <span className="ark-view-indicator" aria-label="Plan approval pending" />}</button>
-        </nav>
+        <div className="ark-dock-identity">
+          <strong className="ark-dock-brand">ARK</strong>
+          <small className="ark-dock-mode">
+            <span className={`ark-dock-mode-dot ${execution.lifecycle_status !== 'idle' ? 'ark-dock-mode-dot-live' : ''}`} aria-hidden="true" />
+            {execution.lifecycle_status === 'running' ? 'Executing'
+              : execution.lifecycle_status === 'approval_pending' ? 'Awaiting approval'
+              : execution.lifecycle_status === 'stopped' ? 'Stopped'
+              : execution.lifecycle_status === 'completed' ? 'Completed'
+              : execution.lifecycle_status === 'failed' ? 'Failed'
+              : 'Advisory'}
+          </small>
+        </div>
+        <div className="ark-dock-actions">
+          <div className="ark-tools-menu-wrap">
+            <button
+              ref={toolsTriggerRef}
+              type="button"
+              className="ark-dock-tool-btn"
+              aria-haspopup="menu"
+              aria-expanded={toolsMenuOpen}
+              aria-label="Operational tools"
+              title="Operational tools"
+              onClick={() => setToolsMenuOpen(v => !v)}
+            >
+              <Plus size={18} />
+            </button>
+            {toolsMenuOpen && (
+              <div className="ark-tools-menu" ref={toolsMenuRef} role="menu" aria-label="Operational tools">
+                {OPERATIONAL_TOOLS.map(tool => {
+                  const Icon = tool.icon;
+                  const disabled = Boolean(tool.requiresBrowser) && !browserAvailable;
+                  return (
+                    <button
+                      key={tool.id}
+                      type="button"
+                      role="menuitem"
+                      className={`ark-tools-item ${inspectorTool === tool.id ? 'ark-tools-item-active' : ''}`}
+                      disabled={disabled}
+                      title={disabled ? 'Managed browser runtime unavailable' : tool.description}
+                      onClick={() => !disabled && openInspector(tool.id)}
+                    >
+                      <Icon size={15} className="ark-tools-item-icon" />
+                      <span className="ark-tools-item-text">
+                        <span className="ark-tools-item-label">{tool.label}</span>
+                        <span className="ark-tools-item-desc">{disabled ? 'Unavailable' : tool.description}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          {onToggleExpand && (
+            <button type="button" className="ark-dock-expand" aria-pressed={expanded}
+              aria-label={expanded ? 'Restore ARK to docked panel' : 'Expand ARK to workspace'}
+              title={expanded ? 'Restore panel (Esc)' : 'Expand to workspace' }
+              onClick={onToggleExpand}>
+              {expanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+            </button>
+          )}
+        </div>
       </header>
 
-      <div className="ark-output-scroll" ref={feed}>
+      <div className="ark-conversation-region">
+        <div className="ark-output-scroll ark-conversation" ref={feed} role="log" aria-label="Investigation conversation">
         {(execution.run_id || execution.lifecycle_status !== 'idle') && (
-          <section className="ark-investigation-header">
-            <div className="ark-header-row">
-              <span className="ark-header-label">Objective</span>
-              <button type="button" className="ark-objective-toggle" onClick={() => setExecution(prev => ({ ...prev, objective_expanded: !prev.objective_expanded }))}>
-                {execution.objective_expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                {execution.objective || '—'}
+          <ExecutionActivity
+            execution={execution}
+          />
+        )}
+        {execution.lifecycle_status !== 'idle' && execution.lifecycle_status !== 'running'
+          && execution.lifecycle_status !== 'approval_pending' && execution.events.length > 0 && (
+          <InvestigationReport summary={summarizeRun(execution)} onCopyRunId={() => void copyRunId()} />
+        )}
+
+        {reviewOpen && imageReview && (
+          <section className="ark-review" aria-label="Image advisory review">
+            <div className="ark-review-head">
+              <span>Image advisory review</span>
+              <button type="button" className="ark-review-close" aria-label="Close review" title="Close review" onClick={() => setReviewOpen(false)}>
+                <X size={14} />
               </button>
             </div>
-            {execution.objective_expanded && (
-              <div className="ark-objective-full">{execution.objective}</div>
-            )}
-            <div className="ark-header-row">
-              <span className="ark-header-label">Engagement</span>
-              <span className="ark-header-value">{execution.engagement || 'A2-LAB-001'}</span>
+            <div className="ark-review-heading">
+              <span>IMAGE ADVISORY REVIEW</span>
+              <h2>{imageReview.filename}</h2>
+              <p>ARK Core evidence summary · ARK interpretation</p>
             </div>
-            <div className="ark-header-row">
-              <span className="ark-header-label">Target</span>
-              <span className="ark-header-value">{execution.target || '—'}</span>
+            <div className="ark-review-card">
+              <h3>Activity</h3>
+              <ol>{imageReview.steps.map((step, index) => <li key={index}>{step}</li>)}</ol>
+              {imageReview.status === 'waiting' && <p role="status">Waiting for ARK Core evidence…</p>}
+              {imageReview.status === 'reviewing' && <p role="status">Advisory review in progress…</p>}
+              {imageReview.status === 'complete' && <p role="status">Advisory report ready</p>}
+              {imageReview.status === 'skipped' && <p role="status">Automatic AI review skipped in Zero-Retention Mode.</p>}
+              {imageReview.error && <p role="status">{imageReview.error}</p>}
+              {imageReview.retry && <button type="button" onClick={imageReview.retry}>Retry AI report</button>}
             </div>
-            <div className="ark-header-row">
-              <span className="ark-header-label">Active Specialist</span>
-              <span className="ark-header-value">{formatRole(execution.active_agent)}</span>
-            </div>
-            <div className="ark-header-row">
-              <span className="ark-header-label">Lifecycle</span>
-              <span className={`ark-status ${execution.lifecycle_status}`}>{statusLabels[execution.lifecycle_status]}</span>
-            </div>
-            {execution.objective_outcome && (
-              <div className="ark-header-row">
-                <span className="ark-header-label">Objective Outcome</span>
-                <span className={`ark-outcome ${execution.objective_outcome}`}>{outcomeLabels[execution.objective_outcome]}</span>
-              </div>
-            )}
-            <div className="ark-header-row">
-              <span className="ark-header-label">Run ID</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="ark-header-value ark-mono">{execution.run_id || '—'}</span>
-                {execution.run_id && (
-                  <button type="button" className="ark-copy-btn" title="Copy run ID" onClick={copyRunId} aria-label="Copy run ID">
-                    <Copy size={12} />
-                  </button>
-                )}
-              </div>
-            </div>
-            {execution.evidence_ref && (
-              <div className="ark-header-row">
-                <span className="ark-header-label">Evidence</span>
-                <span className="ark-header-value ark-mono">{execution.evidence_ref}</span>
-              </div>
-            )}
+            {imageReview.report && <div className="ark-review-card">
+              <h3>{imageReview.status === 'complete' ? 'Advisory report' : 'Draft advisory report'}</h3>
+              <div className="ark-review-report">{imageReview.report}</div>
+            </div>}
           </section>
         )}
 
-        {execution.events.length > 0 && (
-          <section className="ark-execution-timeline">
-            <h3 className="ark-section-title">Execution Timeline</h3>
-            <ol className="ark-timeline-list">
-              {execution.events.map((ev, i) => {
-                const iconMap: Record<string, { icon: React.ReactNode; color: string }> = {
-                  run_created: { icon: <Play size={14} />, color: '#38BDF8' },
-                  agent_selected: { icon: <Activity size={14} />, color: '#38BDF8' },
-                  scope_checked: { icon: <RefreshCw size={14} />, color: '#38BDF8' },
-                  hitl: { icon: <StopCircle size={14} />, color: '#F59E0B' },
-                  approval_required: { icon: <StopCircle size={14} />, color: '#F59E0B' },
-                  tool_call: { icon: <Play size={14} />, color: '#10B981' },
-                  tool_started: { icon: <Play size={14} />, color: '#10B981' },
-                  tool_completed: { icon: <CheckCircle size={14} />, color: '#10B981' },
-                  tool_failed: { icon: <AlertCircle size={14} />, color: '#EF4444' },
-                  result_verified: { icon: <CheckCircle size={14} />, color: '#10B981' },
-                  evidence_recorded: { icon: <ScanLine size={14} />, color: '#38BDF8' },
-                  run_completed: { icon: <CheckCircle size={14} />, color: '#10B981' },
-                  run_failed: { icon: <AlertCircle size={14} />, color: '#EF4444' },
-                  queue_delivered: { icon: <Rocket size={14} />, color: '#8B5CF6' },
-                };
-                const info = iconMap[ev.event] || { icon: <RefreshCw size={14} />, color: '#666666' };
-                return (
-                  <li key={i} className="ark-timeline-item">
-                    <span className="ark-timeline-dot" style={{ color: info.color }}>{info.icon}</span>
-                    <div className="ark-timeline-content">
-                      <div className="ark-timeline-event">{eventLabel(ev)}</div>
-                      {eventDetail(ev) && <div className="ark-timeline-detail">{eventDetail(ev)}</div>}
-                      <div className="ark-timeline-time">{ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : ''}</div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-          </section>
-        )}
+        <>
+            {!messages.length && <div className="ark-idle"><strong>ARK</strong><span className="ark-idle-sub">Cybersecurity Super Intelligence</span><p>Ask a question, attach evidence, or run a command to begin an investigation.</p></div>}
+            {messages.map((message, i) => <article key={i} className={message.user ? 'ark-message ark-user' : 'ark-message'}>
+              {message.image && <img src={message.image} alt="Attached evidence" />}
+              {message.text || (busy && i === messages.length - 1 && !message.approval && !message.tools?.length ? 'Working…' : '')}
+              {message.tools?.map(tool => <span key={tool} className="ark-tool-chip">{tool}</span>)}
+              {message.approval && <div>Approve {message.approval.tool}? <button disabled={approving} onClick={() => void approve(i, message.approval!, true)}>Approve</button> <button disabled={approving} onClick={() => void approve(i, message.approval!, false)}>Deny</button></div>}
+            </article>)}
+        </>
+        </div>
+      </div>
 
-        {execution.current_tool && (
-          <section className="ark-tool-details">
-            <h3 className="ark-section-title">Tool: {execution.current_tool.name}</h3>
-            <div className="ark-tool-field">
-              <span className="ark-tool-label">ID</span>
-              <span className="ark-tool-value ark-mono">{execution.current_tool.id}</span>
-            </div>
-            <div className="ark-tool-field">
-              <span className="ark-tool-label">Status</span>
-              <span className={`ark-tool-status ${execution.current_tool.status}`}>{execution.current_tool.status}</span>
-            </div>
-            <div className="ark-tool-field">
-              <span className="ark-tool-label">Inputs (sanitized)</span>
-              <pre className="ark-tool-args">{JSON.stringify(execution.current_tool.args, null, 2)}</pre>
-            </div>
-            {execution.current_tool.result && (
-              <div className="ark-tool-field">
-                <span className="ark-tool-label">Output</span>
-                <pre className="ark-tool-output">{JSON.stringify(execution.current_tool.result, null, 2)}</pre>
-              </div>
-            )}
-            {execution.current_tool.error && (
-              <div className="ark-tool-field">
-                <span className="ark-tool-label">Error</span>
-                <span className="ark-tool-error">{execution.current_tool.error}</span>
-              </div>
-            )}
-            {execution.current_tool.elapsed_ms !== null && (
-              <div className="ark-tool-field">
-                <span className="ark-tool-label">Elapsed</span>
-                <span className="ark-tool-value">{execution.current_tool.elapsed_ms} ms</span>
-              </div>
-            )}
-            <div className="ark-tool-field">
-              <span className="ark-tool-label">Verified</span>
-              <span className={`ark-tool-status ${execution.current_tool.verified ? 'verified' : 'unverified'}`}>
-                {execution.current_tool.verified ? 'Yes — backend-confirmed' : 'No — not verified'}
-              </span>
-            </div>
-          </section>
-        )}
-
-        {(execution.lifecycle_status === 'completed' || execution.lifecycle_status === 'failed') && execution.objective_outcome && (
-          <section className="ark-findings">
-            <h3 className="ark-section-title">Findings</h3>
-            <p className="ark-finding-text">
-              {execution.objective_outcome === 'succeeded'
-                ? `Objective succeeded. ${execution.current_tool ? `Tool "${execution.current_tool.name}" returned ${execution.current_tool.verified ? 'verified' : 'unverified'} output.` : 'No tool executed.'}`
-                : `Objective failed. ${execution.current_tool?.error || 'Unknown error'}`}
-            </p>
-            <p className="ark-finding-text">
-              Verification basis: backend-owned tool result status (not model-generated).
-              {execution.evidence_ref ? ` Evidence recorded: ${execution.evidence_ref}` : ''}
-            </p>
-          </section>
-        )}
-
-        {execution.evidence_ref && (
-          <section className="ark-evidence">
-            <h3 className="ark-section-title">Evidence Record</h3>
-            <div className="ark-evidence-field">
-              <span className="ark-evidence-label">Run ID</span>
-              <span className="ark-evidence-value ark-mono">{execution.run_id}</span>
-            </div>
-            <div className="ark-evidence-field">
-              <span className="ark-evidence-label">File</span>
-              <span className="ark-evidence-value ark-mono">{execution.evidence_ref}</span>
-            </div>
-            <div className="ark-evidence-field">
-              <span className="ark-evidence-label">Events</span>
-              <span className="ark-evidence-value">{execution.events.length}</span>
-            </div>
-          </section>
-        )}
-
-        {queueLoaded && queue.length > 0 && (
-          <section className="ark-queue">
-            <h3 className="ark-section-title">Message Queue</h3>
-            <div className="ark-queue-list">
-              {queue.map(q => (
-                <div key={q.id} className={`ark-queue-item ${q.status}`}>
-                  <div className="ark-queue-info">
-                    <span className="ark-queue-id">{q.id}</span>
-                    <span className="ark-queue-prompt">{q.prompt}</span>
-                    {q.run_id && <span className="ark-queue-run">run: {q.run_id}</span>}
-                  </div>
-                  <div className="ark-queue-status">
-                    <span className={`ark-queue-status-badge ${q.status}`}>{q.status}</span>
-                    {q.status === 'pending' && (
-                      <button type="button" className="ark-queue-cancel" onClick={() => cancelQueueItem(q.id)} title="Cancel">
-                        <X size={12} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {execution.lifecycle_status === 'running' && (
-          <section className="ark-steering">
-            <h3 className="ark-section-title">Steer Active Run</h3>
-            <div className="ark-steer-input">
-              <textarea
-                ref={input}
-                value={steeringText}
-                rows={2}
-                placeholder="Enter steering instruction (e.g., 'focus on port 443', 'pivot to web enumeration')..."
-                onChange={e => setSteeringText(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    void sendSteer();
-                  }
-                }}
-              />
-              <button type="button" className="ark-steer-send" onClick={sendSteer} disabled={steeringPending || !steeringText.trim() || !execution.run_id}>
-                {steeringPending ? 'Sending...' : 'Steer'}
-              </button>
-            </div>
-            {steerings.length > 0 && (
-              <div className="ark-steer-list">
-                {steerings.slice(-3).map(s => (
-                  <div key={s.id} className="ark-steer-item">
-                    <span className="ark-steer-msg">{s.message}</span>
-                    <span className={`ark-steer-status ${s.status}`}>{s.status}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
-        {execution.lifecycle_status === 'running' && (
-          <section className="ark-stop-control">
-            <button type="button" className="ark-stop-btn" onClick={stopRun} title="Stop current execution">
-              <StopCircle size={16} /> Stop Execution
+      {inspectorTool && (
+        <section className="ark-inspector" aria-label="ARK operational inspector">
+          <header className="ark-inspector-head">
+            <span className="ark-inspector-title">
+              {(() => { const Icon = operationalTool(inspectorTool).icon; return <Icon size={14} />; })()}
+              {operationalTool(inspectorTool).label}
+            </span>
+            <button type="button" className="ark-inspector-close" onClick={() => setInspectorTool(null)} title="Close inspector" aria-label="Close inspector">
+              <X size={14} />
             </button>
-            {queue.some(q => q.status === 'pending') && (
-              <button type="button" className="ark-stop-btn ark-stop-cancel" onClick={cancelQueue} title="Cancel queued messages">
-                <Trash2 size={16} /> Cancel Queue
-              </button>
-            )}
-          </section>
-        )}
-      </div>
+          </header>
+          <div className="ark-inspector-body">
+            <BottomPanel inspector collapsed={false} onToggle={() => {}} result={inv.result} />
+          </div>
+        </section>
+      )}
 
-      {view === 'chat' && <details className="ark-workspace-context">
-        <summary>{workspaceTitle}{caseId ? ` · ${caseId}` : ''}</summary>
-        <p>{inv.activeEvidence?.filename ?? 'No active evidence'}</p>
-        {imageReview && <button type="button" onClick={() => setView('review')} >Open image review</button>}
-        {inv.auditTrail.slice(-5).map(event => <p key={event.id}>{event.action} · {event.detail}</p>)}
-      </details>}
-      <div className="ark-feed" ref={feed} role="log" hidden={view !== 'chat'}>
-        {!messages.length && <div className="ark-idle"><MessageSquare size={22} /><strong>Ask ARK-CAI</strong><p>Review evidence, explore a lead, or run a command.</p></div>}
-        {messages.map((message, i) => <article key={i} className={message.user ? 'ark-message ark-user' : 'ark-message'}>
-          {message.image && <img src={message.image} alt="Attached evidence" />}
-          {message.text || (busy && i === messages.length - 1 && !message.approval && !message.tools?.length ? 'Working…' : '')}
-          {message.tools?.map(tool => <span key={tool} className="ark-tool-chip">{tool}</span>)}
-          {message.approval && <div>Approve {message.approval.tool}? <button disabled={approving} onClick={() => void approve(i, message.approval!, true)}>Approve</button> <button disabled={approving} onClick={() => void approve(i, message.approval!, false)}>Deny</button></div>}
-        </article>)}
-      </div>
-      {imageReview && view === 'review' && <section className="ark-review" aria-label="Image advisory review">
-        <div className="ark-review-heading">
-          <span>IMAGE ADVISORY REVIEW</span>
-          <h2>{imageReview.filename}</h2>
-          <p>ARK Core evidence summary · ARK-CAI interpretation</p>
-        </div>
-        <div className="ark-review-card">
-          <h3>Activity</h3>
-          <ol>{imageReview.steps.map((step, index) => <li key={index}>{step}</li>)}</ol>
-          {imageReview.status === 'waiting' && <p role="status">Waiting for ARK Core evidence…</p>}
-          {imageReview.status === 'reviewing' && <p role="status">Advisory review in progress…</p>}
-          {imageReview.status === 'complete' && <p role="status">Advisory report ready</p>}
-          {imageReview.status === 'skipped' && <p role="status">Automatic AI review skipped in Zero-Retention Mode.</p>}
-          {imageReview.error && <p role="status">{imageReview.error}</p>}
-          {imageReview.retry && <button type="button" onClick={imageReview.retry}>Retry AI report</button>}
-        </div>
-        {imageReview.report && <div className="ark-review-card">
-          <h3>{imageReview.status === 'complete' ? 'Advisory report' : 'Draft advisory report'}</h3>
-          <div className="ark-review-report">{imageReview.report}</div>
-        </div>}
-      </section>}
-      <div className="ark-console" hidden={view !== 'console'}>
-        <BottomPanel docked collapsed={view !== 'console'} onToggle={() => setView('chat')} result={inv.result} />
-      </div>
-      <form hidden={view === 'console'} className="ark-composer" onSubmit={event => { event.preventDefault(); void send(draft, true); }}>
+      <form className="ark-composer" onSubmit={event => { event.preventDefault(); void send(draft, true); }}>
         {!!menu.length && (
           <div className="ark-menu" aria-label={draft.startsWith('@') ? 'Agent roles' : 'Commands'}>
             {menu.map(item => (
@@ -913,8 +981,8 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
             ref={input}
             value={draft}
             rows={3}
-            aria-label="Message ARK-CAI"
-            placeholder="Ask ARK-CAI or run a command... (/ for commands)"
+            aria-label="Message ARK"
+            placeholder="Ask ARK or run a command... (/ for commands)"
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -969,35 +1037,148 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
             )}
             {modelsLoaded && (
               <div className="ark-model-selector-compact">
-                <button type="button" className="ark-model-pill" onClick={() => setModelMenuOpen(!modelMenuOpen)} title={selectedModel || 'Select model'}>
-                  <span className="ark-model-name">{selectedModel ? models.find(m => m.id === selectedModel)?.name || selectedModel : 'Select model'}</span>
+                <button
+                  ref={modelTrigger}
+                  type="button"
+                  className="ark-model-pill"
+                  aria-haspopup="listbox"
+                  aria-expanded={modelMenuOpen}
+                  onClick={() => setModelMenuOpen(v => !v)}
+                  title={effectiveModelId || 'Select model'}
+                >
+                  <span className="ark-model-name">{effectiveModelId ? models.find(m => m.id === effectiveModelId)?.name || effectiveModelId : 'Select model'}</span>
                   <ChevronDown size={14} />
                 </button>
-                {modelsLoaded && modelMenuOpen && (
-                  <div className="ark-model-popover">
-                    <input type="text" className="ark-model-search" placeholder="Search models…" />
-                    {Object.entries(providerGroups).map(([provider, models]) => (
-                      <div key={provider} className="ark-model-group">
-                        <div className="ark-model-group-label">{provider}</div>
-                        {models.map(m => (
-                          <button key={m.id} type="button" className={`ark-model-item ${m.id === selectedModel ? 'selected' : ''} ${!m.available ? 'disabled' : ''}`} onClick={() => {
-                            setSelectedModel(m.id);
-                            setModelMenuOpen(false);
-                          }}>
-                            <span className="ark-model-item-name">{m.name}</span>
-                            <span className={`ark-model-status ${m.available ? 'available' : 'unavailable'}`}>{m.available ? 'Available' : 'Unavailable'}</span>
-                          </button>
-                        ))}
+                {modelMenuOpen && (
+                  <div className="ark-model-popover" ref={modelPopover} role="listbox" aria-label="Select model">
+                    <input
+                      type="text"
+                      className="ark-model-search"
+                      placeholder="Search models…"
+                      value={modelSearch}
+                      autoFocus
+                      onChange={e => setModelSearch(e.target.value)}
+                    />
+                    <div className="ark-model-list">
+                      {Object.entries(providerGroups).map(([provider, groupModels]) => (
+                        <div key={provider} className="ark-model-group">
+                          <div className="ark-model-group-label">{provider}</div>
+                          {groupModels.map(m => {
+                            const unknown = m.tool_calling === 'unknown';
+                            return (
+                              <button
+                                key={m.id}
+                                type="button"
+                                role="option"
+                                aria-selected={m.id === effectiveModelId}
+                                className={`ark-model-item ${m.id === effectiveModelId ? 'selected' : ''} ${!m.available ? 'disabled' : ''}`}
+                                disabled={!m.available}
+                                title={m.availability_reason || m.id}
+                                onClick={() => m.available && chooseModel(m.id)}
+                              >
+                                <span className="ark-model-item-name">{m.name}</span>
+                                <span className="ark-model-meta">
+                                  {unknown ? null : m.tool_calling ? <span className="ark-model-badge" title="Tool calling">⚙</span> : null}
+                                  {m.image_input === true && <span className="ark-model-badge" title="Vision">◉</span>}
+                                  {m.pricing === 'free' && <span className="ark-model-badge free" title="Free">free</span>}
+                                  {m.local && <span className="ark-model-badge local" title="Local">local</span>}
+                                </span>
+                                <span className={`ark-model-status ${m.available ? 'available' : 'unavailable'}`}>
+                                  {m.available ? (m.id === effectiveModelId ? 'Selected' : 'Available') : 'Unavailable'}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ))}
+                      {filteredModels.length === 0 && (
+                        <div className="ark-model-empty">No models match “{modelSearch}”</div>
+                      )}
+                    </div>
+                    {selectedModel && (
+                      <div className="ark-model-footer">
+                        <button type="button" className="ark-model-clear" onClick={() => { setSelectedModel(null); setModelMenuOpen(false); setModelSearch(''); api.caiSetPreference(null).catch(() => {}); }}>
+                          Use administrator default
+                        </button>
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </div>
             )}
-            <button className="ark-send" type="submit" aria-label="Send" disabled={busy || Boolean(attachment && analyzing) || (!draft.trim() && !attachment)}>
-              <Send size={16} />
+            {execution.lifecycle_status === 'running' && queue.some(q => q.status === 'pending') && (
+              <button type="button" className="ark-queue-pill" title="Cancel queued messages" onClick={cancelQueue}>
+                <Trash2 size={13} /> Queue {queue.filter(q => q.status === 'pending').length}
+              </button>
+            )}
+            {execution.lifecycle_status === 'running' && (
+              <button
+                type="button"
+                className="ark-steer-pill"
+                aria-pressed={steerOpen}
+                title="Steer the active run"
+                onClick={() => setSteerOpen(v => !v)}
+              >
+                <Rocket size={13} /> Steer
+              </button>
+            )}
+            <button
+              type="button"
+              className="ark-mode-toggle"
+              aria-pressed={execution.mode === 'auto'}
+              title={execution.mode === 'auto'
+                ? 'Automatic — ARK sequences permitted tools within the active scope'
+                : 'Manual — operator confirms at each execution checkpoint'}
+              onClick={toggleExecutionMode}
+            >
+              {execution.mode === 'auto' ? 'Automatic' : 'Manual'}
             </button>
+            {busy || execution.lifecycle_status === 'running' ? (
+              <button
+                className="ark-stop"
+                type="button"
+                aria-label="Stop execution"
+                title="Stop the active run at the next safe checkpoint"
+                onClick={() => void stopRun()}
+                disabled={stopping}
+              >
+                <Square size={15} />
+              </button>
+            ) : (
+              <button className="ark-send" type="submit" aria-label="Send" disabled={Boolean(attachment && analyzing) || (!draft.trim() && !attachment)}>
+                <Send size={16} />
+              </button>
+            )}
           </div>
+          {steerOpen && execution.lifecycle_status === 'running' && (
+            <div className="ark-steer-inline">
+              <textarea
+                value={steeringText}
+                rows={2}
+                placeholder="Steer the active run (e.g. 'focus on port 443', 'pivot to web enumeration')…"
+                onChange={e => setSteeringText(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    void sendSteer();
+                  }
+                }}
+              />
+              <button type="button" className="ark-steer-send" onClick={sendSteer} disabled={steeringPending || !steeringText.trim() || !execution.run_id}>
+                {steeringPending ? 'Sending…' : 'Send steer'}
+              </button>
+            </div>
+          )}
+          {steerings.length > 0 && execution.lifecycle_status === 'running' && (
+            <div className="ark-steer-list">
+              {steerings.slice(-3).map(s => (
+                <div key={s.id} className="ark-steer-item">
+                  <span className="ark-steer-msg">{s.message}</span>
+                  <span className={`ark-steer-status ${s.status}`}>{s.status}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {notice && <small role="status">{notice}</small>}
         </div>
       </form>

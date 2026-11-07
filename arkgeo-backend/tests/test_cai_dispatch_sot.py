@@ -1,51 +1,56 @@
-"""Regression test: the unified engine must dispatch CAI-native tools from the
-single, populated CAI registry (cai.tool_registry.TOOL_REGISTRY), not the ARK-local
-empty copy. Previously _run_cai_tool imported app.engine.cai.cai.tool_registry
-(an always-empty registry) so every CAI tool the model was offered failed with
-'not registered'. This test proves dispatch reaches the real tool object.
+"""Regression tests: the unified engine dispatches every tool through the
+single populated Unified Registry (``app.agent.unified_registry``).
+
+The old three-tier fallback (and its ``_run_cai_tool`` helper, which imported an
+always-empty CAI registry) is gone — ``orchestrator._dispatch_tool`` is now the
+one execution entry point. These tests prove dispatch routes through the unified
+registry and normalizes handler results/errors at that boundary.
 """
 from __future__ import annotations
 
 import pytest
 
 from app.engine import orchestrator
+from app.agent import unified_registry as ur
 
 
 @pytest.mark.asyncio
-async def test_run_cai_tool_uses_populated_registry(monkeypatch):
-    import cai.tool_registry as ctr
+async def test_dispatch_routes_through_unified_registry(monkeypatch):
+    called = {}
 
-    class FakeTool:
-        name = "execute_cli_command"
+    async def fake_acall(tool_id, **kwargs):
+        called["tool_id"] = tool_id
+        called["kwargs"] = kwargs
+        return {"ok": True}
 
-        async def on_invoke_tool(self, ctx, args):
-            raise RuntimeError("REACHED_REAL_TOOL")
+    monkeypatch.setattr(ur.unified_registry, "acall", fake_acall)
 
-    def _fake_get(name):
-        if name == "execute_cli_command":
-            return FakeTool()
-        raise Exception("unexpected tool requested: " + name)
+    res = await orchestrator._dispatch_tool("net.dns_lookup", {"host": "localhost"})
 
-    monkeypatch.setattr(ctr.TOOL_REGISTRY, "get", _fake_get)
-
-    res = await orchestrator._run_cai_tool(
-        "execute_cli_command", {"command": "echo hi"}
-    )
-    # If dispatch had used the empty registry it would return
-    # status=error with "unknown tool: execute_cli_command".
-    assert res["status"] == "error"
-    assert "REACHED_REAL_TOOL" in res["error"]
-    assert "unknown tool" not in res.get("error", "")
+    assert called["tool_id"] == "net.dns_lookup"
+    assert called["kwargs"] == {"host": "localhost"}
+    assert res["status"] == "ok"
+    assert res["tool"] == "net.dns_lookup"
 
 
 @pytest.mark.asyncio
-async def test_run_cai_tool_unknown_returns_error(monkeypatch):
-    import cai.tool_registry as ctr
-
-    def _fake_get(name):
-        raise Exception("not registered: " + name)
-
-    monkeypatch.setattr(ctr.TOOL_REGISTRY, "get", _fake_get)
-    res = await orchestrator._run_cai_tool("does_not_exist_xyz", {})
+async def test_dispatch_unknown_tool_returns_error():
+    res = await orchestrator._dispatch_tool("does.not.exist_xyz", {})
     assert res["status"] == "error"
     assert "unknown tool" in res.get("error", "")
+
+
+@pytest.mark.asyncio
+async def test_dispatch_preserves_tool_error_classification(monkeypatch):
+    """A handler's own error code (auth_failed / timeout / ...) must survive
+    normalization instead of collapsing to one opaque message."""
+
+    async def fake_acall(tool_id, **kwargs):
+        return {"status": "error", "code": "auth_failed", "error": "bad credentials"}
+
+    monkeypatch.setattr(ur.unified_registry, "acall", fake_acall)
+
+    res = await orchestrator._dispatch_tool("net.dns_lookup", {"host": "localhost"})
+    assert res["status"] == "error"
+    assert res["code"] == "auth_failed"
+    assert res["error"] == "bad credentials"

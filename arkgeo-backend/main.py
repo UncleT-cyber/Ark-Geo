@@ -24,14 +24,25 @@ logger = logging.getLogger("arkgeo")
 async def lifespan(app: FastAPI):
     deadman.start()
     logger.info("ArkGeo backend started (v%s)", settings.app_version)
+    # Any run still marked "running" belongs to a previous process whose
+    # execution backend is gone. Report it honestly as interrupted instead of
+    # leaving it looking live or fabricating a resume.
+    try:
+        from app.services.session_store import session_store
+
+        interrupted = session_store.mark_interrupted_runs()
+        if interrupted:
+            logger.info("Marked %d run(s) as interrupted after restart", interrupted)
+    except Exception as exc:  # pragma: no cover - never block startup
+        logger.warning("Session-store recovery skipped: %s", exc)
     # Synchronise THE ARK forensic suite with 100% of native CAI tools/roles
-    # and print the ARK-CAI initialisation banner in the terminal.
+    # and print the ARK initialisation banner in the terminal.
     try:
         from app.engine.cai.registry import print_startup_report
 
         print_startup_report()
     except Exception as exc:  # pragma: no cover - never block startup
-        logger.warning("ARK-CAI startup report skipped: %s", exc)
+        logger.warning("ARK startup report skipped: %s", exc)
     yield
     deadman.stop()
     logger.info("ArkGeo backend stopped")

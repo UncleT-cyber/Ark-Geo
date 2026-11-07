@@ -461,7 +461,7 @@ class BrainPipeline:
 
         # ---- AI Intelligence Layer ----------------------------------------
         # Like phone_analysis: build a fact sheet from deterministic results,
-        # send it to the global ARK-CAI model, get a structured assessment
+        # send it to the global ARK model, get a structured assessment
         # back.  The AI provides its own observations, contradictions, and
         # recommendations — not just a summary of what the pipeline found.
         await self._run_ai_intelligence(result)
@@ -710,10 +710,10 @@ class BrainPipeline:
 
     # ------------------------------------------------------------------ #
     async def _run_ai_intelligence(self, result) -> None:
-        """AI Intelligence Layer — the ARK-CAI model reasons about the image.
+        """AI Intelligence Layer — the ARK model reasons about the image.
 
         Mirrors the phone_analysis pattern: build a fact sheet from
-        deterministic results, send it to the global ARK-CAI model
+        deterministic results, send it to the global ARK model
         (ai_gateway → cloud/Ollama cascade), get a structured assessment
         back.  The AI provides its own observations, contradictions, and
         recommendations — not just a summary of what the pipeline found.
@@ -767,7 +767,8 @@ class BrainPipeline:
         }
 
         system_prompt = (
-            "You are ARK-CAI, the AI intelligence layer for image forensics. "
+            "You are ARK — Cybersecurity Super Intelligence, the AI intelligence layer "
+            "for image forensics. "
             "You receive a fact sheet from the deterministic BrainPipeline. "
             "Your job is to REASON about the evidence — not just summarize it.\n\n"
             "Provide:\n"

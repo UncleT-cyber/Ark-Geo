@@ -14,8 +14,9 @@
 /** Universally-prefixed stable ID (e.g. "ARK-CASE-3F8A1B2C"). */
 export type EntityId = string;
 
-/** The active investigation domain. */
-export type DomainId = 'image' | 'network' | 'cases' | 'secops';
+/** The active investigation domain. `settings` is the full-page Settings
+ *  workspace — not an investigation, but it occupies the same content area. */
+export type DomainId = 'image' | 'network' | 'cases' | 'secops' | 'usecases' | 'settings';
 
 /** Root organizational boundary. */
 export interface Tenant {

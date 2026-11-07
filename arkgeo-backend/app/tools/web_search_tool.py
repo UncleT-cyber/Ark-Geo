@@ -191,7 +191,15 @@ def _strip_html(html_text: str) -> str:
 
 
 async def web_fetch(url: str, max_chars: int = 8000) -> dict[str, Any]:
-    """Fetch a public HTTP(S) page and return its title + trimmed visible text."""
+    """Fetch a public HTTP(S) page and return its title + trimmed visible text.
+
+    Routed through the hardened web-intelligence fetcher
+    (:mod:`app.tools.web_intel.fetcher`) so the executable path shares the same
+    egress guard as ``web.extract`` / ``web.document``: SSRF protection,
+    DNS-rebinding-resistant pinned dialing, and per-hop redirect validation.
+    The legacy ``{state, url, title, text}`` contract is preserved and enriched
+    with response metadata (status, content-type, redirect chain, bytes).
+    """
     url = (url or "").strip()
     max_chars = max(200, min(int(max_chars or 8000), 50000))
     if not url.startswith(("http://", "https://")):
@@ -200,22 +208,9 @@ async def web_fetch(url: str, max_chars: int = 8000) -> dict[str, Any]:
             "detail": "URL must start with http:// or https://.",
             "title": None, "text": "",
         }
-    try:
-        async with httpx.AsyncClient(
-            timeout=15, follow_redirects=True,
-            headers={"User-Agent": _USER_AGENT},
-        ) as client:
-            r = await client.get(url)
-        r.raise_for_status()
-        html_text = r.text
-    except Exception as exc:  # noqa: BLE001
-        return {
-            "state": "ERROR", "url": url,
-            "detail": f"Fetch failed: {type(exc).__name__}",
-            "title": None, "text": "",
-        }
-    return {
-        "state": "AVAILABLE", "url": url, "detail": "Page fetched.",
-        "title": _extract_title(html_text),
-        "text": _strip_html(html_text)[:max_chars],
-    }
+    from app.tools.web_intel import fetcher
+
+    result = await fetcher.fetch(url)
+    payload = result.to_dict()
+    payload["text"] = (payload.get("text") or "")[:max_chars]
+    return payload

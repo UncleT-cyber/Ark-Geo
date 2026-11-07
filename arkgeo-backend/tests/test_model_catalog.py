@@ -37,16 +37,38 @@ def _auth(token: str) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Curated HuggingFace whitelist (no network)
+# HuggingFace — live router with curated on-file fallback
 # --------------------------------------------------------------------------- #
-def test_hf_catalog_is_curated_and_matches_whitelist():
-    out = asyncio.run(fetch_models("huggingface"))
-    assert out["source"] == "curated"
-    assert out["latency_ms"] == 0
-    assert out["models"] == HF_CURATED_MODELS
-    assert len(out["models"]) == len(set(out["models"]))
-    for mid in out["models"]:
+def test_hf_curated_whitelist_shape():
+    assert HF_CURATED_MODELS
+    assert len(HF_CURATED_MODELS) == len(set(HF_CURATED_MODELS))
+    for mid in HF_CURATED_MODELS:
         assert "/" in mid, "HF model ids are org/Model-Name"
+
+
+@pytest.mark.asyncio
+async def test_hf_catalog_falls_back_to_curated_when_router_unreachable():
+    async with respx.mock() as mock:
+        mock.get("https://router.huggingface.co/v1/models").mock(
+            return_value=httpx.Response(503),
+        )
+        out = await fetch_models("huggingface")
+    assert out["source"] == "curated"
+    assert out["models"] == HF_CURATED_MODELS
+    assert "Curated" in out["detail"]
+
+
+@pytest.mark.asyncio
+async def test_hf_catalog_live_from_router():
+    async with respx.mock() as mock:
+        mock.get("https://router.huggingface.co/v1/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [{"id": "Qwen/Qwen2.5-VL-7B-Instruct"}],
+            }),
+        )
+        out = await fetch_models("huggingface")
+    assert out["source"] == "live"
+    assert out["models"] == ["Qwen/Qwen2.5-VL-7B-Instruct"]
 
 
 # --------------------------------------------------------------------------- #
@@ -175,8 +197,12 @@ def test_gateway_models_rejects_unknown_provider(token=_admin_token()):
 
 
 def test_gateway_models_returns_curated_hf(token=_admin_token()):
-    resp = client.get("/api/v1/admin/gateway/models",
-                      params={"provider": "huggingface"}, headers=_auth(token))
+    with respx.mock() as mock:
+        mock.get("https://router.huggingface.co/v1/models").mock(
+            return_value=httpx.Response(503),
+        )
+        resp = client.get("/api/v1/admin/gateway/models",
+                          params={"provider": "huggingface"}, headers=_auth(token))
     assert resp.status_code == 200
     body = resp.json()
     assert body["provider"] == "huggingface"

@@ -7,6 +7,7 @@ from app.api.v1.endpoints import (
     ai,
     analyst,
     analyze,
+    browser,
     cai,
     config,
     deadman,
@@ -22,6 +23,7 @@ from app.api.v1.endpoints import (
     sos,
     telecom,
     tools,
+    user_models,
 )
 
 router = APIRouter()
@@ -44,4 +46,6 @@ router.include_router(maps.router, tags=["maps"])
 router.include_router(security.router, tags=["security"])
 router.include_router(signaling.router, tags=["signaling"])
 router.include_router(cai.router, tags=["cai"])
+router.include_router(user_models.router, tags=["user-models"])
 router.include_router(config.router, tags=["config"])
+router.include_router(browser.router, tags=["browser"])

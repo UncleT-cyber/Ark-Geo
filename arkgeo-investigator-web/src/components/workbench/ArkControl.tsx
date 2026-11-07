@@ -879,13 +879,14 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
       <div className="ark-conversation-region">
         <div className="ark-output-scroll ark-conversation" ref={feed} role="log" aria-label="Investigation conversation">
         {(execution.run_id || execution.lifecycle_status !== 'idle') && (
-          <ExecutionActivity
-            execution={execution}
-          />
-        )}
-        {execution.lifecycle_status !== 'idle' && execution.lifecycle_status !== 'running'
-          && execution.lifecycle_status !== 'approval_pending' && execution.events.length > 0 && (
-          <InvestigationReport summary={summarizeRun(execution)} onCopyRunId={() => void copyRunId()} />
+          <details className="ark-run-details">
+            <summary>Execution details · {execution.lifecycle_status === 'idle' ? 'Ready' : execution.lifecycle_status.replace(/_/g, ' ')}</summary>
+            <ExecutionActivity execution={execution} />
+            {execution.lifecycle_status !== 'idle' && execution.lifecycle_status !== 'running'
+              && execution.lifecycle_status !== 'approval_pending' && execution.events.length > 0 && (
+              <InvestigationReport summary={summarizeRun(execution)} onCopyRunId={() => void copyRunId()} />
+            )}
+          </details>
         )}
 
         {reviewOpen && imageReview && (
@@ -1037,7 +1038,7 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
                   onClick={() => setModelMenuOpen(v => !v)}
                   title={effectiveModelId ? `${models.find(m => m.id === effectiveModelId)?.name || effectiveModelId} · ${effectiveModelId}` : 'Select model'}
                 >
-                  <span className="ark-model-name">{effectiveModelId ? models.find(m => m.id === effectiveModelId)?.name || effectiveModelId : 'Select model'}</span>
+                  <span className="ark-model-name">{effectiveModelId ? (models.find(m => m.id === effectiveModelId)?.name || effectiveModelId.split('/').pop() || effectiveModelId).replace(/[-_]/g, ' ').replace(/:free$/i, '').replace(/\b\w/g, c => c.toUpperCase()) : 'Choose model'}</span>
                   <ChevronDown size={14} />
                 </button>
                 {modelMenuOpen && (

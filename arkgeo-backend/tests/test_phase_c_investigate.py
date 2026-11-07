@@ -375,3 +375,69 @@ class TestInvestigateAPI:
         resp = self.client.post("/api/v1/investigate/ARK-INV-UNKNOWN/approve",
                                 json={})
         assert resp.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# API — case-graph authorization (Phase B security)
+# --------------------------------------------------------------------------- #
+class TestInvestigateAuthorization:
+    """An investigation is owned by its creating principal. A non-owner is
+    reported exactly like an unknown id, so the endpoint is not an existence
+    oracle."""
+
+    def setup_method(self):
+        self.client = TestClient(app)
+
+    def _create(self, headers):
+        obj = {
+            "goal": "verify_location_credibility",
+            "subject": "fixture.jpg",
+            "domain": "image",
+        }
+        resp = self.client.post(
+            "/api/v1/investigate",
+            files={"file": ("fixture.jpg", _make_image_with_gps(), "image/jpeg")},
+            data={"objective": json.dumps(obj)},
+            headers=headers,
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["investigation_id"]
+
+    def test_owner_can_read_own_investigation(self, monkeypatch):
+        _force_template_planner(monkeypatch)
+        hdr = {"X-ARK-Principal": "alice"}
+        inv = self._create(hdr)
+        assert self.client.get(f"/api/v1/investigate/{inv}", headers=hdr).status_code == 200
+
+    def test_other_principal_cannot_read(self, monkeypatch):
+        _force_template_planner(monkeypatch)
+        inv = self._create({"X-ARK-Principal": "alice"})
+        resp = self.client.get(f"/api/v1/investigate/{inv}",
+                               headers={"X-ARK-Principal": "bob"})
+        assert resp.status_code == 404
+
+    def test_other_principal_cannot_approve_or_resume(self, monkeypatch):
+        _force_template_planner(monkeypatch)
+        inv = self._create({"X-ARK-Principal": "alice"})
+        bob = {"X-ARK-Principal": "bob"}
+        assert self.client.post(f"/api/v1/investigate/{inv}/approve",
+                                json={}, headers=bob).status_code == 404
+        assert self.client.post(f"/api/v1/investigate/{inv}/resume",
+                                json={}, headers=bob).status_code == 404
+
+    def test_anonymous_cannot_reach_named_investigation(self, monkeypatch):
+        _force_template_planner(monkeypatch)
+        inv = self._create({"X-ARK-Principal": "alice"})
+        assert self.client.get(f"/api/v1/investigate/{inv}").status_code == 404
+
+    def test_non_owner_and_unknown_are_indistinguishable(self, monkeypatch):
+        _force_template_planner(monkeypatch)
+        inv = self._create({"X-ARK-Principal": "alice"})
+        bob = {"X-ARK-Principal": "bob"}
+        non_owner = self.client.get(f"/api/v1/investigate/{inv}", headers=bob)
+        unknown = self.client.get("/api/v1/investigate/ARK-INV-NOPE", headers=bob)
+        # Same status and same error shape; only the echoed (caller-supplied) id
+        # differs, so a non-owner cannot tell an existing id from a missing one.
+        assert non_owner.status_code == unknown.status_code == 404
+        assert set(non_owner.json()) == set(unknown.json()) == {"detail"}
+        assert non_owner.json()["detail"].startswith("Unknown investigation")

@@ -1,8 +1,10 @@
 # Case-Graph Authorization Boundaries (Phase B security note)
 
-> Status: **analysis + proposal. No authorization code changed yet** (per the
-> directive: document boundaries before modifying; approval required for
-> security-policy changes). Branch `main`.
+> Status: **IMPLEMENTED** (approved). The §3 proposal below is now live:
+> `InvestigationSession.principal_subject`, owner binding in `orchestrator.start`,
+> and an owner check on `GET/approve/resume` in `investigate.py` (non-owner →
+> 404, identical shape to unknown id). Tests: `TestInvestigateAuthorization`.
+> Branch `main`.
 > Scope: `case_id`, the evidence graph, investigation sessions, and evidence
 > access paths.
 

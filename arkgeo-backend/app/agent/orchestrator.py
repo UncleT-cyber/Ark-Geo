@@ -48,6 +48,7 @@ from .model_gateway import gateway
 from .planner import _budget_estimate, plan_builder, plan_hash
 from .policy_guard import PolicyGuard
 from .tool_registry import registry
+from app.services.entitlements import ANONYMOUS
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,10 @@ class InvestigationSession:
     acted_gap_ids: list[str] = field(default_factory=list)
     budget_usage: dict = field(default_factory=dict)
     revisions: list[S.PlanRevision] = field(default_factory=list)
+    # Owner of this investigation. Defaults to the anonymous principal so
+    # existing constructions and single-user deployments keep working; the
+    # API layer records the creating caller's subject and enforces it.
+    principal_subject: str = ANONYMOUS.subject
     created_at_ms: int = field(default_factory=lambda: int(time.time() * 1000))
     approved_at_ms: Optional[int] = None
     updated_at_ms: int = field(default_factory=lambda: int(time.time() * 1000))
@@ -184,6 +189,7 @@ class InvestigationOrchestrator:
         objective: S.InvestigationObjective,
         image_bytes: Optional[bytes] = None,
         case_id: Optional[str] = None,
+        principal_subject: str = ANONYMOUS.subject,
     ) -> InvestigationSession:
         """Create a proposed investigation (objective → plan). No execution."""
         case_id = case_id or _gen_case_id()
@@ -198,6 +204,7 @@ class InvestigationOrchestrator:
             status="proposed",
             image_bytes=image_bytes,
             revisions=[plan],
+            principal_subject=principal_subject or ANONYMOUS.subject,
         )
         if source == "model":
             session.model_id = gateway.default_model

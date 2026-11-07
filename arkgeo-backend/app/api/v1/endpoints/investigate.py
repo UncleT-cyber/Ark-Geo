@@ -19,14 +19,28 @@ import json
 import logging
 import uuid
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from app.agent import schemas as S
 from app.agent.orchestrator import orchestrator
+from app.services.principal import principal_from_request
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _owned_or_404(investigation_id: str, principal):
+    """Return the session only if it belongs to ``principal``, else raise 404.
+
+    A cross-owner request is reported exactly like an unknown id, so the
+    endpoint is not an existence oracle (mirrors ``cai._session_visible_to``).
+    """
+    session = orchestrator.get(investigation_id)
+    if session is None or getattr(session, "principal_subject", None) != principal.subject:
+        raise HTTPException(status_code=404,
+                            detail=f"Unknown investigation {investigation_id}")
+    return session
 
 
 class ApproveRequest(BaseModel):
@@ -84,6 +98,7 @@ def _parse_objective(raw: str) -> S.InvestigationObjective:
 
 @router.post("/investigate")
 async def create_investigation(
+    request: Request,
     file: UploadFile = File(...),
     objective: str = Form(...),
 ):
@@ -92,8 +107,11 @@ async def create_investigation(
     if not image_bytes:
         raise HTTPException(status_code=400, detail="Empty image upload")
 
+    principal = principal_from_request(request)
     obj = _parse_objective(objective)
-    session = await orchestrator.start(obj, image_bytes=image_bytes)
+    session = await orchestrator.start(
+        obj, image_bytes=image_bytes, principal_subject=principal.subject,
+    )
     logger.info(
         "Investigation %s started (goal=%s, domain=%s, planner=%s)",
         session.investigation_id, obj.goal.value, obj.domain,
@@ -106,8 +124,10 @@ async def create_investigation(
 async def approve_investigation(
     investigation_id: str,
     body: ApproveRequest,
+    request: Request,
 ):
     """Approve (optionally amend) the plan and execute it."""
+    _owned_or_404(investigation_id, principal_from_request(request))
     try:
         session = await orchestrator.approve(
             investigation_id,
@@ -126,9 +146,11 @@ async def approve_investigation(
 async def resume_investigation(
     investigation_id: str,
     body: ResumeRequest,
+    request: Request,
 ):
     """Resume a paused (pause_to_ask) investigation, optionally with a new
     budget. Continues the adaptive loop from the current graph state."""
+    _owned_or_404(investigation_id, principal_from_request(request))
     budget = S.Budget(**body.budget) if body.budget else None
     try:
         session = await orchestrator.resume(
@@ -145,9 +167,6 @@ async def resume_investigation(
 
 
 @router.get("/investigate/{investigation_id}")
-async def get_investigation(investigation_id: str):
-    session = orchestrator.get(investigation_id)
-    if not session:
-        raise HTTPException(status_code=404,
-                            detail=f"Unknown investigation {investigation_id}")
+async def get_investigation(investigation_id: str, request: Request):
+    session = _owned_or_404(investigation_id, principal_from_request(request))
     return session.to_dict()

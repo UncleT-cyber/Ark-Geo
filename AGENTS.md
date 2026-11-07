@@ -89,6 +89,10 @@ npx expo start                          # Expo dev server
 
 ## Conventions
 - No node_modules, .env, __pycache__, dist/ in version control
+- **Authorship**: every commit is authored/committed as `UncleT-cyber
+  <a.abah6082@miva.edu.ng>`. Do not add `Co-authored-by` trailers for tooling
+  agents, and do not author as `openhands`. The repo-local git identity enforces
+  this; the host global config must not override it.
 
 ## Workbench Architecture (Integrated Security Environment Refactor)
 The investigator UI is being transformed into the ARK ISE — an Integrated

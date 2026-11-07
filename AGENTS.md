@@ -241,10 +241,25 @@ contains every tool required to complete that investigation.
 - Vite dev server runs on port 12001 (custom); `npm run dev` (HMR active)
 - Backend on port 12000; vite proxy `/api` → `process.env.ARKGEO_BACKEND_URL` or :12000
 - HMR pitfall: if `DashboardView.tsx` (or any file mixing component + non-component exports like `classifyRisk`) fails Fast Refresh, restart the dev server cleanly to avoid a frozen half-state where clicks stop re-rendering. `kill` the vite node PID then `npm run dev`.
-- Backend tests: 725 passing (pytest), 11 warnings (HMAC key length non-blocking)
+- Backend tests: 879 passing (pytest), 13 pre-existing env failures
+  (`test_workbench_forensics` ×4, `test_ark_cai_engine` ×5, `test_run_control`
+  ×4 — exiftool/browser binaries absent in this container, not regressions).
+- Frontend tests: `npm test` → `node --test "src/**/*.test.ts"` (Node 24 runs TS
+  natively, zero deps). Test files are excluded from app `tsc`
+  (`tsconfig.json` excludes `**/*.test.ts(x)`); import with explicit `.ts`.
+- **Evidence-honesty layer (C.3/C.4/D)**: `MapWorkspace/geoEvidence.ts`
+  (verified vs inferred pins), `tools/metadataAbsence.ts` (metadata state),
+  `tools/reportEngine.ts` (findings composed across epistemic tiers, contested/
+  unsupported never shown as conclusions).
+- **Untrusted-content fence (C.5/C.6)**: `app/engine/untrusted_content.py`
+  (fence + injection scan; embedded markers are defanged so the fence cannot be
+  escaped) + `app/engine/injection_fixtures.py` (adversarial corpus) +
+  `tests/test_prompt_injection_suite.py`.
 - Env note: `Pillow==10.3.0`/`pydantic==2.7.1` pins do NOT build on Python 3.13 —
   the working venv uses upgraded Pillow+pydantic+fastapi; requirements.txt needs
   re-pinning. `exiftool` binary required (brew install exiftool).
+- Backend venv in this container is `.venv-new` (`.venv/bin/*` shebangs point at
+  a macOS path); run tests with `.venv-new/bin/python -m pytest tests/ -q`.
 - `npx tsc --noEmit` clean; `npx vite build` clean (~2013 modules)
 - Backend has no `--reload`: after adding/changing routes you MUST restart uvicorn or the running process keeps serving stale code (a route can 404 while `main.py` already defines it).
 - `GET /cai/registry` returns 500 when the optional CAI runtime is absent (`arkgeo-backend/cai/src` is empty) — a dormant, optional-feature endpoint, not a Milestone B regression. `/cai/models` and `/cai/sessions` work without it.

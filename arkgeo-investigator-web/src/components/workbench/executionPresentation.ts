@@ -316,6 +316,7 @@ export function summarizeRun(execution: {
   const outcome: RunSummary['outcome'] = stopped ? 'stopped'
     : execution.objective_outcome === 'succeeded' ? 'succeeded'
     : execution.objective_outcome === 'failed' ? 'failed'
+    : execution.lifecycle_status === 'failed' ? 'failed'
     : execution.lifecycle_status === 'completed' && tools.some(t => t.verified) ? 'succeeded'
     : execution.lifecycle_status === 'completed' ? 'inconclusive'
     : 'pending';
@@ -360,4 +361,213 @@ function targetOf(events: ExecutionEvent[]): string | null {
     if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
   }
   return null;
+}
+
+/* ==========================================================================
+ * Investigation canvas — shared execution state + activity timeline
+ *
+ * The `execution` slice is ONE per-investigation state object: the ARK dock
+ * conversation writes it (ArkControl) and the central New Investigation
+ * canvas reads it. Both surfaces therefore show the same events — there is
+ * no second event stream and no duplicate state.
+ * ========================================================================== */
+
+export type ExecutionState = {
+  run_id: string | null;
+  objective: string | null;
+  objective_outcome: 'pending' | 'succeeded' | 'failed' | null;
+  engagement: string | null;
+  target: string | null;
+  active_agent: string | null;
+  lifecycle_status: 'idle' | 'running' | 'completed' | 'failed' | 'approval_pending' | 'stopped';
+  mode: 'auto' | 'manual';
+  events: ExecutionEvent[];
+  current_tool: {
+    id: string;
+    name: string;
+    status: 'running' | 'completed' | 'failed';
+    args: Record<string, any>;
+    result: any;
+    elapsed_ms: number | null;
+    verified: boolean;
+    error: string | null;
+  } | null;
+  evidence_ref: string | null;
+  objective_expanded: boolean;
+  /** Set once the backend confirms the run stopped at a safe checkpoint. */
+  stop_requested?: boolean;
+};
+
+/** First-access seed for the `execution` slice. Every reader must use this
+ *  exact factory: `getSlice` stores whatever runs first, so divergent seeds
+ *  would give the dock and the canvas different shapes. */
+export function initialExecutionState(): ExecutionState {
+  return {
+    run_id: null,
+    objective: null,
+    objective_outcome: null,
+    engagement: null,
+    target: null,
+    active_agent: null,
+    lifecycle_status: 'idle',
+    mode: 'auto',
+    events: [],
+    current_tool: null,
+    evidence_ref: null,
+    objective_expanded: false,
+  };
+}
+
+/** One queued objective from the conversation queue (backend contract). */
+export type QueueEntry = {
+  id: string;
+  session_id: string;
+  conversation_id: string;
+  run_id?: string;
+  prompt: string;
+  status: 'pending' | 'delivered' | 'cancelled';
+  created_at: string;
+  delivered_at?: string | null;
+  error?: string | null;
+};
+
+/** Activity-timeline row statuses (the investigation-canvas vocabulary). */
+export type TimelineStatus =
+  | 'pending' | 'running' | 'completed' | 'failed' | 'approval' | 'cancelled' | 'skipped';
+
+export type TimelineRow = {
+  key: string;
+  label: string;
+  detail: string;
+  status: TimelineStatus;
+  timestamp?: string;
+  error?: string | null;
+};
+
+const TIMELINE_STATUS_LABEL: Record<TimelineStatus, string> = {
+  pending: 'Pending',
+  running: 'Running',
+  completed: 'Completed',
+  failed: 'Failed',
+  approval: 'Awaiting approval',
+  cancelled: 'Cancelled',
+  skipped: 'Skipped',
+};
+
+export function timelineStatusLabel(status: TimelineStatus): string {
+  return TIMELINE_STATUS_LABEL[status];
+}
+
+/**
+ * Fold a run's own events into an activity timeline for the central canvas.
+ *
+ * Pure and honest: every row corresponds to an event the backend actually
+ * emitted (or to live slice state such as a currently-running tool or a
+ * queued objective). Nothing is synthesised — a tool that never ran never
+ * appears here. Tool-family events are folded per execution so a
+ * `tool_call`/`tool_started` row is closed by its matching `tool` result.
+ */
+export function buildActivityTimeline(
+  execution: {
+    events: ExecutionEvent[];
+    current_tool: ExecutionState['current_tool'];
+    lifecycle_status: ExecutionState['lifecycle_status'];
+  },
+  queue: QueueEntry[] = [],
+): TimelineRow[] {
+  const rows: TimelineRow[] = [];
+  const openTools = new Map<string, number>();
+  const toolKey = (ev: ExecutionEvent) => String(ev.execution_id ?? ev.tool ?? 'tool');
+  const isToolError = (ev: ExecutionEvent) =>
+    typeof ev.result === 'object' && ev.result !== null
+    && (ev.result.status === 'error' || ev.result.status === 'denied');
+
+  for (const ev of execution.events) {
+    const stamp = ev.timestamp;
+    switch (ev.event) {
+      case 'tool_call':
+      case 'tool_started': {
+        const k = toolKey(ev);
+        if (openTools.has(k)) break; // already tracking this execution
+        openTools.set(k, rows.length);
+        rows.push({ key: `tool:${k}:${rows.length}`, label: eventLabel(ev), detail: eventDetail(ev), status: 'running', timestamp: stamp });
+        break;
+      }
+      case 'tool':
+      case 'tool_completed':
+      case 'tool_failed': {
+        const k = toolKey(ev);
+        const failed = ev.event === 'tool_failed' || isToolError(ev);
+        const row: TimelineRow = {
+          key: `tool:${k}:${rows.length}`,
+          label: toolDisplayName(ev.tool),
+          detail: eventDetail(ev),
+          status: failed ? 'failed' : 'completed',
+          timestamp: stamp,
+          error: failed ? String((ev.result as any)?.error ?? 'failed') : null,
+        };
+        const openIdx = openTools.get(k);
+        if (openIdx != null) {
+          rows[openIdx] = { ...row, key: rows[openIdx].key };
+          openTools.delete(k);
+        } else {
+          rows.push(row);
+        }
+        break;
+      }
+      case 'scope_checked':
+        rows.push({ key: `scope:${rows.length}`, label: eventLabel(ev), detail: eventDetail(ev), status: ev.allowed === false ? 'failed' : 'completed', timestamp: stamp });
+        break;
+      case 'hitl':
+      case 'approval_required':
+        rows.push({ key: `hitl:${rows.length}`, label: eventLabel(ev), detail: eventDetail(ev), status: 'approval', timestamp: stamp });
+        break;
+      case 'run_cancelled':
+        rows.push({ key: `cancel:${rows.length}`, label: eventLabel(ev), detail: eventDetail(ev), status: 'cancelled', timestamp: stamp });
+        break;
+      case 'run_failed':
+        rows.push({ key: `failed:${rows.length}`, label: eventLabel(ev), detail: eventDetail(ev), status: 'failed', timestamp: stamp, error: ev.reason ?? null });
+        break;
+      default:
+        rows.push({ key: `${ev.event}:${rows.length}`, label: eventLabel(ev), detail: eventDetail(ev), status: 'completed', timestamp: stamp });
+    }
+  }
+
+  // A tool executing right now, when no open row exists (live state, not
+  // speculation — the slice only carries it while the backend is running it).
+  if (execution.current_tool?.status === 'running' && !rows.some(r => r.status === 'running')) {
+    rows.push({
+      key: 'live-tool',
+      label: execution.current_tool.name,
+      detail: 'Running',
+      status: 'running',
+    });
+  }
+
+  // Run active but no events persisted yet: one honest "in progress" row.
+  if (
+    rows.length === 0
+    && (execution.lifecycle_status === 'running' || execution.lifecycle_status === 'approval_pending')
+  ) {
+    rows.push({
+      key: 'live-run',
+      label: 'Run in progress',
+      detail: 'Awaiting the first execution events.',
+      status: execution.lifecycle_status === 'approval_pending' ? 'approval' : 'running',
+    });
+  }
+
+  // Objectives the operator queued — genuinely pending work.
+  for (const q of queue) {
+    if (q.status !== 'pending') continue;
+    rows.push({
+      key: `queue:${q.id}`,
+      label: 'Queued objective',
+      detail: q.prompt.length > 160 ? `${q.prompt.slice(0, 160)}…` : q.prompt,
+      status: 'pending',
+      timestamp: q.created_at,
+    });
+  }
+
+  return rows;
 }

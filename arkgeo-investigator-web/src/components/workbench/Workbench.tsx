@@ -39,7 +39,7 @@ import { useInvestigationTabs } from '../../core/tabs/useInvestigationTabs';
 import { TabsProvider, useTabs } from '../../core/tabs/TabsContext';
 import { InvestigationStoreProvider, useInvestigationStore, useInvestigationSlice } from '../../core/investigation/InvestigationStoreContext';
 import { defaultWorkspaceSelection, type InvestigationRunStatus } from '../../core/investigation/investigationStore';
-import { NeutralWorkspace, type NeutralWorkspaceId } from './NeutralWorkspace';
+import { NeutralWorkspace } from './NeutralWorkspace';
 import {
   notificationFromEvent, pushNotification, unreadCount, type AppNotification,
 } from '../../core/notifications';
@@ -808,12 +808,11 @@ function WorkbenchInner() {
               title={tabApi.activeTab?.title || 'New investigation'}
               investigationId={activeInvId ?? ''}
               caseId={activeCaseId}
-              browserAvailable={browserAvailable}
-              onSelectWorkspace={(id: NeutralWorkspaceId) => {
-                if (id === 'browser') { setWorkspaceTool('browser'); return; }
-                if (id === 'cases') { inv.setDomain('cases'); return; }
-                inv.setDomain(id);
-              }}
+              runStatus={tabApi.activeTab?.runStatus ?? 'idle'}
+              onAttachEvidence={triggerUpload}
+              onCreateCase={openSavePrompt}
+              onOpenCase={() => handleNavigateDomain('cases')}
+              onOpenReport={() => openTool('report')}
             />
           </main>
         ) : (

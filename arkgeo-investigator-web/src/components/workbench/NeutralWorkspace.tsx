@@ -1,16 +1,33 @@
 /**
- * NeutralWorkspace — the default central surface for a new investigation.
+ * NeutralWorkspace — the central New Investigation canvas.
  *
- * It is deliberately minimal: an investigation identity line, a clear empty
- * state, and direct access to the available workspaces and investigation tools.
- * It is NOT the Image Intelligence System Overview (that belongs to Image
- * Intelligence, and only appears once the operator selects that workspace) and
- * it is NOT a second analytics dashboard.
+ * Three states, driven by the investigation's REAL lifecycle (the same
+ * per-investigation `execution` slice the ARK dock conversation writes —
+ * no second event stream, no simulated progress):
+ *
+ *   Empty    — no activity yet: a calm "Ready to investigate" composition
+ *              with the existing Attach evidence / Create case actions.
+ *   Live     — the activity timeline: one row per event the backend
+ *              actually emitted (tools, scope checks, approvals, evidence),
+ *              plus genuinely queued objectives.
+ *   Done     — the timeline is retained and a compact completion summary is
+ *              appended, built from the run's own events (never fabricated).
+ *
+ * The sidebar remains the navigation surface: this component never offers
+ * competing workspace cards.
  */
-import React from 'react';
-import { Compass, Image as ImageIcon, Globe, ShieldCheck, FolderSearch, type LucideIcon } from 'lucide-react';
-
-export type NeutralWorkspaceId = 'image' | 'network' | 'secops' | 'browser' | 'cases';
+import React, { useMemo } from 'react';
+import {
+  Paperclip, FolderPlus, CheckCircle, AlertCircle, Loader2, ShieldAlert,
+  Ban, Circle, FileText, FolderSearch,
+} from 'lucide-react';
+import { useInvestigation } from './useInvestigation';
+import { useInvestigationSlice } from '../../core/investigation/InvestigationStoreContext';
+import {
+  buildActivityTimeline, summarizeRun, timelineStatusLabel,
+  initialExecutionState,
+  type ExecutionState, type QueueEntry, type TimelineRow, type TimelineStatus,
+} from './executionPresentation';
 
 interface NeutralWorkspaceProps {
   /** Investigation title (its identity line). */
@@ -18,27 +35,81 @@ interface NeutralWorkspaceProps {
   /** Investigation / case identifiers, for the identity line. */
   investigationId: string;
   caseId: string | null;
-  /** Open a workspace for this investigation. */
-  onSelectWorkspace: (id: NeutralWorkspaceId) => void;
-  /** Workspaces the current build can actually open. */
-  browserAvailable: boolean;
+  /** Tab-level run status (belt-and-braces for "a run is live"). */
+  runStatus?: string;
+  /** Attach evidence — the existing upload mechanism. */
+  onAttachEvidence: () => void;
+  /** Create case — the existing Save-to-Case-Vault flow. */
+  onCreateCase: () => void;
+  /** Open the Case Explorer. */
+  onOpenCase: () => void;
+  /** Open the existing Case / Report view. */
+  onOpenReport: () => void;
 }
 
-const WORKSPACES: {
-  id: NeutralWorkspaceId; label: string; hint: string; icon: LucideIcon;
-}[] = [
-  { id: 'image', label: 'Image Intelligence', hint: 'EXIF, vision, geolocation and forensic metadata', icon: ImageIcon },
-  { id: 'network', label: 'Network Intelligence', hint: 'Discovery, traffic, HTTP and security testing', icon: Globe },
-  { id: 'secops', label: 'Threat & SecOps', hint: 'Detection, triage and incident response', icon: ShieldCheck },
-  { id: 'browser', label: 'Browser', hint: 'Managed, screenshot-first browsing workspace', icon: Compass },
-  { id: 'cases', label: 'Case Explorer', hint: 'Saved investigations and the audit vault', icon: FolderSearch },
-];
+const STATUS_ICON: Record<TimelineStatus, React.ReactNode> = {
+  pending: <Circle size={13} />,
+  running: <Loader2 size={13} className="ark-spin" />,
+  completed: <CheckCircle size={13} />,
+  failed: <AlertCircle size={13} />,
+  approval: <ShieldAlert size={13} />,
+  cancelled: <Ban size={13} />,
+  skipped: <Circle size={13} />,
+};
+
+const OUTCOME_LABEL: Record<string, string> = {
+  succeeded: 'Completed',
+  failed: 'Failed',
+  stopped: 'Stopped',
+  inconclusive: 'Completed · inconclusive',
+  pending: 'In progress',
+};
+
+function RowIcon({ status }: { status: TimelineStatus }) {
+  return <span className={`inv-timeline-ico inv-ico-${status}`} aria-hidden="true">{STATUS_ICON[status]}</span>;
+}
 
 export function NeutralWorkspace({
-  title, investigationId, caseId, onSelectWorkspace, browserAvailable,
+  title, investigationId, caseId, runStatus = 'idle',
+  onAttachEvidence, onCreateCase, onOpenCase, onOpenReport,
 }: NeutralWorkspaceProps) {
+  const inv = useInvestigation();
+  // The SAME per-investigation slices the ARK dock writes — the canvas and
+  // the conversation can never disagree about what is happening.
+  const [execution] = useInvestigationSlice<ExecutionState>('execution', initialExecutionState);
+  const [queue] = useInvestigationSlice<QueueEntry[]>('queue', () => []);
+
+  const lifecycle = execution.lifecycle_status;
+  const active =
+    lifecycle === 'running' ||
+    lifecycle === 'approval_pending' ||
+    runStatus === 'running';
+  const started =
+    active ||
+    execution.run_id != null ||
+    execution.events.length > 0 ||
+    lifecycle === 'completed' || lifecycle === 'failed' || lifecycle === 'stopped' ||
+    runStatus === 'completed' || runStatus === 'failed' || runStatus === 'interrupted';
+
+  const mode: 'empty' | 'live' | 'done' = active ? 'live' : started ? 'done' : 'empty';
+
+  const rows = useMemo<TimelineRow[]>(
+    () => (mode === 'empty' ? [] : buildActivityTimeline(execution, queue)),
+    [mode, execution, queue],
+  );
+  const summary = useMemo(
+    () => (mode === 'done' ? summarizeRun(execution) : null),
+    [mode, execution],
+  );
+
+  const completedOps = rows.filter(r => r.status === 'completed').length;
+  const failedOps = rows.filter(r => r.status === 'failed').length;
+  const outcomeLabel = summary ? OUTCOME_LABEL[summary.outcome] ?? summary.outcome : '';
+  const hasCase = !!inv.activeCase;
+
   return (
     <div className="neutral-workspace">
+      {/* Identity header — unchanged structure, dynamic identifiers. */}
       <header className="neutral-workspace-head">
         <div className="neutral-workspace-identity">
           <span className="neutral-workspace-kicker">Investigation</span>
@@ -52,32 +123,113 @@ export function NeutralWorkspace({
       </header>
 
       <div className="neutral-workspace-body">
-        <div className="neutral-workspace-empty">
-          <Compass size={26} aria-hidden="true" />
-          <strong>New investigation</strong>
-          <p>Select a workspace to begin. ARK is ready in the panel beside you — ask a question or run a command to start.</p>
-        </div>
-
-        <div className="neutral-workspace-grid" role="list">
-          {WORKSPACES.map(({ id, label, hint, icon: Icon }) => {
-            const disabled = id === 'browser' && !browserAvailable;
-            return (
-              <button
-                key={id}
-                type="button"
-                role="listitem"
-                className="neutral-workspace-card"
-                disabled={disabled}
-                title={disabled ? 'Managed browser runtime unavailable' : hint}
-                onClick={() => !disabled && onSelectWorkspace(id)}
-              >
-                <Icon size={18} />
-                <span className="neutral-workspace-card-label">{label}</span>
-                <span className="neutral-workspace-card-hint">{disabled ? 'Unavailable' : hint}</span>
+        {mode === 'empty' ? (
+          /* ── State A: minimal investigation canvas ───────────────────── */
+          <div className="inv-canvas-empty">
+            <strong>Ready to investigate</strong>
+            <p>Start with ARK, attach evidence, or open a workspace from the sidebar.</p>
+            <div className="inv-canvas-actions">
+              <button type="button" className="inv-canvas-btn" onClick={onAttachEvidence}>
+                <Paperclip size={14} aria-hidden="true" /> Attach evidence
               </button>
-            );
-          })}
-        </div>
+              <button type="button" className="inv-canvas-btn" onClick={onCreateCase}>
+                <FolderPlus size={14} aria-hidden="true" /> Create case
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* ── State B/C: live activity timeline (+ completion summary) ── */
+          <div className="inv-canvas-live">
+            <div className="inv-canvas-section-head">
+              <h2>Investigation activity</h2>
+              {active && (
+                <span className={`inv-canvas-live-badge inv-badge-${lifecycle === 'approval_pending' ? 'approval' : 'running'}`}>
+                  <Loader2 size={11} className="ark-spin" aria-hidden="true" />
+                  {lifecycle === 'approval_pending' ? 'Awaiting approval' : 'Running'}
+                </span>
+              )}
+            </div>
+
+            <ol className="inv-timeline">
+              {rows.map(row => (
+                <li key={row.key} className={`inv-timeline-row inv-row-${row.status}`}>
+                  <RowIcon status={row.status} />
+                  <div className="inv-timeline-main">
+                    <div className="inv-timeline-label">{row.label}</div>
+                    {row.detail && <div className="inv-timeline-detail">{row.detail}</div>}
+                    {row.error && <div className="inv-timeline-error">{row.error}</div>}
+                  </div>
+                  <div className="inv-timeline-side">
+                    <span className="inv-timeline-status">{timelineStatusLabel(row.status)}</span>
+                    {row.timestamp && (
+                      <time className="inv-timeline-time">{new Date(row.timestamp).toLocaleTimeString()}</time>
+                    )}
+                  </div>
+                </li>
+              ))}
+              {!rows.length && (
+                <li className="inv-timeline-empty">No execution events were recorded for this investigation.</li>
+              )}
+            </ol>
+
+            {mode === 'done' && summary && (
+              <section className="inv-summary" aria-label="Completion summary">
+                <div className="inv-canvas-section-head">
+                  <h2>Completion summary</h2>
+                  <span className={`inv-summary-outcome inv-outcome-${summary.outcome}`}>{outcomeLabel}</span>
+                </div>
+
+                <div className="inv-summary-grid">
+                  <div className="inv-summary-cell">
+                    <span className="inv-summary-k">Status</span>
+                    <span className="inv-summary-v">{outcomeLabel}</span>
+                  </div>
+                  <div className="inv-summary-cell">
+                    <span className="inv-summary-k">Operations</span>
+                    <span className="inv-summary-v">
+                      {completedOps} completed{failedOps > 0 ? ` · ${failedOps} failed` : ''}
+                    </span>
+                  </div>
+                  <div className="inv-summary-cell">
+                    <span className="inv-summary-k">Findings</span>
+                    <span className="inv-summary-v">{inv.findings.length}</span>
+                  </div>
+                  <div className="inv-summary-cell">
+                    <span className="inv-summary-k">Evidence</span>
+                    <span className="inv-summary-v">{summary.evidenceRefs.length}</span>
+                  </div>
+                  <div className="inv-summary-cell">
+                    <span className="inv-summary-k">Related case</span>
+                    <span className="inv-summary-v">{inv.activeCase ? inv.activeCase.title || inv.activeCase.id : 'No case yet'}</span>
+                  </div>
+                  <div className="inv-summary-cell">
+                    <span className="inv-summary-k">Report</span>
+                    <span className="inv-summary-v">{hasCase ? 'Available' : 'Not yet generated'}</span>
+                  </div>
+                </div>
+
+                {summary.failureReason && (
+                  <p className="inv-summary-failure">{summary.failureReason}</p>
+                )}
+
+                {hasCase ? (
+                  <div className="inv-summary-links">
+                    <button type="button" className="inv-canvas-btn" onClick={onOpenReport}>
+                      <FileText size={14} aria-hidden="true" /> Open case report
+                    </button>
+                    <button type="button" className="inv-canvas-btn" onClick={onOpenCase}>
+                      <FolderSearch size={14} aria-hidden="true" /> Open Case Explorer
+                    </button>
+                  </div>
+                ) : (
+                  <p className="inv-summary-note">
+                    Save this investigation to a case to unlock the forensic report.
+                  </p>
+                )}
+              </section>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

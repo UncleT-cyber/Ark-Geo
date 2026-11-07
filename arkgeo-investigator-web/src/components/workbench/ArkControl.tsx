@@ -13,7 +13,8 @@ import { ExecutionActivity, InvestigationReport } from './ExecutionPanels';
 import { ArkMarkdown } from './ArkMarkdown';
 import {
   summarizeRun, toolDisplayName,
-  type ExecutionEvent,
+  type ExecutionEvent, type ExecutionState, type QueueEntry,
+  initialExecutionState,
 } from './executionPresentation';
 import {
   OPERATIONAL_TOOLS, operationalTool, isConsoleTool, isWorkspaceTool,
@@ -31,18 +32,6 @@ type Message = {
   image?: string;
   tools?: string[];
   approval?: { session: string; execution?: string; tool: string };
-};
-
-type QueueEntry = {
-  id: string;
-  session_id: string;
-  conversation_id: string;
-  run_id?: string;
-  prompt: string;
-  status: 'pending' | 'delivered' | 'cancelled';
-  created_at: string;
-  delivered_at?: string | null;
-  error?: string | null;
 };
 
 type SteerEntry = {
@@ -78,23 +67,6 @@ type ModelInfo = {
   structured_output?: boolean | 'unknown';
   configured?: boolean;
   is_active?: boolean;
-};
-
-type ExecutionState = {
-  run_id: string | null;
-  objective: string | null;
-  objective_outcome: 'pending' | 'succeeded' | 'failed' | null;
-  engagement: string | null;
-  target: string | null;
-  active_agent: string | null;
-  lifecycle_status: 'idle' | 'running' | 'completed' | 'failed' | 'approval_pending' | 'stopped';
-  mode: 'auto' | 'manual';
-  events: ExecutionEvent[];
-  current_tool: { id: string; name: string; status: 'running' | 'completed' | 'failed'; args: Record<string, any>; result: any; elapsed_ms: number | null; verified: boolean; error: string | null } | null;
-  evidence_ref: string | null;
-  objective_expanded: boolean;
-  /** Set once the backend confirms the run stopped at a safe checkpoint. */
-  stop_requested?: boolean;
 };
 
 export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, imageReview, workspaceTitle, expanded = false, onToggleExpand, onEvent, browserAvailable = false, onOpenWorkspaceTool }: {
@@ -134,20 +106,7 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
   const toolsMenuRef = useRef<HTMLDivElement>(null);
   const toolsTriggerRef = useRef<HTMLButtonElement>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [execution, setExecution] = useInvestigationSlice<ExecutionState>('execution', () => ({
-    run_id: null,
-    objective: null,
-    objective_outcome: null,
-    engagement: null,
-    target: null,
-    active_agent: null,
-    lifecycle_status: 'idle',
-    mode: 'auto',
-    events: [],
-    current_tool: null,
-    evidence_ref: null,
-    objective_expanded: false,
-  }));
+  const [execution, setExecution] = useInvestigationSlice<ExecutionState>('execution', initialExecutionState);
   const [queue, setQueue] = useInvestigationSlice<QueueEntry[]>('queue', () => []);
   const [steerings, setSteerings] = useInvestigationSlice<SteerEntry[]>('steerings', () => []);
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -489,7 +448,7 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
           }
 
           if (event.event === 'run_created') {
-            setExecution(prev => ({ ...prev, run_id: event.run_id ?? null, lifecycle_status: 'running' }));
+            setExecution(prev => ({ ...prev, run_id: event.run_id ?? null, lifecycle_status: 'running', events: [...prev.events, event] }));
             onEvent?.(event);
             return;
           }
@@ -535,7 +494,7 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
             return;
           }
           if (event.event === 'hitl') {
-            setExecution(prev => ({ ...prev, lifecycle_status: 'approval_pending' }));
+            setExecution(prev => ({ ...prev, lifecycle_status: 'approval_pending', events: [...prev.events, event] }));
             const approval = { session: event.session_id, execution: event.execution_id, tool: event.tool };
             update(message => ({ ...message, approval }));
             onEvent?.(event);
@@ -596,21 +555,22 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
               current_tool: prev.current_tool && prev.current_tool.id === event.tool
                 ? { ...prev.current_tool, verified: event.verified === true }
                 : prev.current_tool,
+              events: [...prev.events, event],
             }));
             return;
           }
           if (event.event === 'evidence_recorded') {
-            setExecution(prev => ({ ...prev, evidence_ref: event.evidence_path ?? null }));
+            setExecution(prev => ({ ...prev, evidence_ref: event.evidence_path ?? null, events: [...prev.events, event] }));
             return;
           }
           if (event.event === 'run_completed') {
             const toolSucceeded = execution.current_tool ? execution.current_tool.status === 'completed' && execution.current_tool.verified : false;
-            setExecution(prev => ({ ...prev, lifecycle_status: 'completed', objective_outcome: toolSucceeded ? 'succeeded' : 'failed' }));
+            setExecution(prev => ({ ...prev, lifecycle_status: 'completed', objective_outcome: toolSucceeded ? 'succeeded' : 'failed', events: [...prev.events, event] }));
             onEvent?.(event);
             return;
           }
           if (event.event === 'run_failed') {
-            setExecution(prev => ({ ...prev, lifecycle_status: 'failed', objective_outcome: 'failed' }));
+            setExecution(prev => ({ ...prev, lifecycle_status: 'failed', objective_outcome: 'failed', events: [...prev.events, event] }));
             onEvent?.(event);
             return;
           }

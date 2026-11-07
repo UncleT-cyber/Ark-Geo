@@ -32,6 +32,11 @@ export function InvestigationTabStrip({ tabs, activeId, onSelect, onClose, onNew
   const [overflowing, setOverflowing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
+  // System Overview is the application's default landing page — the overall
+  // dashboard — not an investigation. It is reached through the sidebar's
+  // Operations entry and never appears as a tab in the strip.
+  const visibleTabs = useMemo(() => tabs.filter(tab => tab.domain !== 'system'), [tabs]);
+
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
@@ -41,7 +46,7 @@ export function InvestigationTabStrip({ tabs, activeId, onSelect, onClose, onNew
     ro?.observe(el);
     window.addEventListener('resize', measure);
     return () => { ro?.disconnect(); window.removeEventListener('resize', measure); };
-  }, [tabs.length]);
+  }, [visibleTabs.length]);
 
   // Keep the active tab visible when it changes.
   useEffect(() => {
@@ -61,7 +66,7 @@ export function InvestigationTabStrip({ tabs, activeId, onSelect, onClose, onNew
   return (
     <div className="ark-tab-strip" role="tablist" aria-label="Investigation tabs">
       <div className="ark-tab-scroller" ref={scrollerRef}>
-        {tabs.map(tab => (
+        {visibleTabs.map(tab => (
           <div
             key={tab.id}
             role="tab"
@@ -105,7 +110,7 @@ export function InvestigationTabStrip({ tabs, activeId, onSelect, onClose, onNew
           </button>
           {menuOpen && (
             <div className="ark-tab-overflow-menu" role="menu">
-              {tabs.map(tab => (
+              {visibleTabs.map(tab => (
                 <div key={tab.id} role="menuitem" tabIndex={0}
                   className={`ark-tab-overflow-item ${tab.id === activeId ? 'ark-tab-overflow-item-active' : ''}`}
                   onClick={() => { onSelect(tab.id); setMenuOpen(false); }}

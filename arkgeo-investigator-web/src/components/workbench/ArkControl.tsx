@@ -959,14 +959,6 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
             ))}
           </div>
         )}
-        <details className="ark-shortcuts">
-          <summary>Quick commands</summary>
-          <div className="ark-chips">
-            {['@Agents', '/help', '/tools', '/case', '/forensics', '/osint', '/investigate'].map(chip => (
-              <button key={chip} type="button" disabled={busy} onClick={() => void send(chip)}>{chip}</button>
-            ))}
-          </div>
-        </details>
         <div className="ark-input-box">
           {attachment && (
             <div className="ark-attachment">
@@ -980,9 +972,9 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
           <textarea
             ref={input}
             value={draft}
-            rows={3}
+            rows={2}
             aria-label="Message ARK"
-            placeholder="Ask ARK or run a command... (/ for commands)"
+            placeholder="Ask ARK anything, or describe an investigation…"
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -1044,7 +1036,7 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
                   aria-haspopup="listbox"
                   aria-expanded={modelMenuOpen}
                   onClick={() => setModelMenuOpen(v => !v)}
-                  title={effectiveModelId || 'Select model'}
+                  title={effectiveModelId ? `${models.find(m => m.id === effectiveModelId)?.name || effectiveModelId} · ${effectiveModelId}` : 'Select model'}
                 >
                   <span className="ark-model-name">{effectiveModelId ? models.find(m => m.id === effectiveModelId)?.name || effectiveModelId : 'Select model'}</span>
                   <ChevronDown size={14} />
@@ -1131,7 +1123,7 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
                 : 'Manual — operator confirms at each execution checkpoint'}
               onClick={toggleExecutionMode}
             >
-              {execution.mode === 'auto' ? 'Automatic' : 'Manual'}
+              {execution.mode === 'auto' ? 'Auto' : 'Manual'}
             </button>
             {busy || execution.lifecycle_status === 'running' ? (
               <button

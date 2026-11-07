@@ -1345,3 +1345,39 @@
   .ark-control .ark-conversation > .ark-message.ark-user { max-width: 90%; }
   .ark-control .ark-conversation > .ark-message:not(.ark-user) { padding: 14px 15px 16px; }
 }
+
+
+/* Composer polish: borderless controls across hover, focus and active states.
+   Keep keyboard focus discernible with a quiet surface change instead of rings. */
+.ark-control .ark-composer .ark-toolbar button,
+.ark-control .ark-composer .ark-toolbar button:hover,
+.ark-control .ark-composer .ark-toolbar button:focus,
+.ark-control .ark-composer .ark-toolbar button:focus-visible,
+.ark-control .ark-composer .ark-toolbar button:active,
+.ark-control .ark-composer .ark-model-pill,
+.ark-control .ark-composer .ark-model-pill:hover,
+.ark-control .ark-composer .ark-model-pill:focus-visible,
+.ark-control .ark-composer .ark-mode-toggle,
+.ark-control .ark-composer .ark-mode-toggle:hover,
+.ark-control .ark-composer .ark-mode-toggle:focus-visible {
+  border-color: transparent;
+  outline: none;
+  box-shadow: none;
+}
+.ark-control .ark-composer .ark-toolbar button:focus-visible,
+.ark-control .ark-composer .ark-model-pill:focus-visible {
+  background: #29292e;
+  color: #fff;
+}
+.ark-control .ark-composer .ark-input-box:focus-within {
+  border-color: #29292d;
+  outline: none;
+  box-shadow: none;
+}
+.ark-control .ark-composer .ark-model-search:focus,
+.ark-control .ark-composer .ark-model-clear:hover,
+.ark-control .ark-composer .ark-model-clear:focus-visible {
+  border-color: transparent;
+  outline: none;
+  box-shadow: none;
+}

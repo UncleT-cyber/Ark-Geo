@@ -852,7 +852,7 @@ async def _run(session: SessionState, prompt: str, workspace: Optional[str] = No
         session.messages.append({"role": "assistant", "content": "".join(full)})
         yield {"type": "final", "text": "".join(full)}
         recorder.record_run_completed()
-        yield {"type": "run_completed", "run_id": recorder.run_id}
+        yield {"type": "run_completed", "run_id": recorder.run_id, "session_id": session.session_id}
         return
 
     # AUTONOMOUS adaptive ReAct loop
@@ -899,7 +899,7 @@ async def _run(session: SessionState, prompt: str, workspace: Optional[str] = No
                     yield {"type": "token", "text": payload}
             yield {"type": "final", "text": content}
             recorder.record_run_completed()
-            yield {"type": "run_completed", "run_id": recorder.run_id}
+            yield {"type": "run_completed", "run_id": recorder.run_id, "session_id": session.session_id}
             return
 
         if any(call["id"] is None for call in tool_calls):
@@ -919,7 +919,7 @@ async def _run(session: SessionState, prompt: str, workspace: Optional[str] = No
                     yield {"type": "final", "text": "Investigation paused at operator request after "
                                                     f"{iteration} steps. Findings gathered so far are above."}
                     recorder.record_run_completed()
-                    yield {"type": "run_completed", "run_id": recorder.run_id}
+                    yield {"type": "run_completed", "run_id": recorder.run_id, "session_id": session.session_id}
                     return
 
         session.messages.append({
@@ -953,6 +953,7 @@ async def _run(session: SessionState, prompt: str, workspace: Optional[str] = No
                 "allowed": scope_verdict.allowed,
                 "reason": scope_verdict.reason,
                 "run_id": recorder.run_id,
+                "session_id": session.session_id,
             }
             if not scope_verdict.allowed:
                 yield {
@@ -1135,7 +1136,7 @@ async def _run(session: SessionState, prompt: str, workspace: Optional[str] = No
                 "partial findings are above. Resume or refine the objective to continue.",
     }
     recorder.record_run_completed()
-    yield {"type": "run_completed", "run_id": recorder.run_id}
+    yield {"type": "run_completed", "run_id": recorder.run_id, "session_id": session.session_id}
 
 
 __all__ = ["SessionState", "get_session", "approve", "run"]

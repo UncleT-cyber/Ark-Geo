@@ -80,14 +80,15 @@ export function NeutralWorkspace({
   const [queue] = useInvestigationSlice<QueueEntry[]>('queue', () => []);
 
   const lifecycle = execution.lifecycle_status;
-  const active =
-    lifecycle === 'running' ||
-    lifecycle === 'approval_pending' ||
-    runStatus === 'running';
+  const lifecycleActive = lifecycle === 'running' || lifecycle === 'approval_pending';
+  // The execution slice is the authoritative run state. The tab-level run
+  // status only fills the gap before `run_created` lands on the slice — a
+  // stale tab dot must never keep the canvas out of its completion state.
+  const hasRunState = execution.run_id != null || execution.events.length > 0;
+  const active = lifecycleActive || (runStatus === 'running' && !hasRunState);
   const started =
     active ||
-    execution.run_id != null ||
-    execution.events.length > 0 ||
+    hasRunState ||
     lifecycle === 'completed' || lifecycle === 'failed' || lifecycle === 'stopped' ||
     runStatus === 'completed' || runStatus === 'failed' || runStatus === 'interrupted';
 
@@ -172,7 +173,7 @@ export function NeutralWorkspace({
               )}
             </ol>
 
-            {mode === 'done' && summary && (
+            {mode === 'done' && summary && hasRunState && (
               <section className="inv-summary" aria-label="Completion summary">
                 <div className="inv-canvas-section-head">
                   <h2>Completion summary</h2>

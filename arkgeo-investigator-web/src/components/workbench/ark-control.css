@@ -1168,3 +1168,58 @@
 .ark-control .ark-idle-logo { display: block; width: clamp(76px, 10vw, 112px); height: auto; aspect-ratio: 1; object-fit: contain; margin: 0 auto 6px; }
 .ark-control .ark-idle { max-width: 420px; margin: auto; padding: 16px; }
 .ark-control .ark-idle strong { font-size: 16px; letter-spacing: .06em; }
+
+
+/* One conversation stream: operational reports are optional, not a second feed. */
+.ark-control .ark-run-details {
+  align-self: stretch;
+  min-width: 0;
+  border: 1px solid #26262a;
+  border-radius: 10px;
+  background: #101012;
+  overflow: hidden;
+}
+.ark-control .ark-run-details > summary {
+  padding: 10px 12px;
+  color: #a4a4ad;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  text-transform: capitalize;
+}
+.ark-control .ark-run-details[open] > summary {
+  border-bottom: 1px solid #26262a;
+}
+.ark-control .ark-run-details > :not(summary) {
+  margin: 10px;
+  max-width: calc(100% - 20px);
+}
+/* Model trigger is a label, not a raw provider path. */
+.ark-control .ark-model-selector-compact {
+  flex: 0 1 175px;
+  max-width: 175px;
+  min-width: 0;
+}
+.ark-control .ark-model-pill {
+  gap: 5px;
+  border-radius: 9px;
+  padding: 5px 8px;
+  background: #1b1b1f;
+  border: 1px solid #303036;
+}
+.ark-control .ark-model-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: #e0e0e5;
+}
+.ark-control .ark-model-popover {
+  width: min(330px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  border: 1px solid #34343b;
+  border-radius: 12px;
+  background: #141417;
+  box-shadow: 0 16px 40px rgba(0,0,0,.7);
+}
+@media (max-width: 540px) {
+  .ark-control .ark-model-selector-compact { flex-basis: 130px; max-width: 130px; }
+}

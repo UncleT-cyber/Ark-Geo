@@ -10,6 +10,7 @@ import { useDictation } from './useDictation';
 import { type ImageReview } from './useImageReview';
 import { BottomPanel } from './BottomPanel';
 import { ExecutionActivity, InvestigationReport } from './ExecutionPanels';
+import { ArkMarkdown } from './ArkMarkdown';
 import {
   summarizeRun, toolDisplayName,
   type ExecutionEvent,
@@ -923,7 +924,7 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
             {!messages.length && <div className="ark-idle"><img className="ark-idle-logo" src="/branding/ark/ark-emblem-256.png" alt="ARK emblem" width={112} height={112} /><span className="ark-idle-sub">Cybersecurity Super Intelligence</span><p>Ask a question, attach evidence, or run a command to begin an investigation.</p></div>}
             {messages.map((message, i) => <article key={i} className={message.user ? 'ark-message ark-user' : 'ark-message'}>
               {message.image && <img src={message.image} alt="Attached evidence" />}
-              {message.text || (busy && i === messages.length - 1 && !message.approval && !message.tools?.length ? 'Working…' : '')}
+              {message.user ? message.text : <ArkMarkdown text={message.text || (busy && i === messages.length - 1 && !message.approval && !message.tools?.length ? 'Working…' : '')} />}
               {message.tools?.map(tool => <span key={tool} className="ark-tool-chip">{tool}</span>)}
               {message.approval && <div>Approve {message.approval.tool}? <button disabled={approving} onClick={() => void approve(i, message.approval!, true)}>Approve</button> <button disabled={approving} onClick={() => void approve(i, message.approval!, false)}>Deny</button></div>}
             </article>)}

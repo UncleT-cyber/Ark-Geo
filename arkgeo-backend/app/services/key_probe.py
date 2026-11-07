@@ -241,6 +241,19 @@ async def live_probe(provider: str, key: str, extra: dict[str, str] | None = Non
             elif provider == "openrouter":
                 r = await client.get("https://openrouter.ai/api/v1/auth/key", headers={"Authorization": f"Bearer {key}"})
                 ok, detail = r.status_code == 200, f"HTTP {r.status_code}"
+                # /auth/key returns 200 even for a key whose credit is spent, so
+                # "reachable" is not "usable": a run against it then fails with
+                # 403 "Key limit exceeded". Report the limit condition here so a
+                # spent key is not shown as healthy.
+                if ok:
+                    try:
+                        info = (r.json() or {}).get("data") or {}
+                        limit, usage = info.get("limit"), info.get("usage")
+                        if limit is not None and usage is not None and float(usage) >= float(limit):
+                            ok = False
+                            detail = f"Key limit exceeded (${float(usage):.2f} of ${float(limit):.2f} used)"
+                    except (ValueError, TypeError):
+                        pass
             elif provider == "huggingface":
                 # HuggingFace Inference Providers — OpenAI-compatible router.
                 # GET /v1/models lists models available to the token; 401/403

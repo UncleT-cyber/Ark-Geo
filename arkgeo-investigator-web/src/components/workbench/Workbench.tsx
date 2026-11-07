@@ -453,6 +453,21 @@ function WorkbenchInner() {
     invStore.ensure(id, { workspace: { ...defaultWorkspaceSelection() } });
   }, [imageReview, tabApi, invStore]);
 
+  /** Select a tab and, for full-page destinations (System Overview, Settings),
+   *  publish their domain directly. `inv.domain` is derived from the active
+   *  investigation's stored workspace, so re-selecting the tab that is already
+   *  active does not change `activeId` and the activation effect never re-runs
+   *  — leaving the click a no-op once the domain has drifted (the operator
+   *  navigated elsewhere, which only patches the workspace). Publishing the
+   *  domain here makes the destination reachable from the tab strip too. */
+  const activateTab = useCallback((id: string) => {
+    const tab = tabApi.tabs.find(t => t.id === id);
+    if (tab && (tab.domain === 'system' || tab.domain === 'settings')) {
+      invStore.patchWorkspace(id, { domain: tab.domain, neutral: false });
+    }
+    tabApi.selectTab(id);
+  }, [tabApi, invStore]);
+
   /** Open Settings as a normal, single application tab and activate it.
    *  Repeated opens reuse the same tab (never duplicate); the user's open
    *  investigations, their runs and the conversation history are untouched. */
@@ -460,11 +475,11 @@ function WorkbenchInner() {
     setShowPalette(false);
     const existing = tabApi.tabs.find(t => t.domain === 'settings');
     if (existing) {
-      tabApi.selectTab(existing.id);
+      activateTab(existing.id);
       return;
     }
     tabApi.createTab({ title: 'Settings', domain: 'settings' });
-  }, [tabApi]);
+  }, [tabApi, activateTab]);
 
   /** Open the standalone System Overview as a single application tab.
    *  System Overview is a system-level destination, not an investigation: it
@@ -474,11 +489,12 @@ function WorkbenchInner() {
     setShowPalette(false);
     const existing = tabApi.tabs.find(t => t.domain === 'system');
     if (existing) {
-      tabApi.selectTab(existing.id);
+      activateTab(existing.id);
       return;
     }
-    tabApi.createTab({ title: 'System Overview', domain: 'system' });
-  }, [tabApi]);
+    const id = tabApi.createTab({ title: 'System Overview', domain: 'system' });
+    invStore.ensure(id, { workspace: { ...defaultWorkspaceSelection(), domain: 'system', neutral: false } });
+  }, [tabApi, activateTab, invStore]);
 
   // Default landing destination: a window with no active investigation opens
   // the System Overview (a system-level destination) rather than dropping
@@ -566,7 +582,7 @@ function WorkbenchInner() {
     showToast(`Restored case ${saved.caseId}`, 'success');
   }, [inv, showToast, imageReview, zeroRetention, lastFileRef]);
 
-  const handleSelectTab = useCallback((id: string) => { tabApi.selectTab(id); }, [tabApi]);
+  const handleSelectTab = useCallback((id: string) => { activateTab(id); }, [activateTab]);
 
   const handleCloseTab = useCallback((id: string) => {
     tabApi.closeTab(id);

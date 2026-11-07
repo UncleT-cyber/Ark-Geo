@@ -45,6 +45,35 @@ class TestGeoinferProbe:
 
 
 # --------------------------------------------------------------------------- #
+# OpenRouter probe
+# --------------------------------------------------------------------------- #
+class TestOpenRouterProbe:
+    @pytest.mark.asyncio
+    async def test_probe_reports_healthy_key_with_remaining_credit(self):
+        from app.services.key_probe import live_probe
+
+        async with respx.mock() as mock:
+            mock.get("https://openrouter.ai/api/v1/auth/key").respond(
+                200, json={"data": {"limit": 5.5, "usage": 1.25}}
+            )
+            res = await live_probe("openrouter", "sk-or-v1-test")
+        assert res["valid"] is True
+
+    @pytest.mark.asyncio
+    async def test_probe_flags_spent_key_that_auth_endpoint_calls_ok(self):
+        """/auth/key returns 200 for an exhausted key; the probe must not call it healthy."""
+        from app.services.key_probe import live_probe
+
+        async with respx.mock() as mock:
+            mock.get("https://openrouter.ai/api/v1/auth/key").respond(
+                200, json={"data": {"limit": 5.5, "usage": 5.51}}
+            )
+            res = await live_probe("openrouter", "sk-or-v1-spent")
+        assert res["valid"] is False
+        assert "limit exceeded" in res["detail"].lower()
+
+
+# --------------------------------------------------------------------------- #
 # GeoSpy probe
 # --------------------------------------------------------------------------- #
 class TestGeoSpyProbe:

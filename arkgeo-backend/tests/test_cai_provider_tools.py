@@ -161,6 +161,11 @@ async def test_advisory_stream_yields_text_without_tools(monkeypatch):
     (401, "fixture secret", "authentication_failed"),
     (402, "fixture secret", "insufficient_credits"),
     (429, "fixture secret", "rate_limited"),
+    # OpenRouter reports an exhausted key with 403 + "Key limit exceeded"; that is
+    # a billing condition, not a rejected credential.
+    (403, "Key limit exceeded (total limit)", "insufficient_credits"),
+    (403, "fixture secret", "authentication_failed"),
+    (429, "You exceeded your current quota", "rate_limited"),
     (500, "fixture secret", "provider_rejected"),
 ])
 def test_provider_errors_are_classified_without_raw_details(status, detail, code):

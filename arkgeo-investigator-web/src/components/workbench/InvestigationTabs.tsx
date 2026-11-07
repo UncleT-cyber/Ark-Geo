@@ -77,14 +77,16 @@ export function InvestigationTabStrip({ tabs, activeId, onSelect, onClose, onNew
           >
             <span className={`ark-tab-dot ${STATUS_DOT[tab.runStatus] ?? STATUS_DOT.idle}`} aria-hidden="true" />
             <span className="ark-tab-title">{tab.title}</span>
-            <button
-              type="button"
-              className="ark-tab-close"
-              aria-label={`Close ${tab.title}`}
-              onClick={e => { e.stopPropagation(); onClose(tab.id); }}
-            >
-              <X size={13} />
-            </button>
+            {tab.domain !== 'system' && (
+              <button
+                type="button"
+                className="ark-tab-close"
+                aria-label={`Close ${tab.title}`}
+                onClick={e => { e.stopPropagation(); onClose(tab.id); }}
+              >
+                <X size={13} />
+              </button>
+            )}
           </div>
         ))}
       </div>

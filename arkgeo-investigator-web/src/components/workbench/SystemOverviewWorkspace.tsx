@@ -94,7 +94,16 @@ export function SystemOverviewWorkspace() {
       setData(result);
       setRefreshedAt(Date.now());
     } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || 'System overview unavailable');
+      // A bare "Not Found" means the backend did not serve this route — almost
+      // always an unreachable/mismatched backend, not a missing dashboard.
+      // Say so plainly instead of echoing the raw FastAPI detail.
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail;
+      const message = status === 404
+        ? 'the overview endpoint was not found (is the backend running and reachable?)'
+        : typeof detail === 'string' && detail ? detail
+        : err?.message || 'System overview unavailable';
+      setError(message);
       setData(null);
     } finally {
       setLoading(false);

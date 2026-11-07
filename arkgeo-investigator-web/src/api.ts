@@ -1456,6 +1456,10 @@ export const api = {
       duration_ms: number | null; error: string | null; event_count: number | null; last_event: string | null;
     }>;
   }> {
+    // Resolve the base URL first, like every other call: under the desktop
+    // shell `window.ark.backendPort` may not be set at module load, and a
+    // relative `/api/v1` then resolves against the app origin and 404s.
+    await ensureBaseUrl();
     const { data } = await client.get('/overview', { params: { period, traces } });
     return data;
   },

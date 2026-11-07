@@ -188,10 +188,14 @@
 .workbench-sidebar-collapsed .investigation-nav-item { justify-content: center; padding-inline: 0; }
 .workbench-sidebar-collapsed .investigation-nav-item > span { display: none; }
 
-/* Header rail: the collapse control is pinned to the RIGHT edge of the sidebar
+/* Header row: approved ARK emblem left; collapse control pinned right. */
+.investigation-nav-heading .investigation-nav-logo { display: block; width: 30px; height: 30px; object-fit: contain; flex: none; }
+.investigation-nav-heading { justify-content: space-between; }
+.workbench-sidebar-collapsed .investigation-nav-heading .investigation-nav-logo { width: 22px; height: 22px; }
+/* The collapse control remains on the right of the sidebar
    content area (the sidebar's own 14px padding supplies the 12-16px inset),
    never centered. Compact 30px interaction target. */
-.investigation-nav-heading { display: flex; align-items: center; justify-content: flex-end; flex: none; padding: 2px 0 8px; }
+.investigation-nav-heading { display: flex; align-items: center; justify-content: space-between; flex: none; padding: 2px 0 8px; gap: 8px; }
 .investigation-nav-heading .investigation-nav-collapse { width: 30px; height: 30px; flex: none; justify-content: center; padding-inline: 0; }
 .investigation-nav-item small { margin-left: auto; font-size: 9px; color: var(--text-muted); }
 
@@ -240,31 +244,14 @@
 
 .investigation-nav-scroll { flex: 1; min-height: 0; overflow: auto; }
 
-.ark-command-center .investigation-navigation { position: relative; padding-left: 33px; }
+.ark-command-center .investigation-navigation { position: relative; padding-left: 14px; }
 .ark-command-center .investigation-navigation.workbench-sidebar-collapsed {
   flex-basis: 66px;
   width: 66px;
   min-width: 66px;
-  padding-left: 25px;
+  padding-left: 6px;
 }
-.investigation-brand-rail {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 21px;
-  display: grid;
-  place-items: center;
-  border-right: 1px solid var(--border-dim);
-  background: var(--bg-darkest);
-  color: var(--text-muted);
-}
-.investigation-brand-rail span {
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .2em;
-}
-.workbench-sidebar-collapsed .investigation-nav-heading { justify-content: center; padding-inline: 0; }
+.workbench-sidebar-collapsed .investigation-nav-heading { flex-direction: column; justify-content: center; padding-inline: 0; gap: 6px; }
 .workbench-sidebar-collapsed .investigation-nav-heading .investigation-nav-collapse { width: 100%; }
 
 /* ---- Use Cases view (quick-start catalog) ---- */

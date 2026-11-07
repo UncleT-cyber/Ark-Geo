@@ -2230,6 +2230,36 @@ body.ark-desktop .ark-tab { -webkit-app-region: no-drag; }
   flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px;
 }
 .rpt-meta-field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+/* --- Phase D findings & conclusions -------------------------------------- */
+.rpt-totals { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 14px; }
+.rpt-total {
+  font-size: 11px; color: var(--text-secondary); padding: 4px 9px;
+  border: 1px solid var(--border-dim); border-radius: 5px; background: var(--bg-card);
+}
+.rpt-total em { font-style: normal; font-weight: 700; color: var(--text-primary); margin-right: 3px; }
+.rpt-total-ok em { color: var(--success); }
+.rpt-total-warn em { color: var(--warning); }
+.rpt-total-bad em { color: var(--emergency); }
+.rpt-total-muted em { color: var(--text-muted); }
+.rpt-findings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rpt-finding { display: flex; gap: 9px; align-items: stretch; }
+.rpt-finding-sev { width: 3px; border-radius: 2px; flex: none; }
+.rpt-finding-body { flex: 1; min-width: 0; }
+.rpt-finding-head { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-bottom: 3px; }
+.rpt-finding-type { font-size: 10px; letter-spacing: .06em; color: var(--text-muted); }
+.rpt-finding-status {
+  font-size: 9px; letter-spacing: .08em; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border-dim);
+}
+.rpt-status-conclusion { color: var(--success); border-color: rgba(34,197,94,.4); }
+.rpt-status-hypothesis { color: #38BDF8; border-color: rgba(56,189,248,.4); }
+.rpt-status-contested { color: var(--warning); border-color: rgba(234,179,8,.45); }
+.rpt-status-unsupported { color: var(--emergency); border-color: rgba(239,68,68,.45); }
+.rpt-finding-prov { font-size: 9px; letter-spacing: .08em; color: var(--text-muted); }
+.rpt-finding-conf { font-size: 10px; color: var(--text-secondary); margin-left: auto; }
+.rpt-finding-msg { font-size: 12px; color: var(--text-primary); line-height: 1.45; }
+.rpt-finding-lineage { font-size: 10px; color: var(--text-muted); margin-top: 3px; }
+.rpt-finding-contested { font-size: 10px; color: var(--warning); margin-top: 3px; }
 .rpt-meta-label {
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
   color: var(--text-muted); font-family: 'JetBrains Mono', monospace;

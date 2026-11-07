@@ -19,6 +19,7 @@ import type { AnalyzeResponse, AnalystOverride, ConsistencyFinding } from '../..
 import { ChainOfCustody } from '../../ChainOfCustody/ChainOfCustody';
 import { api } from '../../../api';
 import { useInvestigation } from '../useInvestigation';
+import { buildReportModel, type ReportFinding } from './reportEngine';
 
 interface CaseReportViewProps {
   result: AnalyzeResponse;
@@ -27,10 +28,23 @@ interface CaseReportViewProps {
 }
 
 function sevColor(severity: string): string {
-  if (severity === 'HIGH' || severity === 'high' || severity === 'ERROR') return '#EF4444';
+  if (severity === 'HIGH' || severity === 'high' || severity === 'ERROR' || severity === 'CRITICAL') return '#EF4444';
   if (severity === 'MEDIUM' || severity === 'medium' || severity === 'WARNING') return '#F59E0B';
   return '#22C55E';
 }
+
+const STATUS_LABEL: Record<ReportFinding['status'], string> = {
+  conclusion: 'CONCLUSION',
+  contested: 'CONTESTED',
+  hypothesis: 'HYPOTHESIS',
+  unsupported: 'UNSUPPORTED',
+};
+
+const PROV_LABEL: Record<ReportFinding['provenance'], string> = {
+  deterministic: 'DETERMINISTIC',
+  tool: 'TOOL',
+  ai_hypothesis: 'AI',
+};
 
 function MetaField({ label, value, mono }: { label: string; value?: React.ReactNode; mono?: boolean }) {
   return (
@@ -45,7 +59,7 @@ export function CaseReportView({ result, thumbnailUrl, onExportPdf }: CaseReport
   const [overrides, setOverrides] = useState<AnalystOverride[]>([]);
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const { pipeline } = useInvestigation();
+  const { pipeline, session } = useInvestigation();
 
   const loadOverrides = useCallback(async () => {
     try {
@@ -83,6 +97,16 @@ export function CaseReportView({ result, thumbnailUrl, onExportPdf }: CaseReport
   const findings = (result.consistency_findings || []) as ConsistencyFinding[];
   const contradictions = result.contradictions || [];
   const audit = result.analysis_log || [];
+
+  // Phase D — compose the report model from the deterministic pipeline findings
+  // and the ARK AI graph's promoted findings, keeping the two epistemic tiers
+  // separate and never presenting a contested or unsupported claim as fact.
+  const report = buildReportModel({
+    caseId: inv(result),
+    pipelineFindings: findings,
+    graphFindings: session?.findings ?? [],
+    graph: session?.graph ?? null,
+  });
 
   const coords = result.coordinates
     ? `${result.coordinates.lat.toFixed(5)}, ${result.coordinates.lon.toFixed(5)}`
@@ -558,6 +582,64 @@ export function CaseReportView({ result, thumbnailUrl, onExportPdf }: CaseReport
                 {`A ${result.probability_surface?.grid_span_m ? Math.round(Number(result.probability_surface.grid_span_m)) : '—'} m span centred on the resolved pin, derived from ${result.consensus?.monte_carlo_samples || '—'} Monte-Carlo samples. 95% credible interval: ${result.credible_interval_radius != null ? Math.round(result.credible_interval_radius) + ' m' : '—'}.`}
               </div>
             </div>
+          )}
+        </section>
+
+        {/* Phase D — composed findings: deterministic conclusions and ARK AI
+            findings kept in separate tiers, with contested/unsupported claims
+            labelled so nothing unsupported reads as a conclusion. */}
+        <section className="case-report-section">
+          <div className="case-report-section-title"><ListChecks className="w-4 h-4" /> H · Findings &amp; Conclusions</div>
+          <div className="rpt-totals">
+            <span className="rpt-total"><em>{report.totals.findings}</em> findings</span>
+            <span className="rpt-total rpt-total-ok"><em>{report.totals.conclusions}</em> conclusions</span>
+            <span className="rpt-total rpt-total-warn"><em>{report.totals.hypotheses}</em> hypotheses</span>
+            <span className="rpt-total rpt-total-bad"><em>{report.totals.contested}</em> contested</span>
+            {report.totals.unsupported > 0 && (
+              <span className="rpt-total rpt-total-muted"><em>{report.totals.unsupported}</em> unsupported</span>
+            )}
+          </div>
+          {report.sections.length === 0 ? (
+            <div className="case-report-prov-detail">No findings recorded for this case.</div>
+          ) : (
+            report.sections.map(section => (
+              <div className="case-report-sub-block" key={section.id}>
+                <div className="case-report-sub-title">{section.title}</div>
+                <ul className="rpt-findings">
+                  {section.findings.map(f => (
+                    <li className="rpt-finding" key={f.id}>
+                      <span className="rpt-finding-sev" style={{ background: sevColor(f.severity) }} aria-hidden="true" />
+                      <div className="rpt-finding-body">
+                        <div className="rpt-finding-head">
+                          <span className="rpt-finding-type mono">{f.type}</span>
+                          <span className={`rpt-finding-status rpt-status-${f.status}`}>{STATUS_LABEL[f.status]}</span>
+                          <span className={`rpt-finding-prov rpt-prov-${f.provenance}`}>{PROV_LABEL[f.provenance]}</span>
+                          {f.confidence != null && (
+                            <span className="rpt-finding-conf mono">{Math.round(f.confidence * 100)}%</span>
+                          )}
+                        </div>
+                        <div className="rpt-finding-msg">{f.message}</div>
+                        {f.supportingTools.length > 0 && (
+                          <div className="rpt-finding-lineage">
+                            Corroborated by: {f.supportingTools.join(', ')}
+                          </div>
+                        )}
+                        {f.status === 'contested' && (
+                          <div className="rpt-finding-contested">
+                            Contradicted by {f.contradictingNodeIds.length} evidence node(s) — not asserted as a conclusion.
+                          </div>
+                        )}
+                        {f.status === 'unsupported' && (
+                          <div className="rpt-finding-contested">
+                            No supporting evidence recorded — reported as a lead, not a conclusion.
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
           )}
         </section>
 

@@ -103,6 +103,7 @@ Backend remains the source of truth for all forensic objects.
 - `geolocation_fusion.py`: multi-layer evidence model with explainability
 - `source_discovery.py`: provider-agnostic reverse image search (pHash + extensible provider registry)
 - `analyst_overrides.py`: confirm/reject/needs-review with audit logging
+- `services/overview_service.py` + `api/v1/endpoints/overview.py`: **System Overview aggregate** — `GET /api/v1/overview?period=24h|7d|30d&traces=N` returns a principal-scoped snapshot (KPIs, operational-activity series, live agents, model authority, provider health, usage, security/custody, evidence/audit, recent execution traces). `build_overview(principal, *, period_hours, trace_limit)` is **async** (it probes providers via `ai_gateway.status()`). Read-only over existing stores; introduces no new telemetry. Unmeasured values are `None` (UI renders `—`), never a fabricated `0`. Read helpers: `run_control.list_controls()`, `evidence_recorder.load_run_record()/load_run_index()`.
 
 ### ARK AI orchestration substrate (`app/agent/`) — Phase A (no AI yet)
 Design doc: `docs/ARK_AI_ORCHESTRATION_SPEC.md`. The three-investigator model
@@ -188,6 +189,7 @@ contains every tool required to complete that investigation.
 - Sidebar collapse toggle is ON the sidebar itself (ChevronLeft = expanded→collapse, ChevronRight = collapsed→expand), not in Settings. The collapse bar sits in a dedicated header ABOVE the primary tool icons so it never displaces them by a row.
 - `DashboardView.tsx`: System Overview & Analytics default view — rendered when no target loaded (IMAGE domain, no case). **No upload button in its header** (the single upload entry point is the sidebar dropzone). Recent Sessions are interactive: rows are selectable (call `onSelectSession` to reload), per-row delete (Trash2), and "Clear History" with inline confirm. Exports `loadSessions`, `recordSession`, `classifyRisk`, `deleteSession`, `clearSessions`, and the `SessionRecord` type.
 - `NetworkPlaceholder.tsx`: NETWORK domain placeholder (planned capabilities, not implemented)
+- `SystemOverviewWorkspace.tsx`: the standalone System Overview — a SYSTEM-level destination (domain `system`), NOT an investigation. Rendered in the main viewport when `inv.domain === 'system'`; opened via the sidebar SYSTEM group (`InvestigationNavigation` `onSystem` → `Workbench.openSystemOverview`) as a single reuse-once tab mirroring Settings. Consumes `GET /api/v1/overview` (`api.systemOverview(period, traces)`). Sections: header + 24h/7d/30d period selector, 4 KPI cards, Operational Activity chart + Agent Activity, Inference Engine + Compute & Usage, Security & Custody + Evidence & Audit, expandable Recent Execution Traces. **Honesty contract: a measured 0 renders as `0`; an unmeasured value renders as `—` (never a fabricated 0).** Styles: `.so-*` / `.sys-overview` in `workbench.css`.
 - `SecOpsPlaceholder.tsx`: SECOPS (Threat & Security Operations) domain placeholder. Surfaces the 6 planned sub-modules: SIEM, IDS/IPS, Threat Hunting, Detection & Correlation, Incident Management, Security Operations. `SECOPS_ICONS` registry in `icons.ts` (Gauge/Siren/Crosshair/Radar/FolderSearch/Activity).
 - `investigation/InvestigationOverview.tsx`: MAP-FIRST command center — map always visible at top (never disappears), Location Not Established overlay when no coords, ARK assessment tiles + WHAT WE KNOW/DON'T KNOW/SUSPICIOUS/INVESTIGATE NEXT below
 - `tools/SpatialTool.tsx`: map NEVER disappears — Location Not Established overlay when no coords; fusion/spatial summary side panel
@@ -196,7 +198,8 @@ contains every tool required to complete that investigation.
 - `CommandPalette.tsx`: Cmd/Ctrl+Shift+P and Cmd/Ctrl+K hotkeys (openTool switches to IMAGE domain + subview); also owns Save/Export now that the TopBar is tab-only.
 - `BottomPanel.tsx`: domain-aware contextual console — tabs: PROBLEMS, ANALYSIS LOG, PLAN, AGENT, EVIDENCE, AUDIT (the dock is a 3×2 grid; the shared streaming feed from `inv.terminal` renders live in ANALYSIS LOG). The interactive TERMINAL tab was removed; `pushTerminal` no longer switches tabs, it just feeds ANALYSIS LOG.
 - `StatusBar.tsx`: accepts `activeCaseId` prop — shows backend status, SHA-256 hash, active case, GPS
-- `icons.ts`: central Lucide icon registry — DOMAIN_ICONS (image/network/cases), SIDEBAR_ICONS, UI_ICONS (no emoji in UI)
+- `icons.ts`: central Lucide icon registry — DOMAIN_ICONS (image/network/cases/secops/usecases/system), SIDEBAR_ICONS, UI_ICONS (no emoji in UI)
+- `DomainId` (`entities.ts`): `'system' | 'image' | 'network' | 'cases' | 'secops' | 'usecases' | 'settings'`. The tab domain union in `core/tabs/tabRegistry.ts` includes `'system'` too.
 - `App.tsx`: admin reachable ONLY via stealth hotkey Cmd/Ctrl+Shift+P (fires on ALL routes) → obfuscated `/console-auth` login; admin routes never appear in workbench UI
 - Session history persisted to localStorage for dashboard analytics
 - VS Code Dark Slate palette (#181818 / #1E1E1E / #252526 / #007ACC)

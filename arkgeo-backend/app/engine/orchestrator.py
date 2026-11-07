@@ -51,6 +51,7 @@ from app.services.ai_gateway import get_active_litellm_model
 from app.services.entitlements import ANONYMOUS, Principal
 from app.services.session_store import session_store, RUN_COMPLETED, RUN_FAILED, RUN_CANCELLED
 from app.services.bus import bus, publish_tool_start, publish_tool_output, publish_agent_status
+from app.engine.untrusted_content import sanitize_tool_result
 
 
 # The active model is resolved by the model-selection authority
@@ -1105,7 +1106,9 @@ async def _run(session: SessionState, prompt: str, workspace: Optional[str] = No
             }
             session.messages.append({
                 "role": "tool", "tool_call_id": tc["id"],
-                "content": json.dumps(result, default=str)[:8000],
+                "content": json.dumps(
+                    sanitize_tool_result(tool_id, result), default=str,
+                )[:8000],
             })
             # Safe checkpoint: a stop requested while the tool was executing is
             # honoured now that the tool has returned — no new work starts.

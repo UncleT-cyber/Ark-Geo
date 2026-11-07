@@ -28,6 +28,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from app.agent.model_gateway import gateway as default_gateway
 from app.services.agent.tools import execute_tool, function_schemas
+from app.engine.untrusted_content import sanitize_tool_result
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,9 @@ class ToolCallingLoop:
         result = await execute_tool(tool_id, arguments)
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         ok = bool(result.get("ok"))
-        content = json.dumps(result, default=str)
+        content = json.dumps(
+            sanitize_tool_result(tool_id, result), default=str,
+        )
         entry = {
             "step_id": step_id,
             "tool_id": tool_id,

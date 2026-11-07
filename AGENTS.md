@@ -241,7 +241,7 @@ contains every tool required to complete that investigation.
 - Vite dev server runs on port 12001 (custom); `npm run dev` (HMR active)
 - Backend on port 12000; vite proxy `/api` → `process.env.ARKGEO_BACKEND_URL` or :12000
 - HMR pitfall: if `DashboardView.tsx` (or any file mixing component + non-component exports like `classifyRisk`) fails Fast Refresh, restart the dev server cleanly to avoid a frozen half-state where clicks stop re-rendering. `kill` the vite node PID then `npm run dev`.
-- Backend tests: 879 passing (pytest), 13 pre-existing env failures
+- Backend tests: 893 passing (pytest), 13 pre-existing env failures
   (`test_workbench_forensics` ×4, `test_ark_cai_engine` ×5, `test_run_control`
   ×4 — exiftool/browser binaries absent in this container, not regressions).
 - Frontend tests: `npm test` → `node --test "src/**/*.test.ts"` (Node 24 runs TS
@@ -255,9 +255,20 @@ contains every tool required to complete that investigation.
   (fence + injection scan; embedded markers are defanged so the fence cannot be
   escaped) + `app/engine/injection_fixtures.py` (adversarial corpus) +
   `tests/test_prompt_injection_suite.py`.
-- Env note: `Pillow==10.3.0`/`pydantic==2.7.1` pins do NOT build on Python 3.13 —
-  the working venv uses upgraded Pillow+pydantic+fastapi; requirements.txt needs
-  re-pinning. `exiftool` binary required (brew install exiftool).
+- Env note: `requirements.txt` is re-pinned to the set verified on Python 3.13
+  (fastapi 0.162 / pydantic 2.14 / Pillow 13 / httpx 0.28 / numpy>=2.1) — the
+  old `Pillow==10.3.0`/`pydantic==2.7.1` pins did not build on 3.13.
+  `app/core/preflight.py` logs ExifTool/Chromium availability at startup so a
+  missing optional binary is visible at boot instead of only when a tool runs.
+  `exiftool` binary required (brew install exiftool).
+- **Domain routing (Phase F follow-up)**: OSINT + WEB specialists now declare
+  and route the tools that actually exist (`web_search`/`web_fetch`/`geocode_*`/
+  `reverse_image_search`; `web.*` + `browser.*`) instead of unregistered planned
+  ids; `planner._TEMPLATES` gained `osint_*`/`web_*` step templates, `executor`
+  resolves their args (subject → query/url, graph chaining, browser session id),
+  and `correlator._MISSING_LAYERS` covers both domains. Invariant enforced by
+  `tests/test_phase_f_osint_web.py` + `test_cognitive_contracts.py`: every
+  declared/templated tool id must be registered.
 - Backend venv in this container is `.venv-new` (`.venv/bin/*` shebangs point at
   a macOS path); run tests with `.venv-new/bin/python -m pytest tests/ -q`.
 - `npx tsc --noEmit` clean; `npx vite build` clean (~2013 modules)

@@ -72,6 +72,22 @@ _CLAIM_TYPES: dict[str, S.ClaimType] = {
     "incident_annotate": S.ClaimType.OTHER,
     # OSINT / LOCAL-FILESYSTEM
     "inspect_local_path": S.ClaimType.METADATA,
+    # Phase F follow-up — OSINT retrieval tools
+    "web_search": S.ClaimType.SOURCE,
+    "web_fetch": S.ClaimType.SOURCE,
+    "geocode_place": S.ClaimType.LOCATION,
+    "geocode_batch_texts": S.ClaimType.LOCATION,
+    "reverse_image_search": S.ClaimType.SOURCE,
+    # Phase F follow-up — WEB hardened retrieval + managed browsing
+    "web.fetch": S.ClaimType.SOURCE,
+    "web.extract": S.ClaimType.SOURCE,
+    "web.links": S.ClaimType.SOURCE,
+    "web.document": S.ClaimType.SOURCE,
+    "browser.open": S.ClaimType.SOURCE,
+    "browser.navigate": S.ClaimType.SOURCE,
+    "browser.snapshot": S.ClaimType.SOURCE,
+    "browser.extract": S.ClaimType.SOURCE,
+    "browser.screenshot": S.ClaimType.SOURCE,
     # Level-4 — PENTEST
     "nmap_scan": S.ClaimType.DEVICE,
     "default_cred_tester": S.ClaimType.OTHER,
@@ -197,6 +213,32 @@ def _network_scope(ctx: ExecutionContext) -> Optional[str]:
     return (ctx.objective.subject or "").strip() or None
 
 
+def _first_url_from(value: Any) -> Optional[str]:
+    """First http(s) URL in a search-result-shaped value."""
+    items = value.get("results") if isinstance(value, dict) else value
+    for item in (items or []):
+        url = item.get("url") if isinstance(item, dict) else None
+        if isinstance(url, str) and url.startswith(("http://", "https://")):
+            return url
+    return None
+
+
+def _text_list_from(value: Any) -> list[str]:
+    """Flatten OCR/text-bearing values into a list of strings."""
+    out: list[str] = []
+    items = value.get("results") if isinstance(value, dict) else value
+    for item in (items if isinstance(items, list) else [items]):
+        if isinstance(item, str) and item.strip():
+            out.append(item.strip())
+        elif isinstance(item, dict):
+            for key in ("text", "content", "title", "snippet", "label"):
+                v = item.get(key)
+                if isinstance(v, str) and v.strip():
+                    out.append(v.strip())
+                    break
+    return out
+
+
 def _resolve_args(
     tool_id: str,
     ctx: ExecutionContext,
@@ -280,8 +322,54 @@ def _resolve_args(
         return None  # requires explicit analyst note — not auto-resolvable
     # ---- OSINT / LOCAL-FILESYSTEM — scope is the objective's subject. ----
     if tool_id == "inspect_local_path":
-        return {"target_path": ctx.objective.subject or ""}
+        path = (ctx.objective.subject or "").strip()
+        return {"target_path": path} if path else None
+    # ---- Phase F follow-up — OSINT retrieval (deterministic chain). ----
+    if tool_id in ("web_search", "geocode_place"):
+        # Both take a single free-text query derived from the objective.
+        text = _subject_or_text(ctx)
+        return {"query" if tool_id == "web_search" else "place": text} if text else None
+    if tool_id == "web_fetch":
+        url = _subject_or_text(ctx)
+        if not url.startswith(("http://", "https://")):
+            url = _first_url_from(_node_value(ctx.graph, "web_search")) or ""
+        return {"url": url} if url.startswith(("http://", "https://")) else None
+    if tool_id == "geocode_batch_texts":
+        texts = _text_list_from(_node_value(ctx.graph, "run_ocr"))
+        return {"places": texts} if texts else None
+    if tool_id == "reverse_image_search":
+        if ctx.image_bytes is None:
+            return None
+        return {"image_bytes": ctx.image_bytes}
+    # ---- Phase F follow-up — WEB hardened retrieval + managed browsing. ----
+    if tool_id in ("web.fetch", "web.extract", "web.links", "web.document"):
+        url = _subject_or_text(ctx)
+        if not url.startswith(("http://", "https://")):
+            url = _first_url_from(_node_value(ctx.graph, "web_search")) or ""
+        return {"url": url} if url.startswith(("http://", "https://")) else None
+    if tool_id == "browser.open":
+        return {"url": _subject_or_text(ctx)}
+    if tool_id in ("browser.snapshot", "browser.screenshot", "browser.extract"):
+        sid = _browser_session_id(ctx.graph)
+        return {"session_id": sid} if sid else None
     return {}
+
+
+def _subject_or_text(ctx: ExecutionContext) -> str:
+    """Objective subject, falling back to its natural-language goal text."""
+    return ((ctx.objective.subject or "").strip()
+            or (ctx.objective.natural_language or "").strip())
+
+
+def _browser_session_id(graph: Any) -> Optional[str]:
+    """Most recent managed-browser session id opened on the graph."""
+    value = _node_value(graph, "browser.open")
+    if isinstance(value, dict):
+        for key in ("session_id", "id"):
+            sid = value.get(key)
+            if isinstance(sid, str) and sid:
+                return sid
+    return None
 
 
 def _build_evidence_node(

@@ -43,6 +43,14 @@ async def lifespan(app: FastAPI):
         print_startup_report()
     except Exception as exc:  # pragma: no cover - never block startup
         logger.warning("ARK startup report skipped: %s", exc)
+    # Report optional external-binary availability once, so a missing ExifTool
+    # or Chromium is visible at boot rather than only when a tool runs.
+    try:
+        from app.core import preflight
+
+        preflight.report()
+    except Exception as exc:  # pragma: no cover - never block startup
+        logger.warning("Preflight skipped: %s", exc)
     # Reinstall the operator's declared engagement, if any, so an authorized
     # scope survives a backend restart (fail-closed when none is declared).
     try:

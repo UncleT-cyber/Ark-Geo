@@ -11,6 +11,7 @@ import pytest
 
 from app.agent import schemas as S
 from app.agent.specialists import SpecialistRegistry, specialists
+from app.agent.tool_registry import registry
 
 
 # --------------------------------------------------------------------------- #
@@ -172,19 +173,29 @@ class TestSpecialists:
         assert ids == set(specialists.get("image").tool_ids)
         assert len(ids) == len(img.tool_ids) >= 16
 
-    def test_planned_domains_declare_but_do_not_route_yet(self):
-        # OSINT now routes its first real tool (inspect_local_path); WEB is
-        # still declared but unregistered — it routes to nothing until its
-        # tools land.
-        osint = specialists.get("osint")
-        assert osint is not None and osint.tool_ids
-        assert {t.tool_id for t in specialists.registered_tools("osint")} == {"inspect_local_path"}
-        for domain in ("web",):
-            spec = specialists.get(domain)
-            assert spec is not None and spec.tool_ids
-            assert specialists.registered_tools(domain) == []
+    def test_planned_domains_now_route_their_registered_tools(self):
+        # Phase F follow-up: OSINT + WEB now route the tools that actually
+        # exist (retrieval/geocode/reverse-image; hardened web.* + browser.*)
+        # instead of declaring planned ids they never wired.
+        assert {t.tool_id for t in specialists.registered_tools("osint")} == {
+            "inspect_local_path", "web_search", "web_fetch", "geocode_place",
+            "geocode_batch_texts", "reverse_image_search",
+        }
+        assert {t.tool_id for t in specialists.registered_tools("web")} == {
+            "web.fetch", "web.extract", "web.links", "web.document",
+            "browser.open", "browser.navigate", "browser.snapshot",
+            "browser.extract", "browser.screenshot",
+        }
         for domain in ("network", "secops"):
             assert specialists.registered_tools(domain) != []
+
+    def test_no_specialist_declares_an_unregistered_tool(self):
+        """Every declared tool id is registered — a declaration with no
+        registration is a capability the planner can never use."""
+        for domain in specialists.domains():
+            spec = specialists.get(domain)
+            for tool_id in spec.tool_ids:
+                assert registry.get(tool_id) is not None, (domain, tool_id)
 
     def test_goal_mapping_for_location_verification(self):
         assert specialists.plan_template_id(

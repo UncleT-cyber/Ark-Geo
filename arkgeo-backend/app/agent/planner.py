@@ -63,10 +63,50 @@ _SECOPS_STEPS: list[tuple[str, str]] = [
     ("incident_annotate", "Annotate the case incident record (action)"),
 ]
 
+# Phase F follow-up — OSINT and WEB register the tools that already exist
+# (web_search/geocode/reverse-image, hardened web.* + browser.*) rather than
+# the planned ids they previously declared but never wired.
+_OSINT_SOURCE_DISCOVERY_STEPS: list[tuple[str, str]] = [
+    ("web_search", "Search public sources for the subject/claim"),
+    ("web_fetch", "Fetch and read the most relevant public pages"),
+    ("geocode_place", "Resolve a place/OCR string to candidate coordinates"),
+    ("reverse_image_search", "Find prior appearances of the image asset"),
+]
+
+_OSINT_FULL_STEPS: list[tuple[str, str]] = [
+    ("inspect_local_path", "Index any local evidence directory for the case"),
+    ("web_search", "Search public sources for the subject/claim"),
+    ("web_fetch", "Fetch and read the most relevant public pages"),
+    ("geocode_place", "Resolve a place/OCR string to candidate coordinates"),
+    ("geocode_batch_texts", "Geocode OCR-derived location strings"),
+    ("reverse_image_search", "Find prior appearances of the image asset"),
+]
+
+_WEB_SOURCE_DISCOVERY_STEPS: list[tuple[str, str]] = [
+    ("web.fetch", "Retrieve the target URL through the egress guard"),
+    ("web.links", "Enumerate outbound links on the fetched page"),
+    ("web.extract", "Extract readable content and page metadata"),
+    ("web.document", "Retrieve and extract a linked document"),
+]
+
+_WEB_FULL_STEPS: list[tuple[str, str]] = [
+    ("web.fetch", "Retrieve the target URL through the egress guard"),
+    ("web.extract", "Extract readable content and page metadata"),
+    ("web.links", "Enumerate outbound links on the fetched page"),
+    ("web.document", "Retrieve and extract a linked document"),
+    ("browser.open", "Open a managed browser session for rendered content"),
+    ("browser.snapshot", "Snapshot the rendered page state"),
+    ("browser.screenshot", "Capture a visual record of the rendered page"),
+]
+
 _TEMPLATES: dict[str, list[tuple[str, str]]] = {
     "image_verify_location": _VERIFY_LOCATION_STEPS,
     "network_full": _NETWORK_STEPS,
     "secops_full": _SECOPS_STEPS,
+    "osint_source_discovery": _OSINT_SOURCE_DISCOVERY_STEPS,
+    "osint_full": _OSINT_FULL_STEPS,
+    "web_source_discovery": _WEB_SOURCE_DISCOVERY_STEPS,
+    "web_full": _WEB_FULL_STEPS,
 }
 
 

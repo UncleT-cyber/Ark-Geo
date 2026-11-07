@@ -105,10 +105,14 @@ def _osint_specialist() -> S.SpecialistSpec:
             "corroboration",
         ],
         tool_ids=[
-            "source_search", "entity_extract", "relationship_build", "timeline_build",
-            "inspect_local_path",
+            # Deterministic retrieval (Phase F follow-up — wired to real tools).
+            "inspect_local_path", "web_search", "web_fetch", "geocode_place",
+            "geocode_batch_texts", "reverse_image_search",
         ],
-        goal_mappings={},
+        goal_mappings={
+            S.InvestigationGoal.SOURCE_DISCOVERY: "osint_source_discovery",
+            S.InvestigationGoal.FULL_FORENSIC_PROFILE: "osint_full",
+        },
     )
 
 
@@ -123,9 +127,15 @@ def _web_specialist() -> S.SpecialistSpec:
             "authentication flows", "web architecture",
         ],
         tool_ids=[
-            "proxy_collect", "http_history", "endpoint_map", "app_structure",
+            # Hardened retrieval + managed browsing (Phase F follow-up).
+            "web.fetch", "web.extract", "web.links", "web.document",
+            "browser.open", "browser.navigate", "browser.snapshot",
+            "browser.extract", "browser.screenshot",
         ],
-        goal_mappings={},
+        goal_mappings={
+            S.InvestigationGoal.SOURCE_DISCOVERY: "web_source_discovery",
+            S.InvestigationGoal.FULL_FORENSIC_PROFILE: "web_full",
+        },
     )
 
 

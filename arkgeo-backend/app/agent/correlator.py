@@ -77,6 +77,19 @@ _MISSING_LAYERS: dict[str, list[tuple[S.ClaimType, str, str, list[str]]]] = {
          "No indicators of compromise assessed against telemetry.",
          ["threat_hunt"]),
     ],
+    "osint": [
+        (S.ClaimType.SOURCE, "no public-source claim recorded",
+         "No public-source retrieval (search/fetch) recorded for the subject.",
+         ["web_search", "web_fetch", "reverse_image_search"]),
+        (S.ClaimType.LOCATION, "no geocoded place recorded",
+         "No place/OCR string resolved to candidate coordinates.",
+         ["geocode_place", "geocode_batch_texts"]),
+    ],
+    "web": [
+        (S.ClaimType.SOURCE, "no retrieved web content recorded",
+         "Target URL not retrieved through the egress guard.",
+         ["web.fetch", "web.extract", "browser.open"]),
+    ],
 }
 
 

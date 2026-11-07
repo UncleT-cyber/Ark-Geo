@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 
 import pytest
 from fastapi.testclient import TestClient
@@ -75,6 +76,8 @@ def test_tool_schemas_generated_by_cai():
 
 def test_call_real_tool(tmp_path, monkeypatch):
     # Real local binary execution (dig), no network/mock required.
+    if not shutil.which("dig"):
+        pytest.skip("dig binary not installed (apt install dnsutils)")
     scope = {
         "engagement_id": "test-eng",
         "start": "2026-01-01T00:00:00Z",
@@ -178,6 +181,11 @@ def _scoped(monkeypatch, tmp_path):
     scope_file = tmp_path / "orch_scope.json"
     scope_file.write_text(json.dumps(scope))
     monkeypatch.setenv("ARKGEO_ENGAGEMENT_SCOPE", str(scope_file))
+    # These tests exercise the routed ReAct loop, not the binaries. The real
+    # `_adapter_available` gate would hide net.* tools when dig/nmap are not
+    # installed (a different, product-level concern), so force availability so
+    # the loop's dispatch/approval behaviour is tested hermetically.
+    monkeypatch.setattr(orch, "_adapter_available", lambda _tool_id: True)
     return scope_file
 
 

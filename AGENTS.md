@@ -241,11 +241,15 @@ contains every tool required to complete that investigation.
 - Vite dev server runs on port 12001 (custom); `npm run dev` (HMR active)
 - Backend on port 12000; vite proxy `/api` → `process.env.ARKGEO_BACKEND_URL` or :12000
 - HMR pitfall: if `DashboardView.tsx` (or any file mixing component + non-component exports like `classifyRisk`) fails Fast Refresh, restart the dev server cleanly to avoid a frozen half-state where clicks stop re-rendering. `kill` the vite node PID then `npm run dev`.
-- Backend tests: **920 passing, 1 skipped, 0 failing** (pytest, ~90s). The 13
-  former failures were all missing optional binaries — install them and they
-  pass: `apt install exiftool dnsutils nmap whois` (exiftool → deep metadata;
-  dig/nmap/whois → CAI network tools). `app/core/preflight.py` logs all of
-  these (plus Chromium) at startup so a dark capability is visible at boot.
+- Backend tests: **921 passed, 1 skipped, 0 failing** with the optional binaries
+  installed (`apt install exiftool dnsutils nmap whois`; exiftool → deep
+  metadata, dig/nmap/whois → CAI network tools). Without them the suite is
+  **916 passed, 6 skipped, 0 failing** — the binary-dependent tests skip
+  honestly instead of failing (ExifTool deep-metadata tests + `test_call_real_tool`
+  skip on the missing binary; the ReAct-loop tests force
+  `orch._adapter_available` since they assert loop behaviour, not binaries).
+  `app/core/preflight.py` logs every optional binary (exiftool, Chromium,
+  dig/nmap/whois/gobuster/curl) at startup so a dark capability is visible at boot.
 - Frontend tests: `npm test` → `node --test "src/**/*.test.ts"` (Node 24 runs TS
   natively, zero deps). Test files are excluded from app `tsc`
   (`tsconfig.json` excludes `**/*.test.ts(x)`); import with explicit `.ts`.

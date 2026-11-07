@@ -17,6 +17,15 @@ from app.services.source_discovery import compute_phash, extract_embedded_urls
 from app.services.analyst_overrides import analyst_override_store
 
 
+# ExifTool is an optional external binary: the service reports UNAVAILABLE
+# without it rather than failing. Skip (don't fail) the deep-metadata tests
+# when the binary is absent so a bare checkout reports an honest skip.
+_requires_exiftool = pytest.mark.skipif(
+    not exiftool_service.available,
+    reason="exiftool binary not installed (brew install exiftool)",
+)
+
+
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
@@ -64,9 +73,11 @@ def _make_plain_image():
 # ExifTool service
 # --------------------------------------------------------------------------- #
 class TestExifToolService:
+    @_requires_exiftool
     def test_available_on_system(self):
         assert exiftool_service.available, "ExifTool should be installed"
 
+    @_requires_exiftool
     def test_extract_deep_gps_image(self):
         img = _make_gps_image()
         result = exiftool_service.extract_deep(img)
@@ -77,12 +88,14 @@ class TestExifToolService:
         assert "EXIF" in result["groups"] or "ExifIFD" in result["groups"]
         assert "File" in result["groups"]
 
+    @_requires_exiftool
     def test_extract_deep_plain_image(self):
         img = _make_plain_image()
         result = exiftool_service.extract_deep(img)
         assert result["available"] is True
         assert "File" in result["groups"]
 
+    @_requires_exiftool
     def test_file_info_extracted(self):
         img = _make_gps_image()
         result = exiftool_service.extract_deep(img)

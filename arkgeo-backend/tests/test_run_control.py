@@ -252,6 +252,9 @@ async def test_manual_mode_does_not_bypass_engagement_scope(monkeypatch, tmp_pat
     scope_file.write_text(json.dumps(scope))
     monkeypatch.setenv("ARKGEO_ENGAGEMENT_SCOPE", str(scope_file))
     monkeypatch.setattr(orch, "HITL_TIMEOUT", 5)
+    # Binary availability is orthogonal to scope enforcement; force the net.*
+    # tools visible so the scope gate — not the missing-dig filter — decides.
+    monkeypatch.setattr(orch, "_adapter_available", lambda _tool_id: True)
     monkeypatch.setattr(orch.litellm, "acompletion", _fake_completion([
         {"tool": "net.dns_lookup", "args": {"host": "evil.example.com"}},
         {"content": "done"},

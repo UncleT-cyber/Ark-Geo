@@ -33,6 +33,7 @@ import {
   DEFAULT_TENANT,
   DEFAULT_WORKSPACE,
 } from './entities';
+import { mapExecutionEvent } from './investigationEventMap';
 
 /** Workspace a saved case belongs to (drives the Case Explorer filters). */
 export type SavedCaseDomain = 'image' | 'network' | 'secops' | 'telecom';
@@ -191,6 +192,10 @@ export interface InvestigationContextValue extends InvestigationContext {
    *  case as findings + a single audit event. When no case is active yet, one
    *  is created on the fly (opts may set its domain + title). */
   appendCaseObservations: (obs: CaseObservation[], opts?: { domain?: DomainId; title?: string }) => void;
+  /** C.1 — fold one live execution event into the shared investigation slices
+   *  (findings/audit/evidence/run) via the pure event→slice mapping, so the AI
+   *  run and manual UI edits write the SAME case state. */
+  foldInvestigationEvent: (ev: Record<string, any>) => void;
   /** Shared streaming feed (Telecom console, network diagnostics).
    *  The bottom-panel ANALYSIS LOG tab mirrors the latest entries live. */
   terminal: TerminalEntry[];
@@ -875,17 +880,60 @@ export function InvestigationProvider({ children }: { children: React.ReactNode 
     });
   }, []);
 
+  /**
+   * C.1 — fold one live execution event into the shared case slices.
+   *
+   * Uses the pure `mapExecutionEvent` so the AI run and manual UI edits write
+   * the SAME findings/audit state (single source of truth). Only folds when a
+   * case is active: with no case the event lives in the execution timeline
+   * (ArkControl) and inventing a case from a raw event would be dishonest.
+   * Deterministic ids make a re-delivered event idempotent.
+   */
+  const foldInvestigationEvent = useCallback((ev: Record<string, any>) => {
+    const id = activeInvRef.current;
+    setContexts(prev => {
+      const b = prev[id] ?? emptyContext();
+      if (!b.activeCase) return prev;
+      const mapping = mapExecutionEvent(ev, {
+        runId: b.activeRun?.id ?? b.activeCase.id,
+        caseId: b.activeCase.id,
+        evidenceId: b.activeEvidence?.id,
+      });
+      if (!mapping.finding && mapping.audit.length === 0) return prev;
+
+      const findings = mapping.finding && !b.findings.some(f => f.id === mapping.finding!.id)
+        ? [...b.findings, mapping.finding]
+        : b.findings;
+      const newAudit = mapping.audit.filter(a => !b.auditTrail.some(ex => ex.id === a.id));
+      if (findings === b.findings && newAudit.length === 0) return prev;
+
+      const nb = {
+        ...b,
+        findings,
+        auditTrail: newAudit.length ? [...b.auditTrail, ...newAudit] : b.auditTrail,
+        updatedAt: Date.now(),
+      };
+      const res = resultRef.current;
+      if (res) {
+        storeSnapshot(b.activeCase.id, {
+          result: pruneResult(res), findings: nb.findings, auditTrail: nb.auditTrail,
+        });
+      }
+      return { ...prev, [id]: nb };
+    });
+  }, []);
+
   const value = useMemo<InvestigationContextValue>(() => ({
     ...base, domain, result,
     setDomain: setActiveDomain, loadFromAnalysis, restoreCase, removeCase, clearHistory, saveCase, clear, history,
     session, invBusy, invError, bottomTab, setBottomTab: setBottomTabActive,
     startInvestigation, approveInvestigation, resumeInvestigation, refreshInvestigation,
-    runPipeline, pipeline, pipelineProgress, appendCaseObservations,
+    runPipeline, pipeline, pipelineProgress, appendCaseObservations, foldInvestigationEvent,
     terminal, pushTerminal, clearTerminal,
   }), [base, domain, result, setActiveDomain, loadFromAnalysis, restoreCase, removeCase, clearHistory, saveCase, clear, history,
       session, invBusy, invError, bottomTab, setBottomTabActive,
       startInvestigation, approveInvestigation, resumeInvestigation, refreshInvestigation,
-      runPipeline, pipeline, pipelineProgress, appendCaseObservations,
+      runPipeline, pipeline, pipelineProgress, appendCaseObservations, foldInvestigationEvent,
       terminal, pushTerminal, clearTerminal]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

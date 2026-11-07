@@ -556,7 +556,15 @@ function WorkbenchInner() {
 
     const n = notificationFromEvent(ev);
     if (n) setNotifications(prev => pushNotification(prev, n));
-  }, [inv.activeCase, inv.activeEvidence, inv.domain, tabApi, caiBrowser, invStore, setWorkspaceTool]);
+
+    // C.1 — fold case-affecting events into the shared investigation slices so
+    // the AI run and manual edits write the same findings/audit state. The
+    // mapper ignores timeline-only events and does nothing when no case is
+    // active, so this is a no-op for ordinary chat.
+    if (ev.event === 'tool' || ev.event === 'evidence_recorded' || ev.event === 'result_verified') {
+      inv.foldInvestigationEvent(ev);
+    }
+  }, [inv.activeCase, inv.activeEvidence, inv.domain, inv.foldInvestigationEvent, tabApi, caiBrowser, invStore, setWorkspaceTool]);
 
   const handleMarkAllRead = useCallback(() => {
     setNotifications(prev => prev.map(item => item.read ? item : { ...item, read: true }));

@@ -145,6 +145,37 @@ prompt.
   loop (one goal), D=console tabs, E=adaptive re-planning, F=cross-domain
   reuse. Full plan incl. phases G-J and the integrated security environment:
   `docs/ARK_INTEGRATED_SECURITY_ENVIRONMENT.md`.
+
+### ARK Super Intelligence — Phase A/B (autonomous investigation & orchestration)
+Docs: `docs/architecture/` (ARK_AI_ORCHESTRATION_AUDIT.md, IMAGE_INTELLIGENCE_TOOL_REGISTER.md,
+ARK_AI_IMPLEMENTATION_PLAN.md, CASE_GRAPH_AUTHORIZATION_BOUNDARIES.md). Audit conclusion: a real
+orchestrator already exists (98 tools / 12 domains, ReAct loop, SSE execution events, evidence
+graph, PolicyGuard) — the work is connect/classify/harden, not build.
+- **Provider error classification (done)**: `app/engine/provider_errors.py` is now
+  **body-decisive, status-aware**. `classify_code(status, body)` is the single taxonomy shared by
+  `public_error` (CAI stream) and `ai_gateway._cloud_call` (new `GenerationResult.code`). A 429
+  carrying a quota body ("You exceeded your current quota") is `insufficient_credits`, not
+  `rate_limited`; a generic "limit exceeded" is credit only without throttle phrasing. Codes:
+  invalid_tool_schema / insufficient_credits / authentication_failed / rate_limited /
+  rate_limited_model / unsupported_tool_calling / model_unavailable / provider_rejected.
+  Only status + body are read — never headers; raw body is never surfaced.
+- **Bounded retry (done)**: `orchestrator._acompletion` wraps `litellm.acompletion` (used by
+  `_complete` and `_stream_completion`). **OFF by default** (`ARKGEO_PROVIDER_RETRY=1` or admin
+  `provider_retry_enabled`); only genuine throttles retried; max `ARKGEO_PROVIDER_RETRY_MAX` (2,
+  cap 5); honours `Retry-After` (header-only) else exponential backoff capped by
+  `ARKGEO_PROVIDER_RETRY_MAX_SLEEP_S`. `is_retryable()` excludes credit/auth. No paid fallback.
+- **Registry collisions (done)**: `unified_registry.collisions()` exposes normalized-alias clashes
+  (known: `webfetch`, `siemquery`); no capability lost.
+- **Case-graph authz (documented, NOT yet changed)**: CAI sessions are principal-scoped
+  (`cai._session_visible_to`) but `/investigate` endpoints and `InvestigationSession` have **no
+  owner field/check** — `GET/approve/resume` act on any id. Proposed additive fix (owner field
+  defaulting to ANONYMOUS, principal resolved in investigate.py, non-owner → 404, no DB migration)
+  is in the boundaries doc and **awaits approval** (it changes authorization policy).
+- Tests added: `test_provider_retry.py`, `test_unified_registry_collisions.py`; extended
+  `test_cai_provider_tools.py` (full 400/401/402/403/404/405/422/429/500/503 matrix) and
+  `test_ai_gateway.py` (gateway/stream parity). Baseline: **835 passing**, 13 pre-existing env
+  failures (exiftool/nmap absent, CAI harness), 1 skipped. `tsc --noEmit` + `vite build` clean.
+- Credit conservation: no live paid model call made in Phase A/B; all provider responses fabricated.
 - **Identity (canonical)**: the platform has ONE user-facing intelligence —
   **ARK, Cybersecurity Super Intelligence** ("THE ARK's sole user-facing
   intelligence"). The CAI framework is an internal engine only; never brand it

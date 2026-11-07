@@ -310,6 +310,50 @@ not frontend simulation. Design + verification: `docs/ARK_RUN_CONTROL_PLANE.md`.
 - Known limit: `RunControl` and the queue are process-local; a restart drops
   in-flight control state.
 
+## Operator-declared engagement — execution scope (2026-11-07)
+
+The operator defines the engagement; that declaration is the **sole source of
+truth** for what ARK executes against. This replaces the old env-fixture
+("fail-closed unless `ARKGEO_ENGAGEMENT_SCOPE` is set") model.
+
+- `app/agent/engagement_store.py` (NEW): owner-isolated SQLite registry
+  (`arkgeo_data/engagements.sqlite`). `create(owner_id, addresses, ports=,
+  all_ports=, start=, expiry=, label=, notes=)`, `get`, `get_active`,
+  `revoke`, `list_owners`, `list_active`. Targets are validated as address
+  grants only (IP/IPv6/CIDR/hostname; no scheme/port/credentials/path); ports
+  are 1..65535 or `all_ports`. Default window 24h. Records resolve only for the
+  principal that declared them.
+- `app/agent/engagement_scope.py`: `set_operator_engagement(scope)` /
+  `get_operator_engagement()`. `_load()` now resolves **operator engagement
+  first**, then a legacy `ARKGEO_ENGAGEMENT_SCOPE` fixture, else fail-closed
+  (target-bearing calls denied; non-target calls always run). The operator
+  declaration is authoritative — a fixture never overrides it.
+- `app/api/v1/endpoints/engagement.py` (NEW) + `router.py`: admin-JWT surface.
+  `POST /api/v1/engagement` declares and **installs the active scope**;
+  `GET /api/v1/engagement` returns active + history; `POST
+  /api/v1/engagement/{id}/revoke` clears it immediately. Every mutation is
+  audited via `admin_store.append_audit`.
+- `main.py`: on startup the active engagement is restored from the store, so an
+  authorized scope survives a backend restart (logged `Engagement restored:`).
+- `orchestrator.py`: an in-scope target-bearing call under an operator-declared
+  engagement is a **standing authorization** — it runs without a further HITL
+  prompt (this is the operator's directive acting as source of truth). It
+  applies only to the operator-declared engagement (an env fixture does not
+  grant it); manual mode and policy-mandated approvals still prompt; scope is
+  still checked before dispatch, so a denial cannot be auto-approved.
+- `app/engine/prompts.py`: persona realigned — concise, non-preachy, no
+  fabrication; "the Operator declares an engagement … inside it ARK acts;
+  outside it ARK refuses before dispatch and says so once, briefly."
+- Frontend: `components/admin/EngagementPanel.tsx` (admin → **Engagement &
+  Scope** nav) declares/revokes scope; `api.ts` `getEngagement` /
+  `declareEngagement` / `revokeEngagement`; types in `types.ts`.
+- Tests: `tests/test_operator_engagement.py` (store, scope resolution, API) +
+  two orchestrator tests (operator engagement authorizes execution; out-of-scope
+  target refused before dispatch). `tests/test_engagement_scope.py` message
+  assertions updated to the operator-facing wording.
+- Verified live: declare → `overview.security.scope_active: True`; restart
+  restores the scope; revoke clears it; unauthenticated declare → 401.
+
 ## Advisor P0 pass (2026-11-06)
 
 - **Git credential**: `origin` had an embedded `ghu_` GitHub App user-to-server

@@ -1,7 +1,7 @@
 /** Admin console navigation registry — single source of truth. */
 import {
   LayoutGrid, Users, ShieldCheck, KeyRound, Settings2, Gauge,
-  Wrench, ScrollText, Heart, Cpu, type LucideIcon,
+  Wrench, ScrollText, Heart, Cpu, Crosshair, type LucideIcon,
 } from 'lucide-react';
 
 export type AdminSectionId =
@@ -10,6 +10,7 @@ export type AdminSectionId =
   | 'staff'
   | 'gateway'
   | 'ai'
+  | 'engagement'
   | 'policy'
   | 'quotas'
   | 'tooling'
@@ -28,6 +29,7 @@ export const ADMIN_NAV: AdminNavItem[] = [
   { id: 'staff', label: 'Internal Staff & RBAC', icon: ShieldCheck },
   { id: 'gateway', label: 'Model Gateway & API Keys', icon: KeyRound },
   { id: 'ai', label: 'AI & OSINT Gateway', icon: Cpu },
+  { id: 'engagement', label: 'Engagement & Scope', icon: Crosshair },
   { id: 'policy', label: 'Tool Policy & Governors', icon: Settings2 },
   { id: 'quotas', label: 'Quotas & Usage Tracking', icon: Gauge },
   { id: 'tooling', label: 'Local Tooling Binaries', icon: Wrench },
@@ -55,6 +57,10 @@ export const ADMIN_SECTION_TITLES: Record<AdminSectionId, { title: string; subti
   ai: {
     title: 'AI & OSINT Gateway',
     subtitle: 'Gateway health, cloud/OSINT search probes and the local vision model rotator.',
+  },
+  engagement: {
+    title: 'Engagement & Scope',
+    subtitle: 'Operator-declared execution scope — the targets ARK may operate against.',
   },
   policy: {
     title: 'Tool Policy & Governors',

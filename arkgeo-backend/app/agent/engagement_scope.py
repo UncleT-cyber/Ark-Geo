@@ -1,23 +1,32 @@
-"""Engagement scope — target authorization for tool execution (Milestone A.2).
+"""Engagement scope — operator-declared target authorization for execution.
 
 The execution policy's *target* layer: every tool call that names a network
-target (host / URL / IP / CIDR / domain) must match the active engagement
-fixture before it may run. This is the mechanism that makes an out-of-scope
-request **denied by ARK's execution policy** rather than merely discouraged.
+target (host / URL / IP / CIDR / domain) must fall inside the operator's
+declared engagement before it may run. The operator's declaration is the
+**source of truth** for what ARK executes against.
+
+Resolution order (first match wins):
+
+  1. An explicit ``scope`` passed by an internal caller (server-resolved,
+     never client-supplied).
+  2. The **operator-declared engagement** — created through the engagement
+     API (:mod:`app.agent.engagement_store`) and set here as the active scope.
+     Inside it ARK runs without asking; outside it, calls are denied.
+  3. A legacy ``ARKGEO_ENGAGEMENT_SCOPE`` fixture file, when an operator
+     points the backend at one.
+  4. Fail-closed: no scope at all denies target-bearing calls.
 
 Design rules:
 
   * **Fail-closed for target-bearing calls, fail-open for everything else.**
-    With no fixture file present the module allows everything (normal
-    application use is unrestricted). If a fixture *is* present but broken or
-    expired, target-bearing calls are denied.
+    Non-target calls (evidence hashing, OCR, case ops, diagnostics) always
+    run; a target-bearing call with no active engagement is denied.
   * **No bypass**: the orchestrator consults this *before* HITL approval and
     before dispatch — an operator approval cannot widen the scope, and a
     denial cannot be auto-approved.
-  * **Deterministic, no I/O beyond reading one small JSON file**, mirroring
-    :mod:`app.agent.policy_guard`.
+  * **Deterministic**, mirroring :mod:`app.agent.policy_guard`.
 
-Fixture location: ``arkgeo_data/engagement_scope.json`` (relative to the
+Legacy fixture: ``arkgeo_data/engagement_scope.json`` (relative to the
 backend working directory), overridable with ``ARKGEO_ENGAGEMENT_SCOPE``.
 """
 from __future__ import annotations
@@ -33,19 +42,46 @@ from typing import Any, Optional
 DEFAULT_PATH = os.path.join("arkgeo_data", "engagement_scope.json")
 ENV_PATH = "ARKGEO_ENGAGEMENT_SCOPE"
 
-# Scope enforcement is opt-in: the fixture is only authoritative when the
-# operator points the backend at it (ARKGEO_ENGAGEMENT_SCOPE, set for lab
-# engagements). Without it, every target-bearing call is allowed — existing
-# application behaviour and the wider test suite are unaffected.
-def _load(path: Optional[str] = None) -> tuple[str, Optional[dict]]:
-    """Return ``("ok"|\"missing\"|\"invalid\", scope)``.
+# The operator-declared engagement, set by the engagement API when an operator
+# authorizes targets. It is process-wide: ARK is a single-operator environment,
+# and the orchestrator consults it at the execution boundary. This is the
+# authoritative scope when present.
+_operator_engagement: Optional[dict] = None
 
-    ``path`` or ``ARKGEO_ENGAGEMENT_SCOPE`` must be set explicitly; there is
-    no silent fallback to a default fixture file.
+
+def set_operator_engagement(scope: Optional[dict]) -> None:
+    """Install (or clear) the operator-declared engagement as the active scope."""
+    global _operator_engagement
+    _operator_engagement = scope if isinstance(scope, dict) else None
+
+
+def get_operator_engagement() -> Optional[dict]:
+    """The operator-declared engagement currently in force, if any."""
+    return _operator_engagement
+
+
+def _load(path: Optional[str] = None) -> tuple[str, Optional[dict]]:
+    """Return ``("ok"|"missing"|"invalid", scope)``.
+
+    The operator-declared engagement is authoritative: when one is in force it
+    is the scope, full stop. Only in its absence is a legacy
+    ``ARKGEO_ENGAGEMENT_SCOPE`` fixture consulted.
     """
+    if _operator_engagement is not None:
+        return "ok", _operator_engagement
     p = path or os.environ.get(ENV_PATH)
     if not p or not os.path.isfile(p):
         return "missing", None
+    try:
+        with open(p, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict):
+            return "invalid", None
+        return "ok", data
+    except Exception:
+        return "invalid", None
+
+
 _TARGET_KEYS = (
     "host", "target", "url", "address", "ip", "domain", "hostname",
     "base_url", "endpoint", "server", "network_range", "cidr", "range",
@@ -83,23 +119,8 @@ _ALLOW = ScopeDecision(True, "no engagement scope active")
 
 
 # --------------------------------------------------------------------------- #
-# Fixture loading
+# Time window
 # --------------------------------------------------------------------------- #
-def _load(path: Optional[str] = None) -> tuple[str, Optional[dict]]:
-    """Return ``("ok"|"missing"|"invalid", scope)``."""
-    p = path or os.environ.get(ENV_PATH)
-    if not p or not os.path.isfile(p):
-        return "missing", None
-    try:
-        with open(p, encoding="utf-8") as fh:
-            data = json.load(fh)
-        if not isinstance(data, dict):
-            return "invalid", None
-        return "ok", data
-    except Exception:
-        return "invalid", None
-
-
 def _parse_ts(value: Any) -> Optional[datetime]:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -229,6 +250,8 @@ def _address_approved(host: str, scope: dict) -> bool:
 
 
 def _ports_approved(ports: list[int], scope: dict) -> tuple[bool, str]:
+    if scope.get("all_ports"):
+        return True, ""
     approved = {int(p) for p in (scope.get("approved_ports") or [])}
     bad = [p for p in ports if p not in approved]
     if bad:
@@ -240,39 +263,54 @@ def _ports_approved(ports: list[int], scope: dict) -> tuple[bool, str]:
 # Public API
 # --------------------------------------------------------------------------- #
 def check(tool_id: str, args: Optional[dict] = None,
-          path: Optional[str] = None) -> ScopeDecision:
+          path: Optional[str] = None, *,
+          scope: Optional[dict] = None,
+          require_scope: bool = False) -> ScopeDecision:
     """Decide whether ``tool_id`` may run with ``args`` under the active scope.
 
-    Returns :class:`ScopeDecision`. ``allowed=True`` when no fixture exists
-    but the call names no target (non-target calls such as evidence hashing,
-    system diagnostics remain allowed). ``allowed=False`` when a fixture
-    exists but is broken/expired, or when no fixture exists and the call
-    names a network target (fail-closed).
+    ``allowed=True`` when the call names no target (evidence hashing, OCR,
+    case ops, diagnostics) or when the named target falls inside the active
+    engagement. ``allowed=False`` when a target-bearing call has no active
+    engagement, when the engagement is broken/expired, or when the target or
+    port falls outside it.
+
+    ``scope`` lets an internal caller pass a server-resolved engagement;
+    ``require_scope`` forbids the process-global fallback (multi-user callers
+    must supply their own resolved engagement).
     """
-    state, scope = _load(path)
+    if require_scope:
+        state = "ok" if isinstance(scope, dict) else "missing"
+    elif scope is not None:
+        state = "ok" if isinstance(scope, dict) else "invalid"
+    else:
+        state, scope = _load(path)
     if state == "missing":
-        # Fail-closed: no scope fixture configured — deny target-bearing
-        # calls. Non-target calls (evidence hashing, system diagnostics,
-        # case ops) remain allowed so normal application operation is not
-        # broken.
+        # Fail-closed: no engagement in force — deny target-bearing calls.
+        # Non-target calls (evidence hashing, diagnostics, case ops) still run.
         targets = _iter_targets(args or {})
         if targets:
             return ScopeDecision(
                 False,
-                "no engagement scope configured — target access denied "
-                "(fail-closed)",
+                "no engagement is active — declare one to authorize targets",
                 rule_id="scope.missing",
             )
         return _ALLOW
     if state == "invalid":
         return ScopeDecision(
             False,
-            "engagement scope fixture is present but unreadable — target "
-            "access denied (fail-closed)",
+            "the active engagement is unreadable — target access denied "
+            "(fail-closed)",
             rule_id="scope.invalid",
         )
     assert scope is not None
     eng_id = scope.get("engagement_id")
+
+    if require_scope and (not eng_id
+                          or not isinstance(scope.get("approved_addresses"), list)
+                          or not (isinstance(scope.get("approved_ports"), list)
+                                  or scope.get("all_ports"))):
+        return ScopeDecision(False, "engagement is missing required authorization fields",
+                             rule_id="scope.invalid")
 
     targets = _iter_targets(args or {})
     if not targets:
@@ -284,17 +322,20 @@ def check(tool_id: str, args: Optional[dict] = None,
         return ScopeDecision(False, why, rule_id="scope.window", engagement_id=eng_id)
 
     explicit_ports, url_default = _extract_ports(args or {})
+    all_ports = bool(scope.get("all_ports"))
 
     for raw in targets:
         host = _host_of(raw)
         if not _address_approved(host, scope):
             return ScopeDecision(
                 False,
-                f"target '{raw}' is outside the authorized engagement scope "
-                f"(engagement {eng_id}; approved: "
+                f"target '{raw}' is outside the declared engagement "
+                f"(engagement {eng_id}; declared: "
                 f"{', '.join(str(a) for a in scope.get('approved_addresses', []))})",
                 rule_id="scope.address", engagement_id=eng_id, target=raw,
             )
+        if all_ports:
+            continue
         if explicit_ports:
             ok, why = _ports_approved(explicit_ports, scope)
             if not ok:
@@ -307,20 +348,20 @@ def check(tool_id: str, args: Optional[dict] = None,
             if not ok:
                 return ScopeDecision(
                     False, f"target '{raw}': implicit port {url_default} not "
-                           f"approved — pass an explicit approved port",
+                           f"declared — pass an explicit declared port",
                     rule_id="scope.port", engagement_id=eng_id, target=raw,
                 )
         elif tool_id in _PORT_REQUIRED:
             approved = sorted(int(p) for p in (scope.get("approved_ports") or []))
             return ScopeDecision(
                 False,
-                f"tool '{tool_id}' requires an explicit port; approved ports "
+                f"tool '{tool_id}' requires an explicit port; declared ports "
                 f"are {approved} (no default/blanket port scan is permitted)",
                 rule_id="scope.port_required", engagement_id=eng_id, target=raw,
             )
 
     return ScopeDecision(
-        True, f"target(s) within engagement {eng_id} scope",
+        True, f"target(s) within engagement {eng_id}",
         engagement_id=eng_id, target=targets[0],
     )
 
@@ -328,32 +369,33 @@ def check(tool_id: str, args: Optional[dict] = None,
 def summary_lines(path: Optional[str] = None) -> list[str]:
     """Human-readable scope block for the runtime capability context.
 
-    Returns ``[]`` when no fixture is present (nothing to disclose).
+    Returns ``[]`` when no engagement is in force (nothing to disclose).
     """
     state, scope = _load(path)
     if state != "ok" or not scope:
         return []
     active, why = _time_state(scope)
     status = "ACTIVE" if active else f"INACTIVE ({why})"
+    addresses = ", ".join(str(a) for a in scope.get("approved_addresses", []))
+    if scope.get("all_ports"):
+        ports = "all ports"
+    else:
+        ports = ", ".join(str(p) for p in scope.get("approved_ports", [])) or "none"
+    label = scope.get("label") or scope.get("engagement_id")
     lines = [
-        f"Engagement scope: {scope.get('engagement_id')} — {status}",
-        "Authorized targets: "
-        + "; ".join(
-            f"{t.get('id')} [{', '.join(map(str, t.get('addresses', [])))} "
-            f"port(s) {', '.join(map(str, t.get('ports', [])))}]"
-            for t in scope.get("targets", [])
-        ),
-        "Approved ports (any target): "
-        + ", ".join(str(p) for p in scope.get("approved_ports", [])),
-        "All other targets and ports are DENIED by ARK execution policy. "
-        "For scan tools pass explicit approved ports — blanket/default port "
-        "ranges are refused.",
+        f"Engagement {label}: {status}",
+        f"Declared targets: {addresses or 'none'} (ports: {ports})",
+        "These targets are authorized by the operator — execute against them "
+        "directly, without asking. Any other target is outside the engagement "
+        "and is refused before dispatch.",
     ]
+    if scope.get("expiry"):
+        lines.append(f"Engagement expires: {scope.get('expiry')}")
     return lines
 
 
 def credentials(path: Optional[str] = None) -> dict:
-    """The fixture's credential map (server-side secrets — never log)."""
+    """The engagement's credential map (server-side secrets — never log)."""
     state, scope = _load(path)
     if state != "ok" or not scope:
         return {}
@@ -362,4 +404,5 @@ def credentials(path: Optional[str] = None) -> dict:
 
 
 __all__ = ["ScopeDecision", "check", "summary_lines", "credentials",
+           "set_operator_engagement", "get_operator_engagement",
            "DEFAULT_PATH", "ENV_PATH"]

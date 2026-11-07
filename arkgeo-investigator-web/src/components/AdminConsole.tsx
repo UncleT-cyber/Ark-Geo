@@ -17,6 +17,7 @@ import { ClientManagement } from './admin/ClientManagement';
 import { StaffRbacManagement } from './admin/StaffRbacManagement';
 import { ApiGateway } from './admin/ApiGateway';
 import { AIGatewayPanel } from './admin/AIGatewayPanel';
+import { EngagementPanel } from './admin/EngagementPanel';
 import { ToolPolicy } from './admin/ToolPolicy';
 import { QuotasUsage } from './admin/QuotasUsage';
 import { LocalTooling } from './admin/LocalTooling';
@@ -96,6 +97,7 @@ export function AdminConsole() {
       {active === 'staff' && <StaffRbacManagement />}
       {active === 'gateway' && <ApiGateway />}
       {active === 'ai' && <AIGatewayPanel />}
+      {active === 'engagement' && <EngagementPanel />}
       {active === 'policy' && <ToolPolicy />}
       {active === 'quotas' && <QuotasUsage />}
       {active === 'tooling' && <LocalTooling />}

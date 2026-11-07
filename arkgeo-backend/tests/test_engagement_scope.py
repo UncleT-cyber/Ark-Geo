@@ -52,7 +52,7 @@ def test_no_fixture_allows_non_target_calls(tmp_path, monkeypatch):
     d = es.check("net.curl_probe", {"url": "http://example.com/"})
     assert d.allowed is False
     assert d.rule_id == "scope.missing"
-    assert "fail-closed" in d.reason
+    assert "no engagement is active" in d.reason
 
 
 def test_in_scope_http_probe_allowed(scope_file):

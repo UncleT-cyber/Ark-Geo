@@ -11,6 +11,7 @@ from app.api.v1.endpoints import (
     cai,
     config,
     deadman,
+    engagement,
     health,
     ingest,
     investigate,
@@ -43,6 +44,7 @@ router.include_router(analyst.router, tags=["analyst"])
 router.include_router(telecom.router, tags=["telecom"])
 router.include_router(network.router, tags=["network"])
 router.include_router(react.router, tags=["react"])
+router.include_router(engagement.router, tags=["engagement"])
 router.include_router(maps.router, tags=["maps"])
 router.include_router(security.router, tags=["security"])
 router.include_router(signaling.router, tags=["signaling"])

@@ -931,6 +931,33 @@ export interface AdminToolPolicy {
   [tool: string]: AdminToolPolicyEntry;
 }
 
+/** Operator-declared engagement — the target-authorization scope for execution. */
+export interface EngagementView {
+  engagement_id: string;
+  label: string;
+  targets: string[];
+  ports: number[];
+  all_ports: boolean;
+  start: string;
+  expiry: string;
+  notes: string;
+}
+
+export interface EngagementState {
+  active: EngagementView | null;
+  declared: EngagementView[];
+}
+
+export interface EngagementCreatePayload {
+  targets: string[];
+  ports?: number[];
+  all_ports?: boolean;
+  start?: string;
+  expiry?: string;
+  label?: string;
+  notes?: string;
+}
+
 export interface AdminQuotaPlan {
   storage_bytes: number;
   max_active_cases: number;

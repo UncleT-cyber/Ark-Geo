@@ -19,6 +19,7 @@ import type {
   BrowserSessionInfo,
   ReactRequestPayload, ReactSession, ReactSessionSummary,
   GeoCandidate, ReverseSearchResult,
+  EngagementState, EngagementView, EngagementCreatePayload,
 } from './types';
 
 function getBaseUrl(): string {
@@ -487,6 +488,33 @@ export const api = {
       headers: this._adminHeaders(),
     });
     return data.policy;
+  },
+
+  // --------------------------------------------------------------------- //
+  // Operator engagement — the target-authorization scope for execution.
+  // --------------------------------------------------------------------- //
+
+  /** Current active engagement + the operator's declaration history. */
+  async getEngagement(): Promise<EngagementState> {
+    const { data } = await client.get<EngagementState>('/engagement', {
+      headers: this._adminHeaders(),
+    });
+    return data;
+  },
+
+  /** Declare an engagement — installs it as the active execution scope. */
+  async declareEngagement(payload: EngagementCreatePayload): Promise<EngagementView> {
+    const { data } = await client.post<{ status: string; engagement: EngagementView }>(
+      '/engagement', payload, { headers: this._adminHeaders() },
+    );
+    return data.engagement;
+  },
+
+  /** Revoke an engagement immediately. */
+  async revokeEngagement(engagementId: string): Promise<void> {
+    await client.post(`/engagement/${engagementId}/revoke`, {}, {
+      headers: this._adminHeaders(),
+    });
   },
 
   async getQuotas(): Promise<AdminQuotas> {

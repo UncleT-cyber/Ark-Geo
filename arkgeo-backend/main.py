@@ -43,6 +43,25 @@ async def lifespan(app: FastAPI):
         print_startup_report()
     except Exception as exc:  # pragma: no cover - never block startup
         logger.warning("ARK startup report skipped: %s", exc)
+    # Reinstall the operator's declared engagement, if any, so an authorized
+    # scope survives a backend restart (fail-closed when none is declared).
+    try:
+        from app.agent import engagement_scope
+        from app.agent.engagement_store import EngagementStore
+
+        store = EngagementStore()
+        active = None
+        for owner in store.list_owners():
+            active = store.get_active(owner_id=owner)
+            if active:
+                break
+        engagement_scope.set_operator_engagement(active)
+        if active:
+            logger.info("Engagement restored: %s targets=%s",
+                        active.get("engagement_id"),
+                        active.get("approved_addresses"))
+    except Exception as exc:  # pragma: no cover - never block startup
+        logger.warning("Engagement restore skipped: %s", exc)
     yield
     deadman.stop()
     logger.info("ArkGeo backend stopped")

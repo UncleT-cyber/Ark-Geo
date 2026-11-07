@@ -914,6 +914,18 @@ async def _run(session: SessionState, prompt: str, workspace: Optional[str] = No
             # manual directive (switch to Automatic to restore seamless
             # execution).
             target_directed = bool(engagement_scope._iter_targets(args))
+            # The operator's declared engagement is a standing authorization: a
+            # target-bearing call that falls inside it has already been
+            # authorized by the operator, so it runs without a further HITL
+            # prompt. This is the operator's directive acting as the source of
+            # truth. It applies only to the operator-declared engagement — an
+            # env-fixture scope does not grant it — and manual mode or a
+            # policy-mandated approval still prompts.
+            standing_auth = (
+                engagement_scope.get_operator_engagement() is not None
+                and scope_verdict.allowed
+                and target_directed
+            )
             manual_gate = (
                 control is not None
                 and run_control.is_manual(control.mode)
@@ -922,7 +934,8 @@ async def _run(session: SessionState, prompt: str, workspace: Optional[str] = No
             prompt_required = (
                 manual_gate
                 or needs_policy_approval
-                or (risk in _RISK_GATED and not session.auto_approve)
+                or (risk in _RISK_GATED and not session.auto_approve
+                    and not standing_auth)
             )
             if prompt_required:
                 if needs_policy_approval:

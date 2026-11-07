@@ -280,6 +280,68 @@ async def test_orchestrator_hitl_allow_always_auto_approves(monkeypatch, _scoped
     assert any(e["type"] == "final" for e in events)
 
 
+@pytest.mark.asyncio
+async def test_orchestrator_operator_engagement_authorizes_execution(monkeypatch, tmp_path):
+    """An operator-declared engagement authorizes targets with no env fixture.
+
+    This is the operator-authority path: the declaration — not an env var — is
+    the source of truth. The tool dispatches (stubbed) instead of being denied
+    before dispatch.
+    """
+    from app.agent import engagement_scope
+    from app.agent.engagement_store import EngagementStore
+
+    monkeypatch.delenv(engagement_scope.ENV_PATH, raising=False)
+    # Availability is irrelevant to the scope path under test (and the CI image
+    # may not ship nmap); dispatch is stubbed anyway.
+    monkeypatch.setattr(orch, "_adapter_available", lambda tool_id: True)
+    store = EngagementStore(tmp_path / "op.sqlite")
+    scope = store.create(owner_id="operator", addresses=["127.0.0.1"], all_ports=True)
+    engagement_scope.set_operator_engagement(scope)
+    try:
+        monkeypatch.setattr(orch.litellm, "acompletion", _fake_completion([
+            {"tool": "net.nmap_scan", "args": {"target": "127.0.0.1", "ports": "80"}},
+            {"content": "Scan complete."},
+        ]))
+        monkeypatch.setattr(orch, "_dispatch_tool", _stub_dispatch)
+        s = orch.get_session("op-eng")
+        events = await _collect(s, "scan 127.0.0.1")
+        assert any(e["type"] == "tool" and e["tool"] == "net.nmap_scan" for e in events)
+        assert any(e["type"] == "final" for e in events)
+    finally:
+        engagement_scope.set_operator_engagement(None)
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_denies_target_outside_operator_engagement(monkeypatch, tmp_path):
+    """A target outside the declared engagement is refused before dispatch."""
+    from app.agent import engagement_scope
+    from app.agent.engagement_store import EngagementStore
+
+    monkeypatch.delenv(engagement_scope.ENV_PATH, raising=False)
+    monkeypatch.setattr(orch, "_adapter_available", lambda tool_id: True)
+    store = EngagementStore(tmp_path / "op2.sqlite")
+    scope = store.create(owner_id="operator", addresses=["127.0.0.1"], all_ports=True)
+    engagement_scope.set_operator_engagement(scope)
+    try:
+        monkeypatch.setattr(orch.litellm, "acompletion", _fake_completion([
+            {"tool": "net.nmap_scan", "args": {"target": "8.8.8.8", "ports": "80"}},
+            {"content": "Out of scope."},
+        ]))
+        dispatched = {"called": False}
+
+        async def _spy(tool_id, args):
+            dispatched["called"] = True
+            return {"status": "ok", "tool": tool_id, "result": "stub"}
+
+        monkeypatch.setattr(orch, "_dispatch_tool", _spy)
+        s = orch.get_session("op-eng-denied")
+        await _collect(s, "scan 8.8.8.8")
+        assert dispatched["called"] is False
+    finally:
+        engagement_scope.set_operator_engagement(None)
+
+
 # --------------------------------------------------------------------------- #
 # 5. HTTP wiring — SSE endpoints are live (offline model fake)
 # --------------------------------------------------------------------------- #

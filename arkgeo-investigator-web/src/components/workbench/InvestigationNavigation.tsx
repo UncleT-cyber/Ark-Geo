@@ -50,7 +50,7 @@ export function InvestigationNavigation(props: Props) {
   return (
     <aside className={`workbench-sidebar investigation-navigation ${props.collapsed ? 'workbench-sidebar-collapsed' : ''}`} aria-label="Investigation navigation">
       <div className="investigation-nav-heading">
-        <picture className="investigation-nav-brand"><source media="(max-width: 0px)" srcSet="/branding/ark/ark-emblem-64.png" /><img className="investigation-nav-logo" src={props.collapsed ? '/branding/ark/ark-emblem-64.png' : '/branding/ark/ark-horizontal-original-transparent.png'} alt="ARK" width={props.collapsed ? 30 : 150} height={props.collapsed ? 30 : 50} /></picture>
+        <img className="investigation-nav-logo" src={props.collapsed ? '/branding/ark/ark-emblem-64.png' : '/branding/ark/ark-horizontal-original-transparent.png'} alt="ARK" width={props.collapsed ? 30 : 150} height={props.collapsed ? 30 : 50} />
         <button type="button" className="investigation-nav-item investigation-nav-collapse" onClick={props.onToggle}
           aria-label={props.collapsed ? 'Expand navigation' : 'Collapse navigation'}
           aria-expanded={!props.collapsed}

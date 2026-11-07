@@ -1035,3 +1035,129 @@
   overflow-wrap: anywhere;
 }
 .ark-report-reco { margin: 4px 0 0; padding-left: 18px; color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+
+
+/* ARK composer refresh: neutral OLED surfaces, two-tier layout, no neon outlines. */
+.ark-control .ark-composer {
+  gap: 6px;
+  padding: 10px 12px 14px;
+  background: #000;
+  border-top: 1px solid #202024;
+  min-width: 0;
+}
+.ark-control .ark-input-box {
+  min-width: 0;
+  padding: 12px 12px 8px;
+  border: 1px solid #29292d;
+  border-radius: 15px;
+  background: #111113;
+  box-shadow: none;
+  transition: border-color 150ms ease;
+}
+.ark-control .ark-input-box:focus-within {
+  border-color: #45454b;
+  box-shadow: none;
+  outline: none;
+}
+.ark-control .ark-input-box textarea {
+  box-sizing: border-box;
+  min-height: 54px;
+  height: auto;
+  max-height: 180px;
+  padding: 0 2px;
+  line-height: 1.55;
+  font-size: 13px;
+  overflow-y: auto;
+  color: #f0f0f2;
+}
+.ark-control .ark-input-box textarea::placeholder { color: #85858d; }
+.ark-control .ark-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  flex-wrap: nowrap;
+  padding-top: 7px;
+}
+.ark-control .ark-toolbar > button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #a6a6ad;
+}
+.ark-control .ark-toolbar > button:hover:not(:disabled),
+.ark-control .ark-model-pill:hover {
+  border-color: #34343a;
+  background: #202024;
+  color: #f0f0f2;
+}
+.ark-control .ark-model-selector-compact {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(45%, 240px);
+}
+.ark-control .ark-model-pill {
+  min-width: 0;
+  width: 100%;
+  height: 30px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #c5c5cb;
+  white-space: nowrap;
+}
+.ark-control .ark-model-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.ark-control .ark-model-pill svg { flex: 0 0 auto; }
+.ark-control .ark-mode-toggle {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.ark-control .ark-toolbar .ark-send,
+.ark-control .ark-toolbar .ark-stop {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  margin-left: 0;
+  border-radius: 9px;
+}
+.ark-control .ark-toolbar .ark-send {
+  background: #e8e8ec;
+  color: #111113;
+}
+.ark-control .ark-toolbar .ark-send:hover:not(:disabled) {
+  background: #fff;
+  border-color: transparent;
+  color: #000;
+}
+.ark-control .ark-toolbar .ark-stop {
+  border: 1px solid #683537;
+  background: #261618;
+  color: #f08c8e;
+}
+.ark-control .ark-toolbar .ark-queue-pill,
+.ark-control .ark-toolbar .ark-steer-pill {
+  white-space: nowrap;
+  font-size: 10px;
+}
+@media (max-width: 540px) {
+  .ark-control .ark-composer { padding: 8px 8px 10px; }
+  .ark-control .ark-input-box { padding: 10px 9px 7px; }
+  .ark-control .ark-toolbar { gap: 2px; }
+  .ark-control .ark-model-selector-compact { max-width: 34%; }
+  .ark-control .ark-toolbar .ark-queue-pill { font-size: 0; gap: 0; }
+}

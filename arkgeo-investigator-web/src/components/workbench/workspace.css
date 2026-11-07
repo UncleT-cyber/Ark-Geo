@@ -276,3 +276,21 @@
 .investigation-nav-heading .investigation-nav-logo { display: block; width: clamp(128px, 11vw, 160px); height: 48px; object-fit: contain; object-position: left center; max-width: 100%; }
 .workbench-sidebar-collapsed .investigation-nav-heading .investigation-nav-logo { width: 30px; height: 30px; }
 .ark-command-center .investigation-navigation:not(.workbench-sidebar-collapsed) { padding-left: 14px; padding-right: 12px; }
+
+
+/* Living ARK identity — navigation sidebar only; other logo placements remain static. */
+.investigation-navigation .investigation-nav-heading .investigation-nav-logo {
+  animation: ark-sidebar-luminescence 5.4s ease-in-out infinite;
+  will-change: filter;
+}
+@keyframes ark-sidebar-luminescence {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(30, 212, 230, .12)) drop-shadow(0 0 4px rgba(95, 70, 230, .08)); }
+  50% { filter: drop-shadow(0 0 7px rgba(30, 212, 230, .38)) drop-shadow(0 0 11px rgba(95, 70, 230, .23)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .investigation-navigation .investigation-nav-heading .investigation-nav-logo {
+    animation: none;
+    will-change: auto;
+    filter: none;
+  }
+}

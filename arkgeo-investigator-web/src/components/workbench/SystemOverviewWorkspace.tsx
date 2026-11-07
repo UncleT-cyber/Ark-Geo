@@ -129,7 +129,7 @@ export function SystemOverviewWorkspace() {
       {/* A. Header ------------------------------------------------------- */}
       <header className="so-header">
         <div className="so-header-copy">
-          <div className="so-header-eyebrow mono">Integrated Security Environment</div>
+          <div className="so-header-eyebrow mono">Cybersecurity Super Intelligence</div>
           <h1>System Overview</h1>
           <p>Operational posture across investigations, agents, inference and evidence custody.</p>
         </div>

@@ -21,7 +21,21 @@
 }
 .ark-control header { display: grid; gap: 4px; padding: 14px; border-bottom: 1px solid #282828; }
 .ark-control small, .ark-idle { color: #999999; }
-.ark-feed { flex: 1; overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+/* Thin, neutral scrollbars everywhere inside the ARK dock (chat feed, message
+   textarea, model list, tool output…) — 6px, grey thumb, never cyan. */
+.ark-control ::-webkit-scrollbar { width: 6px; height: 6px; }
+.ark-control ::-webkit-scrollbar-track { background: transparent; }
+.ark-control ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 999px; }
+.ark-control ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.30); }
+.ark-control, .ark-control * { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.18) transparent; }
+.ark-feed {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 .ark-idle { margin: auto; text-align: center; font-size: 12px; }
 .ark-idle pre { color: #00d4ff; opacity: .55; }
 .ark-message, .ark-context details, .ark-input-box {
@@ -37,7 +51,7 @@
 .ark-context summary { cursor: pointer; }
 .ark-composer { position: relative; flex-shrink: 0; display: grid; gap: 8px; padding: 10px; border-top: 1px solid #282828; }
 .ark-control button, .ark-tool-chip { border: 1px solid #282828; border-radius: 8px; background: #101010; color: #ededed; padding: 5px 8px; cursor: pointer; }
-.ark-control button:hover:not(:disabled) { border-color: #00d4ff; }
+.ark-control button:hover:not(:disabled) { border-color: #3a4150; }
 .ark-control button:disabled { opacity: .45; cursor: default; }
 .ark-chips { display: flex; flex-wrap: wrap; gap: 4px; font-size: 11px; }
 .ark-tool-chip { display: inline-block; font-size: 11px; margin: 5px 4px 0 0; cursor: default; }
@@ -141,6 +155,11 @@
 .ark-control .ark-dock-tool-btn { width: 30px; height: 30px; padding: 0; justify-content: center; }
 .ark-control .ark-dock-tool-btn:hover:not(:disabled),
 .ark-control .ark-dock-tool-btn[aria-expanded="true"] { background: var(--bg-elevated); color: var(--text-primary); }
+.ark-control .ark-dock-tool-btn:focus,
+.ark-control .ark-dock-tool-btn:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
 .ark-tools-menu {
   position: absolute;
   top: calc(100% + 6px);
@@ -351,9 +370,15 @@
   cursor: col-resize;
   touch-action: none;
 }
-.ark-dock-divider:hover, .ark-dock-divider:focus-visible,
+.ark-dock-divider:hover,
+.ark-dock-divider:focus-visible,
 .ark-dock-resizing .ark-dock-divider {
-  background: linear-gradient(to right, transparent 2px, var(--cyan-bright) 2px 5px, transparent 5px);
+  background: linear-gradient(to right, transparent 2px, rgba(255, 255, 255, 0.22) 2px 5px, transparent 5px);
+}
+.ark-dock-divider:focus,
+.ark-dock-divider:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 .ark-dock-resizing, .ark-dock-resizing * { cursor: col-resize !important; user-select: none; }
 .ark-input-box textarea { height: clamp(54px, 8vh, 76px); line-height: 1.5; }
@@ -819,12 +844,17 @@
   background: transparent;
 }
 .ark-control .ark-dock-expand:hover:not(:disabled) {
-  border-color: var(--cyan-dim);
-  color: var(--cyan-bright);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
 }
 .ark-control .ark-dock-expand[aria-pressed="true"] {
   background: var(--bg-elevated);
   color: var(--text-primary);
+}
+.ark-control .ark-dock-expand:focus,
+.ark-control .ark-dock-expand:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 /* In expanded mode the conversation reads comfortably on wide screens while the

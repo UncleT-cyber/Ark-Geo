@@ -27,7 +27,7 @@ export interface InvestigationTab {
   /** Backend durable session id once the investigation has started. */
   sessionId: string | null;
   title: string;
-  domain: 'image' | 'network' | 'secops' | 'cases' | 'telecom' | 'settings';
+  domain: 'system' | 'image' | 'network' | 'secops' | 'cases' | 'telecom' | 'settings';
   caseId: string | null;
   runStatus: TabRunStatus;
   /** Monotonic revision, bumped on every write. */

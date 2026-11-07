@@ -129,6 +129,15 @@ def resolve(session_id: Optional[str], run_id: Optional[str]) -> Optional[RunCon
     return control
 
 
+def list_controls() -> list[RunControl]:
+    """Snapshot of every live control (read-only; callers must not mutate).
+
+    Used by the System Overview aggregate to report genuinely live runs. The
+    registry is process-local and holds only in-flight runs; a run that reached
+    a terminal state is unregistered (see :func:`unregister`)."""
+    return list(_CONTROLS.values())
+
+
 def unregister(run_id: str) -> None:
     control = _CONTROLS.pop(run_id, None)
     if control is None:
@@ -159,6 +168,6 @@ def is_manual(mode: Optional[str]) -> bool:
 
 __all__ = [
     "RunControl", "SteerMessage", "MODE_AUTO", "MODE_MANUAL", "MODES",
-    "register", "get", "get_for_session", "resolve", "unregister",
-    "request_stop", "submit_steer", "is_manual",
+    "register", "get", "get_for_session", "resolve", "list_controls",
+    "unregister", "request_stop", "submit_steer", "is_manual",
 ]

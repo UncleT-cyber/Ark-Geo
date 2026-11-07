@@ -16,6 +16,7 @@ from app.api.v1.endpoints import (
     investigate,
     maps,
     network,
+    overview,
     react,
     security,
     settings,
@@ -46,6 +47,7 @@ router.include_router(maps.router, tags=["maps"])
 router.include_router(security.router, tags=["security"])
 router.include_router(signaling.router, tags=["signaling"])
 router.include_router(cai.router, tags=["cai"])
+router.include_router(overview.router, tags=["overview"])
 router.include_router(user_models.router, tags=["user-models"])
 router.include_router(config.router, tags=["config"])
 router.include_router(browser.router, tags=["browser"])

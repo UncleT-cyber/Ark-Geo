@@ -318,7 +318,7 @@ export function SystemOverviewWorkspace() {
           {security?.scope_lines.length ? (
             <pre className="so-scope mono">{security.scope_lines.join('\n')}</pre>
           ) : (
-            <p className="so-note so-note-muted">No engagement scope fixture is loaded.</p>
+            <p className="so-note so-note-muted">No engagement scope is declared. Declare one in Admin → Engagement &amp; Scope to authorize targets.</p>
           )}
         </article>
 

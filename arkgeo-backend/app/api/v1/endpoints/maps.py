@@ -19,6 +19,7 @@ from fastapi import APIRouter, HTTPException, Response
 
 from app.core.config import settings
 from app.models import BatchGeocodeRequest
+from app.services.geocoding_service import finite_coord
 from app.services.settings_store import settings_store
 
 logger = logging.getLogger(__name__)
@@ -136,12 +137,7 @@ async def _nominatim_geocode(query: str) -> dict[str, float] | None:
         return None
     if not results:
         return None
-    try:
-        lat = float(results[0].get("lat"))
-        lon = float(results[0].get("lon"))
-    except (TypeError, ValueError):
-        return None
-    return {"lat": lat, "lon": lon}
+    return finite_coord(results[0].get("lat"), results[0].get("lon"))
 
 
 @router.get("/geocode")
@@ -178,11 +174,11 @@ async def geocode_city(q: str = ""):
             status = payload.get("status")
             if status == "OK" and payload.get("results"):
                 loc = payload["results"][0].get("geometry", {}).get("location") or {}
-                lat, lon = loc.get("lat"), loc.get("lng")
-                if lat is not None and lon is not None:
+                coords = finite_coord(loc.get("lat"), loc.get("lng"))
+                if coords is not None:
                     with _GEO_LOCK:
-                        _GEO_CACHE[query] = {"lat": float(lat), "lon": float(lon)}
-                    return {"ok": True, "lat": float(lat), "lon": float(lon), "cached": False}
+                        _GEO_CACHE[query] = coords
+                    return {"ok": True, "cached": False, **coords}
             if status not in ("OK", "ZERO_RESULTS", "OVER_QUERY_LIMIT"):
                 # e.g. REQUEST_DENIED (billing disabled) — fall through to Nominatim.
                 logger.warning("Google geocode rejected (%s) — using Nominatim fallback", status)

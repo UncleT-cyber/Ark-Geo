@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.services.cell_geolocator import get_store, ensure_seed, geolocate_by_phone  # noqa: F401
+from app.services.geocoding_service import finite_coord
 from app.services.phone_analysis import run_phone_analysis
 from app.services.phone_osint import run_osint
 from app.services.phone_registry import derive_free_e164, derive_phonenumbers_intel, resolve_geo_zone
@@ -320,8 +321,10 @@ class CellLookupResponse(BaseModel):
     mnc: int
     lac: Optional[int] = None
     cell_id: int
-    lat: Optional[float] = None
-    lon: Optional[float] = None
+    # Bounded: a NaN/out-of-range provider value must never reach the client
+    # map, where Leaflet aborts the render on a non-finite LatLng.
+    lat: Optional[float] = Field(None, ge=-90, le=90)
+    lon: Optional[float] = Field(None, ge=-180, le=180)
     range_meters: Optional[float] = None
     radio: Optional[str] = None
     samples: Optional[int] = None
@@ -381,7 +384,8 @@ async def cell_lookup(body: CellLookupRequest):
             )
         loc = data.get("location") or {}
         acc = data.get("accuracy")
-        if loc.get("lat") is None or loc.get("lng") is None:
+        coords = finite_coord(loc.get("lat"), loc.get("lng"))
+        if coords is None:
             return CellLookupResponse(
                 looked_up=True, provider=provider,
                 mcc=body.mcc, mnc=body.mnc, lac=body.lac, cell_id=body.cell_id,
@@ -390,7 +394,7 @@ async def cell_lookup(body: CellLookupRequest):
         return CellLookupResponse(
             looked_up=True, provider=provider,
             mcc=body.mcc, mnc=body.mnc, lac=body.lac, cell_id=body.cell_id,
-            lat=float(loc["lat"]), lon=float(loc["lng"]),
+            lat=coords["lat"], lon=coords["lon"],
             range_meters=float(acc) if acc else None,
             method="exact_cgi", confidence=0.8,
             detail=f"BeaconDB-open · accuracy={acc}",
@@ -433,7 +437,8 @@ async def cell_lookup(body: CellLookupRequest):
                 mcc=body.mcc, mnc=body.mnc, lac=body.lac, cell_id=body.cell_id,
                 detail=f"Cell lookup failed: {type(exc).__name__}",
             )
-        if data.get("lat") is None or data.get("lon") is None:
+        coords = finite_coord(data.get("lat"), data.get("lon"))
+        if coords is None:
             return CellLookupResponse(
                 looked_up=True, provider=provider,
                 mcc=body.mcc, mnc=body.mnc, lac=body.lac, cell_id=body.cell_id,
@@ -442,7 +447,7 @@ async def cell_lookup(body: CellLookupRequest):
         return CellLookupResponse(
             looked_up=True, provider=provider,
             mcc=body.mcc, mnc=body.mnc, lac=body.lac, cell_id=body.cell_id,
-            lat=float(data.get("lat")), lon=float(data.get("lon")),
+            lat=coords["lat"], lon=coords["lon"],
             range_meters=float(data.get("range") or 0) or None,
             radio=data.get("radio"),
             samples=data.get("samples"),
@@ -475,7 +480,10 @@ async def cell_lookup(body: CellLookupRequest):
             )
         results = data.get("results") or []
         hit = results[0] if results else None
-        if not hit or hit.get("lat") is None or hit.get("lon") is None:
+        coords = finite_coord(
+            (hit or {}).get("lat"), (hit or {}).get("lon"),
+        )
+        if coords is None:
             return CellLookupResponse(
                 looked_up=True, provider=provider,
                 mcc=body.mcc, mnc=body.mnc, lac=body.lac, cell_id=body.cell_id,
@@ -484,7 +492,7 @@ async def cell_lookup(body: CellLookupRequest):
         return CellLookupResponse(
             looked_up=True, provider=provider,
             mcc=body.mcc, mnc=body.mnc, lac=body.lac, cell_id=body.cell_id,
-            lat=float(hit.get("lat")), lon=float(hit.get("lon")),
+            lat=coords["lat"], lon=coords["lon"],
             range_meters=float(hit.get("range") or 0) or None,
             detail=f"beaconDB · samples={hit.get('samples', '?')}",
         )
@@ -506,8 +514,8 @@ class PhoneLocateResponse(BaseModel):
     iso2: Optional[str] = None
     mcc: Optional[str] = None
     operator: Optional[str] = None
-    lat: Optional[float] = None
-    lon: Optional[float] = None
+    lat: Optional[float] = Field(None, ge=-90, le=90)
+    lon: Optional[float] = Field(None, ge=-180, le=180)
     radius_m: Optional[float] = None
     confidence: float = 0.0
     method: str = ""
@@ -607,8 +615,8 @@ class CaptureGeolocateRequest(BaseModel):
 
 class CaptureGeolocateResponse(BaseModel):
     looked_up: bool
-    lat: Optional[float] = None
-    lon: Optional[float] = None
+    lat: Optional[float] = Field(None, ge=-90, le=90)
+    lon: Optional[float] = Field(None, ge=-180, le=180)
     radius_m: Optional[float] = None
     confidence: float = 0.0
     method: str = ""

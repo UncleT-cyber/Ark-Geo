@@ -43,7 +43,10 @@ export function operatorLabel(mcc: number | null | undefined, mnc: number | null
 
 /** Build a MapWorkspace-compatible point from a cell lookup. */
 export function towerToMapPoint(resp: CellLookupResponse): TowerPoint | null {
-  if (!resp.looked_up || resp.lat == null || resp.lon == null) return null;
+  if (!resp.looked_up) return null;
+  // Reject non-finite coordinates too: Leaflet aborts the render on a NaN LatLng.
+  if (typeof resp.lat !== 'number' || typeof resp.lon !== 'number'
+    || !Number.isFinite(resp.lat) || !Number.isFinite(resp.lon)) return null;
   const op = operatorLabel(resp.mcc, resp.mnc);
   return {
     lat: resp.lat,

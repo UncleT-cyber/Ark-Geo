@@ -118,8 +118,10 @@ class CandidateRegion(BaseModel):
 class GeoCandidate(BaseModel):
     """A forward-geocoded OCR text candidate plotted on the spatial canvas."""
     query: str
-    lat: float
-    lon: float
+    # Bounded so a malformed provider value can never reach the client map,
+    # where Leaflet aborts the whole render on a non-finite LatLng.
+    lat: float = Field(..., ge=-90, le=90)
+    lon: float = Field(..., ge=-180, le=180)
     source: str = Field(
         default="nominatim",
         description="google | nominatim",

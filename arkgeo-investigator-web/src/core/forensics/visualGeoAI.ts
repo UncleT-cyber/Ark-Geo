@@ -35,7 +35,7 @@ export function collectServerVisualGeo(backend: AnalyzeResponse): {
   const features: VisualFeature[] = [];
 
   const coords =
-    geospy && typeof geospy.estimated_latitude === 'number' && typeof geospy.estimated_longitude === 'number'
+    geospy && Number.isFinite(geospy.estimated_latitude) && Number.isFinite(geospy.estimated_longitude)
       ? {
           lat: geospy.estimated_latitude as number,
           lon: geospy.estimated_longitude as number,
@@ -60,7 +60,7 @@ export function collectServerVisualGeo(backend: AnalyzeResponse): {
 
   const fusion = backend.geolocation_fusion;
   const hypothesis =
-    fusion?.hypothesis && typeof fusion.hypothesis.lat === 'number' && typeof fusion.hypothesis.lon === 'number'
+    fusion?.hypothesis && Number.isFinite(fusion.hypothesis.lat) && Number.isFinite(fusion.hypothesis.lon)
       ? { lat: fusion.hypothesis.lat, lon: fusion.hypothesis.lon, confidence: fusion.confidence }
       : null;
 

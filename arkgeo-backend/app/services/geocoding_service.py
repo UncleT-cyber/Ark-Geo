@@ -13,6 +13,7 @@ empty candidate list — the investigation never crashes on a geocode miss.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 from typing import Any, Optional
 
@@ -28,6 +29,25 @@ _GEO_CACHE: dict[str, dict[str, float]] = {}
 _GEO_LOCK = threading.Lock()
 _CACHE_TTL_SECONDS = 7 * 24 * 3600
 _cache_ts: dict[str, float] = {}
+
+
+def finite_coord(lat: Any, lon: Any) -> Optional[dict[str, float]]:
+    """Coerce a provider lat/lon to finite in-range floats, else None.
+
+    ``json.loads`` accepts the non-standard ``NaN``/``Infinity`` tokens, so a
+    provider body can carry a NaN coordinate that ``float()`` happily keeps.
+    Such a value serializes back out as the invalid JSON token ``NaN`` and
+    crashes the client map when Leaflet unprojects it — reject it here.
+    """
+    try:
+        lat_f, lon_f = float(lat), float(lon)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(lat_f) and math.isfinite(lon_f)):
+        return None
+    if not (-90.0 <= lat_f <= 90.0 and -180.0 <= lon_f <= 180.0):
+        return None
+    return {"lat": lat_f, "lon": lon_f}
 
 
 def _maps_key() -> Optional[str]:
@@ -50,10 +70,10 @@ async def _google_geocode(query: str) -> Optional[dict[str, float]]:
         if payload.get("status") != "OK" or not payload.get("results"):
             return None
         loc = payload["results"][0].get("geometry", {}).get("location") or {}
-        lat, lon = loc.get("lat"), loc.get("lng")
-        if lat is None or lon is None:
+        coords = finite_coord(loc.get("lat"), loc.get("lng"))
+        if coords is None:
             return None
-        return {"lat": float(lat), "lon": float(lon)}
+        return coords
     except Exception as exc:  # noqa: BLE001 — geocode must degrade, not crash
         logger.warning("Google geocode failed for %r: %s", query, exc)
         return None
@@ -76,9 +96,7 @@ async def _nominatim_geocode(query: str) -> Optional[dict[str, float]]:
         results = r.json()
         if not results:
             return None
-        lat = float(results[0].get("lat"))
-        lon = float(results[0].get("lon"))
-        return {"lat": lat, "lon": lon}
+        return finite_coord(results[0].get("lat"), results[0].get("lon"))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Nominatim geocode failed for %r: %s", query, exc)
         return None

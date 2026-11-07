@@ -173,7 +173,11 @@ class CellTowerStore:
             v = row.get(key)
             if v in (None, ""):
                 return None
-            return float(v)
+            try:
+                f = float(v)
+            except (TypeError, ValueError):
+                return None
+            return f if math.isfinite(f) else None
 
         lat = num("lat") or num("latitude")
         lon = num("lon") or num("longitude")

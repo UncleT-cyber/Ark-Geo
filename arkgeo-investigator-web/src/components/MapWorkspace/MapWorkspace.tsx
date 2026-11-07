@@ -105,6 +105,16 @@ function zoomForSource(source?: string): number {
   }
 }
 
+// Leaflet throws "Invalid LatLng object: (NaN, NaN)" when flyTo unprojects a
+// non-finite centre, which takes the whole render down. A provider can omit a
+// coordinate (null → NaN), so every point is validated at this boundary.
+function isFiniteCoord(lat: unknown, lon: unknown): lat is number {
+  return (
+    typeof lat === 'number' && Number.isFinite(lat) && lat >= -90 && lat <= 90 &&
+    typeof lon === 'number' && Number.isFinite(lon) && lon >= -180 && lon <= 180
+  );
+}
+
 function confidenceColor(conf: number): string {
   if (conf >= 0.7) return '#22C55E';
   if (conf >= 0.4) return '#F59E0B';
@@ -307,6 +317,7 @@ export function MapWorkspace({ points, history, candidatePoints, onCopyCoords, o
     if (!map || !layer) return;
 
     const moveCamera = (lat: number, lon: number, zoom: number) => {
+      if (!isFiniteCoord(lat, lon)) return;
       const container = map.getContainer();
       if (!container.clientWidth || !container.clientHeight) {
         map.setView([lat, lon], zoom, { animate: false });
@@ -319,7 +330,10 @@ export function MapWorkspace({ points, history, candidatePoints, onCopyCoords, o
 
     // OCR / IMINT candidate pins — amber diamonds (Feature 2). Drawn even when
     // there are no telemetry-confirmed points so a fallback search still shows.
-    (candidatePoints || []).forEach((pt) => {
+    const validCandidates = (candidatePoints || []).filter(
+      (pt) => pt && isFiniteCoord(pt.lat, pt.lon),
+    );
+    validCandidates.forEach((pt) => {
       L.circleMarker([pt.lat, pt.lon], {
         radius: 7,
         color: '#F59E0B',
@@ -331,11 +345,15 @@ export function MapWorkspace({ points, history, candidatePoints, onCopyCoords, o
         .addTo(layer);
     });
 
-    if (points.length === 0) {
-      const cands = candidatePoints || [];
-      if (cands.length > 0) {
-        const lat = cands.reduce((s, p) => s + p.lat, 0) / cands.length;
-        const lon = cands.reduce((s, p) => s + p.lon, 0) / cands.length;
+    // A malformed point (missing/non-finite coordinate) is dropped rather than
+    // plotted or flown to — an unproject of NaN crashes the whole Leaflet map.
+    const validPoints = (points || []).filter((p) => p && isFiniteCoord(p.lat, p.lon));
+    const validHistory = (history || []).filter((p) => p && isFiniteCoord(p.lat, p.lon));
+
+    if (validPoints.length === 0) {
+      if (validCandidates.length > 0) {
+        const lat = validCandidates.reduce((s, p) => s + p.lat, 0) / validCandidates.length;
+        const lon = validCandidates.reduce((s, p) => s + p.lon, 0) / validCandidates.length;
         moveCamera(lat, lon, 5);
       }
       return;
@@ -354,7 +372,7 @@ export function MapWorkspace({ points, history, candidatePoints, onCopyCoords, o
         .addTo(layer);
     });
 
-    const activePoint = points[points.length - 1];
+    const activePoint = validPoints[validPoints.length - 1];
     currentPointRef.current = activePoint;
 
     // Check if active point is inside any high-risk geofence
@@ -367,7 +385,7 @@ export function MapWorkspace({ points, history, candidatePoints, onCopyCoords, o
     const isBounding = activePoint.bounding === true;
     const isSector = activePoint.sector === true;
     const circle = L.circle([activePoint.lat, activePoint.lon], {
-      radius: activePoint.radius,
+      radius: Number.isFinite(activePoint.radius) && activePoint.radius > 0 ? activePoint.radius : 1000,
       color: inHighRisk ? '#EF4444' : isBounding ? '#38BDF8' : isPulse ? '#22D3EE' : '#38BDF8',
       fillColor: inHighRisk ? '#EF4444' : isBounding ? '#38BDF8' : isPulse ? '#22D3EE' : '#38BDF8',
       fillOpacity: isBounding ? 0.08 : isPulse ? 0.18 : 0.12,
@@ -450,8 +468,8 @@ export function MapWorkspace({ points, history, candidatePoints, onCopyCoords, o
     }
 
     // Draw historical trajectory (dashed cyan)
-    if (history && history.length > 1) {
-      const latlngs = history.map((p) => [p.lat, p.lon]) as [number, number][];
+    if (validHistory.length > 1) {
+      const latlngs = validHistory.map((p) => [p.lat, p.lon]) as [number, number][];
       L.polyline(latlngs, {
         color: '#38BDF8',
         weight: 2,
@@ -460,7 +478,7 @@ export function MapWorkspace({ points, history, candidatePoints, onCopyCoords, o
       }).addTo(layer);
 
       // Small markers for historical points
-      history.slice(0, -1).forEach((pt) => {
+      validHistory.slice(0, -1).forEach((pt) => {
         L.circleMarker([pt.lat, pt.lon], {
           radius: 4,
           color: '#38BDF8',

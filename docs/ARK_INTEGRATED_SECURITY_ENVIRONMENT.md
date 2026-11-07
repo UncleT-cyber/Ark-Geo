@@ -168,6 +168,8 @@ case/evidence fabric.**
 | Phase D — Investigation Console (PLAN / AGENT / EVIDENCE) | ✅ done | `BottomPanel.tsx` PLAN (objective + merged revision chain + approve/resume + gaps), AGENT (tool activity + budget burn), EVIDENCE (findings / corroboration + contradiction edges / nodes / hypotheses / critiques); `api.ts` create/approve/get/resume; `tsc --noEmit` clean |
 | Phase E — Adaptive re-planning + budgets | ✅ done | `tests/test_phase_e_adaptive.py` — 17 passing (contradiction → hash-chained delta → in-budget exit, budget pause → resume, memoization, gap semantics); live run: model closed `GAP-D35B9B2C` open-contradiction, 4 iterations, done at 7/25 steps |
 | Phase F — Cross-domain NETWORK + SECOPS | ✅ done | `tests/test_phase_f_cross_domain.py` — 13 passing; NETWORK + SECOPS specialists route registered tools through the unchanged loop, evidence on the shared case graph; `port_scan`/`incident_annotate` gated by step-confirm; merged plan lineage on the console |
+| Phase F follow-up — OSINT + WEB route real tools | ✅ done | `tests/test_phase_f_osint_web.py` — 9 passing; OSINT/WEB specialists declare + route registered tools (`web_search`/`web_fetch`/`geocode_*`/`reverse_image_search`; `web.*` + `browser.*`), planner templates + executor arg resolution + correlator gaps; `test_cognitive_contracts` asserts no specialist declares an unregistered tool |
+| Phase G — Case engine unification | ✅ done | `app/agent/case_engine.py` derives a merged case graph across investigations; `GET /cases` + `GET /cases/{case_id}`; cross-domain contradiction edges (IMAGE EXIF GPS vs OSINT geocode) + one findings list + one audit trail; `tests/test_phase_g_case_engine.py` — 14 passing; CaseExplorer renders the backend cross-domain view (`casePresentation.ts`, 7 unit tests) |
 | ARK Identity Contract (cognitive layer §6) | ✅ done | `app/agent/cognitive/` 00-05 core + `app/agent/domains/` identity/reasoning/tools for image/network/secops/osint/web/cases; `context_builder.py` composes core → domain → tools; gateway routes through it; `tests/test_identity_contract.py` — 13 passing; live qwen runs produce valid registered-only plans |
 | Frontend workbench | ✅ builds | `tsc --noEmit` clean, vite build clean |
 | Local LLM runtime | ✅ ready | Ollama 0.32.9 on-host, **qwen2.5-coder:3b cached** (1.9 GB), responds to API |
@@ -378,16 +380,19 @@ fingerprint_service → adaptive tls_inspect).
 
 ## 7. Immediate next actions
 
-1. Commit the env fixes: pin the working `requirements.txt` set (Pillow,
-   pydantic, fastapi resolved on Python 3.13) and add an `exiftool` preflight
-   check. *(Small, safe, unblocks CI/onboarding.)*
-2. Phase F follow-up — register OSINT + WEB domains the same way NETWORK +
-   SECOPS landed (`tool_registry.py` handlers, `_CLAIM_TYPES`/`_MISSING_LAYERS`
-   rows, planner templates, `goal_mappings`, executor arg branches, per-domain
-   tests). The loop is already domain-agnostic, so this is additive-only.
-3. Wire real handler bodies behind the deterministic offline adapters
+1. ~~Commit the env fixes: pin the working `requirements.txt` set and add an
+   `exiftool` preflight check.~~ ✅ done (`requirements.txt` re-pinned,
+   `app/core/preflight.py`).
+2. ~~Phase F follow-up — register OSINT + WEB domains the same way NETWORK +
+   SECOPS landed.~~ ✅ done (`tests/test_phase_f_osint_web.py`).
+3. ~~Phase G — Case engine unification (`GET /cases`, cross-domain
+   contradictions, one audit trail, CaseExplorer binding).~~ ✅ done
+   (`app/agent/case_engine.py`, `tests/test_phase_g_case_engine.py`).
+4. Wire real handler bodies behind the deterministic offline adapters
    (`discover_hosts` → subnet sweep, `siem_query` → SIEM API, etc.) with the
    network/admin approval carve-outs already reserved in `PolicyGuard`.
-4. Write the first prompt-injection fixtures (the doc mandates these land
+5. Write the first prompt-injection fixtures (the doc mandates these land
    before the agent touches external content — OSINT/WEB tools are the first
    that ingest external input).
+6. Phase H — model routing (policy-decided `ModelSpec` registry; `zero_retention`
+   forces local).

@@ -170,3 +170,39 @@ async def resume_investigation(
 async def get_investigation(investigation_id: str, request: Request):
     session = _owned_or_404(investigation_id, principal_from_request(request))
     return session.to_dict()
+
+
+# --------------------------------------------------------------------------- #
+# Cross-domain CASES layer (Phase G) — one case, many domains.
+# --------------------------------------------------------------------------- #
+def _owned_sessions(principal) -> list:
+    """Every investigation owned by ``principal`` (case unification input)."""
+    return [
+        s for s in orchestrator.store.list()
+        if getattr(s, "principal_subject", None) == principal.subject
+    ]
+
+
+@router.get("/cases")
+async def list_cases(request: Request):
+    """Case summaries across every domain, newest first."""
+    from app.agent.case_engine import list_cases as _list_cases
+
+    return {"cases": _list_cases(_owned_sessions(principal_from_request(request)))}
+
+
+@router.get("/cases/{case_id}")
+async def get_case(case_id: str, request: Request):
+    """Unified case view: union evidence, findings, cross-domain
+    contradictions, and one audit trail across every investigation on the
+    case. Reported as 404 when the case has no investigation for this caller
+    (no existence oracle)."""
+    from app.agent.case_engine import case_view
+
+    sessions = [
+        s for s in _owned_sessions(principal_from_request(request))
+        if s.case_id == case_id
+    ]
+    if not sessions:
+        raise HTTPException(status_code=404, detail=f"Unknown case {case_id}")
+    return case_view(case_id, sessions)

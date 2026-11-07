@@ -241,9 +241,11 @@ contains every tool required to complete that investigation.
 - Vite dev server runs on port 12001 (custom); `npm run dev` (HMR active)
 - Backend on port 12000; vite proxy `/api` → `process.env.ARKGEO_BACKEND_URL` or :12000
 - HMR pitfall: if `DashboardView.tsx` (or any file mixing component + non-component exports like `classifyRisk`) fails Fast Refresh, restart the dev server cleanly to avoid a frozen half-state where clicks stop re-rendering. `kill` the vite node PID then `npm run dev`.
-- Backend tests: 893 passing (pytest), 13 pre-existing env failures
-  (`test_workbench_forensics` ×4, `test_ark_cai_engine` ×5, `test_run_control`
-  ×4 — exiftool/browser binaries absent in this container, not regressions).
+- Backend tests: **920 passing, 1 skipped, 0 failing** (pytest, ~90s). The 13
+  former failures were all missing optional binaries — install them and they
+  pass: `apt install exiftool dnsutils nmap whois` (exiftool → deep metadata;
+  dig/nmap/whois → CAI network tools). `app/core/preflight.py` logs all of
+  these (plus Chromium) at startup so a dark capability is visible at boot.
 - Frontend tests: `npm test` → `node --test "src/**/*.test.ts"` (Node 24 runs TS
   natively, zero deps). Test files are excluded from app `tsc`
   (`tsconfig.json` excludes `**/*.test.ts(x)`); import with explicit `.ts`.
@@ -269,6 +271,17 @@ contains every tool required to complete that investigation.
   and `correlator._MISSING_LAYERS` covers both domains. Invariant enforced by
   `tests/test_phase_f_osint_web.py` + `test_cognitive_contracts.py`: every
   declared/templated tool id must be registered.
+- **Phase G — case engine (`app/agent/case_engine.py`)**: derives a merged case
+  graph across every investigation sharing a `case_id` (never mutates session
+  graphs). `merge_case_graph` unions nodes/edges/findings, runs
+  `correlate_location_nodes` on the union so contradiction edges span domains;
+  `cross_domain_contradictions` filters CONTRADICTS edges whose endpoints are
+  in different domains (`tool_domain` reads the registry spec); `case_view` /
+  `list_cases` back `GET /cases` and `GET /cases/{case_id}` (owner-scoped, 404
+  for foreign/unknown cases). Audit nodes (`tool_id="audit"`) are excluded from
+  domain detection. Frontend `CaseExplorer.tsx` renders the backend cross-domain
+  view via `casePresentation.ts` (pure helpers, unit-tested). Tests:
+  `tests/test_phase_g_case_engine.py` (14), `casePresentation.test.ts` (7).
 - Backend venv in this container is `.venv-new` (`.venv/bin/*` shebangs point at
   a macOS path); run tests with `.venv-new/bin/python -m pytest tests/ -q`.
 - `npx tsc --noEmit` clean; `npx vite build` clean (~2013 modules)

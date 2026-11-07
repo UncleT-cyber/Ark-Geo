@@ -2057,6 +2057,28 @@ body.ark-desktop .ark-tab { -webkit-app-region: no-drag; }
   font-size: 10px; letter-spacing: 1.5px; color: var(--text-muted);
   text-transform: uppercase; margin-bottom: 12px; font-family: 'JetBrains Mono', monospace;
 }
+.case-explorer-section-label svg { display: inline-block; vertical-align: -2px; margin-right: 6px; }
+.case-explorer-backend { margin-bottom: 24px; }
+.case-explorer-card-open { border-color: var(--cyan-dim); background: var(--bg-elevated); }
+.case-explorer-unified {
+  margin-top: 12px; padding: 14px 16px; background: var(--bg-card);
+  border: 1px solid var(--border-dim); border-radius: 8px;
+}
+.case-explorer-unified-title {
+  display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600;
+  letter-spacing: 1px; color: var(--cyan); text-transform: uppercase;
+  font-family: 'JetBrains Mono', monospace; margin-bottom: 6px;
+}
+.case-explorer-unified-meta { font-size: 12px; color: var(--text-muted); }
+.case-explorer-contradictions { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-dim); }
+.case-explorer-contradictions-title {
+  display: flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: 1px;
+  color: #EF4444; text-transform: uppercase; font-family: 'JetBrains Mono', monospace;
+  margin-bottom: 8px;
+}
+.case-explorer-contradiction-row { display: flex; flex-direction: column; gap: 2px; padding: 4px 0; }
+.case-explorer-contradiction-desc { font-size: 12px; color: var(--text-secondary); }
+.case-explorer-contradiction-note { font-size: 11px; color: var(--text-muted); }
 .case-explorer-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   padding: 48px 24px; text-align: center;

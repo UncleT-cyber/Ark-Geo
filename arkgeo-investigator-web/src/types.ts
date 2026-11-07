@@ -687,6 +687,63 @@ export interface InvestigationSession {
 }
 
 // ----------------------------------------------------------------------- //
+// Cross-domain CASES layer (Phase G) — one case, many domains.
+// ----------------------------------------------------------------------- //
+
+/** One case summary row from GET /cases. */
+export interface CaseSummary {
+  case_id: string;
+  domain: string;            // "cross" when >=2 domains, else the single domain
+  domains: string[];
+  investigation_count: number;
+  evidence_count: number;
+  finding_count: number;
+  cross_domain_contradictions: number;
+  status: string;
+  updated_at_ms: number;
+}
+
+/** A contradiction edge whose two endpoints belong to different domains. */
+export interface CrossDomainContradiction {
+  edge_id: string;
+  src_domain: string;
+  dst_domain: string;
+  src_tool: string;
+  dst_tool: string;
+  src_claim: string;
+  dst_claim: string;
+  note?: string | null;
+}
+
+/** One audited tool invocation on the case graph. */
+export interface CaseAuditEntry {
+  node_id: string;
+  invocation_id?: string | null;
+  tool_id?: string | null;
+  status?: string | null;
+  arguments_hash?: string | null;
+  at_ms: number;
+  hash: string;
+}
+
+/** Unified case view from GET /cases/{case_id}. */
+export interface CaseView {
+  case_id: string;
+  domain: string;
+  domains: string[];
+  investigation_ids: string[];
+  objectives: InvestigationObjective[];
+  status: string;
+  evidence_count: number;
+  finding_count: number;
+  findings: InvestigationFinding[];
+  domains_by_finding: { finding_id: string; domain?: string | null }[];
+  cross_domain_contradictions: CrossDomainContradiction[];
+  audit_trail: CaseAuditEntry[];
+  graph: EvidenceGraphPayload;
+}
+
+// ----------------------------------------------------------------------- //
 // Agent Tool-Calling (terminal) — the autonomous `ark inspect` / natural-
 // language agent surface (POST /agent/task).
 // ----------------------------------------------------------------------- //

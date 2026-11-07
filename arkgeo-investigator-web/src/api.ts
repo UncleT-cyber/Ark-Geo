@@ -20,6 +20,7 @@ import type {
   ReactRequestPayload, ReactSession, ReactSessionSummary,
   GeoCandidate, ReverseSearchResult,
   EngagementState, EngagementView, EngagementCreatePayload,
+  CaseSummary, CaseView,
 } from './types';
 
 function getBaseUrl(): string {
@@ -355,6 +356,23 @@ export const api = {
     const { data } = await client.get<InvestigationSession>(
       `/investigate/${investigationId}`,
     );
+    return data;
+  },
+
+  // ----------------------------------------------------------------------- //
+  // Cross-domain CASES layer (Phase G) — backend case engine
+  // ----------------------------------------------------------------------- //
+
+  /** Case summaries across every domain, newest first. */
+  async listCases(): Promise<{ cases: CaseSummary[] }> {
+    const { data } = await client.get<{ cases: CaseSummary[] }>('/cases');
+    return data;
+  },
+
+  /** Unified case view: union evidence, findings, cross-domain
+   *  contradictions, and one audit trail across every investigation. */
+  async getCase(caseId: string): Promise<CaseView> {
+    const { data } = await client.get<CaseView>(`/cases/${caseId}`);
     return data;
   },
 

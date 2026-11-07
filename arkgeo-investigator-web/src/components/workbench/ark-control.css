@@ -1381,3 +1381,18 @@
   outline: none;
   box-shadow: none;
 }
+
+
+/* Living ARK emblem — welcome screen only. Do not animate dock/header branding. */
+.ark-control .ark-idle .ark-idle-logo {
+  transform-origin: center;
+  animation: ark-welcome-luminescence 4.2s ease-in-out infinite;
+  will-change: filter;
+}
+@keyframes ark-welcome-luminescence {
+  0%, 100% { filter: drop-shadow(0 0 5px rgba(35, 219, 235, .24)) drop-shadow(0 0 9px rgba(98, 72, 239, .12)); }
+  50% { filter: drop-shadow(0 0 13px rgba(35, 219, 235, .58)) drop-shadow(0 0 22px rgba(98, 72, 239, .35)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ark-control .ark-idle .ark-idle-logo { animation: none; will-change: auto; filter: none; }
+}

@@ -815,7 +815,7 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
     <aside className={`ark-control ${expanded ? 'ark-control-expanded' : ''}`} aria-label="ARK Control" data-expanded={expanded || undefined}>
       <header className="ark-dock-header">
         <div className="ark-dock-identity">
-          <strong className="ark-dock-brand">ARK</strong>
+          <span className="ark-dock-brand"><img className="ark-dock-logo" src="/branding/ark/ark-emblem-64.png" alt="ARK" width={24} height={24} /><span>ARK</span></span>
           <small className="ark-dock-mode">
             <span className={`ark-dock-mode-dot ${execution.lifecycle_status !== 'idle' ? 'ark-dock-mode-dot-live' : ''}`} aria-hidden="true" />
             {execution.lifecycle_status === 'running' ? 'Executing'
@@ -920,7 +920,7 @@ export function ArkControl({ onImage, analyzing, onOpenTool, evidenceFile, image
         )}
 
         <>
-            {!messages.length && <div className="ark-idle"><strong>ARK</strong><span className="ark-idle-sub">Cybersecurity Super Intelligence</span><p>Ask a question, attach evidence, or run a command to begin an investigation.</p></div>}
+            {!messages.length && <div className="ark-idle"><img className="ark-idle-logo" src="/branding/ark/ark-emblem-256.png" alt="ARK emblem" width={112} height={112} /><strong>ARK</strong><span className="ark-idle-sub">Cybersecurity Super Intelligence</span><p>Ask a question, attach evidence, or run a command to begin an investigation.</p></div>}
             {messages.map((message, i) => <article key={i} className={message.user ? 'ark-message ark-user' : 'ark-message'}>
               {message.image && <img src={message.image} alt="Attached evidence" />}
               {message.text || (busy && i === messages.length - 1 && !message.approval && !message.tools?.length ? 'Working…' : '')}

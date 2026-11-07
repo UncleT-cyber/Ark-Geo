@@ -246,8 +246,42 @@ class EvidenceRecorder:
             json.dump(index, fh, indent=2, ensure_ascii=False)
 
 
+def load_run_record(run_id: str) -> Optional[dict]:
+    """Read one persisted run record, or ``None`` if it is absent/unreadable.
+
+    The recorder writes ``run_<id>.json`` per run; this is the read side used by
+    the System Overview execution inspector. A missing or corrupt file is
+    reported as absent rather than raising."""
+    if not run_id:
+        return None
+    path = _evidence_path(run_id)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            record = json.load(fh)
+    except (json.JSONDecodeError, OSError):
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def load_run_index() -> list[dict]:
+    """Read the run index (newest metadata per run), or ``[]`` if absent."""
+    path = _index_path()
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            index = json.load(fh)
+    except (json.JSONDecodeError, OSError):
+        return []
+    return index if isinstance(index, list) else []
+
+
 __all__ = [
     "EvidenceRecorder",
+    "load_run_record",
+    "load_run_index",
     "redact",
     "redact_obj",
 ]

@@ -28,6 +28,7 @@ import { VisionTool } from './tools/VisionTool';
 import { CaseReportView } from './tools/CaseReportView';
 import { NetworkWorkbench, NETWORK_TABS, type NetworkTabId } from './NetworkWorkbench';
 import { SecOpsPlaceholder } from './SecOpsPlaceholder';
+import { SystemOverviewWorkspace } from './SystemOverviewWorkspace';
 import { CaseExplorer } from './CaseExplorer';
 import { SettingsWorkspace, type SettingsSectionId } from '../settings/SettingsWorkspace';
 import { IngestionSweep } from '../IngestionSweep';
@@ -465,6 +466,20 @@ function WorkbenchInner() {
     tabApi.createTab({ title: 'Settings', domain: 'settings' });
   }, [tabApi]);
 
+  /** Open the standalone System Overview as a single application tab.
+   *  System Overview is a system-level destination, not an investigation: it
+   *  never creates a case, never binds a session and never overwrites the
+   *  active investigation's workspace. Repeated opens reuse the same tab. */
+  const openSystemOverview = useCallback(() => {
+    setShowPalette(false);
+    const existing = tabApi.tabs.find(t => t.domain === 'system');
+    if (existing) {
+      tabApi.selectTab(existing.id);
+      return;
+    }
+    tabApi.createTab({ title: 'System Overview', domain: 'system' });
+  }, [tabApi]);
+
   /** Map a live CAI event to a notification + tab run-status update. */
   const handleInvestigationEvent = useCallback((ev: Record<string, any>) => {
     const sid: string | null = ev.session_id ?? null;
@@ -553,9 +568,9 @@ function WorkbenchInner() {
   useEffect(() => {
     const tab = tabApi.activeTab;
     if (!tab) {
-      // Nothing active (e.g. the Settings tab was closed with no investigation
-      // open) → return to the IMAGE landing state.
-      if (inv.domain === 'settings') inv.setDomain('image');
+      // Nothing active (e.g. the Settings or System Overview tab was closed
+      // with no investigation open) → return to the IMAGE landing state.
+      if (inv.domain === 'settings' || inv.domain === 'system') inv.setDomain('image');
       appliedTab.current = null;
       return;
     }
@@ -572,10 +587,15 @@ function WorkbenchInner() {
     if (appliedTab.current === tab.id) return;
     appliedTab.current = tab.id;
 
-    // Settings is a full-page surface, not an investigation: switch the domain
-    // and leave the underlying investigation state untouched for when we return.
+    // Settings and System Overview are full-page surfaces, not investigations:
+    // switch the domain and leave the underlying investigation state untouched
+    // for when we return.
     if (tab.domain === 'settings') {
       inv.setDomain('settings');
+      return;
+    }
+    if (tab.domain === 'system') {
+      inv.setDomain('system');
       return;
     }
     // Rehydrate this investigation's saved case only if it has no case context
@@ -667,6 +687,11 @@ function WorkbenchInner() {
       title: 'Use cases',
       description: 'Quick-start surfaces for common investigation workflows.',
     },
+    system: {
+      label: 'System',
+      title: 'System Overview',
+      description: 'Operational posture across investigations, agents, inference and evidence.',
+    },
     settings: {
       label: 'Settings',
       title: 'Settings',
@@ -706,12 +731,19 @@ function WorkbenchInner() {
           onToggle={() => setSidebarCollapsed(value => !value)}
           onNavigate={handleNavigateDomain}
           onUseCases={() => handleNavigateDomain('usecases')}
+          onSystem={openSystemOverview}
           onSettings={openSettings}
           onAdmin={adminAuth.isAuthenticated() ? () => { window.location.hash = `${ADMIN_LOGIN_PATH}/console`; } : undefined}
         />
 
         {/* Investigation viewport */}
-        {workspaceTool === 'browser' ? (
+        {inv.domain === 'system' ? (
+          <main className="workbench-main" aria-labelledby="workspace-title">
+            <div className="workbench-viewport ark-workspace-system">
+              <SystemOverviewWorkspace />
+            </div>
+          </main>
+        ) : workspaceTool === 'browser' ? (
           <main className="workbench-main" aria-labelledby="workspace-title">
             <header className="workspace-heading">
               <div className="workspace-heading-copy">

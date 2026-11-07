@@ -1,5 +1,5 @@
 import {
-  BookOpen, Bot, FolderKanban, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck,
+  BookOpen, Bot, FolderKanban, Gauge, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck,
 } from 'lucide-react';
 import { DOMAIN_ICONS } from './icons';
 import type { DomainId } from './entities';
@@ -29,6 +29,8 @@ interface Props {
   onNavigate: (domain: DomainId) => void;
   /** Opens the Use Cases surface (quick-start catalog). */
   onUseCases: () => void;
+  /** Opens the standalone System Overview surface. */
+  onSystem: () => void;
   onSettings: () => void;
   onAdmin?: () => void;
 }
@@ -59,7 +61,15 @@ export function InvestigationNavigation(props: Props) {
         </button>
       </div>
       <div className="investigation-nav-scroll">
-        <nav className="investigation-nav-group" aria-label="Workspaces">
+        <nav className="investigation-nav-group" aria-label="System overview">
+          {!props.collapsed && <div className="investigation-nav-label">System</div>}
+          <button type="button" className="investigation-nav-item" aria-label="System Overview" title="System Overview"
+            aria-current={props.domain === 'system' ? 'page' : undefined} onClick={props.onSystem}>
+            <Gauge size={16} /><span>System Overview</span>
+          </button>
+        </nav>
+
+        <nav className="investigation-nav-group investigation-nav-group-gap" aria-label="Workspaces">
           {!props.collapsed && <div className="investigation-nav-label">Workspaces</div>}
           {workspaces.map(([id, label]) => {
             const Icon = DOMAIN_ICONS[id];

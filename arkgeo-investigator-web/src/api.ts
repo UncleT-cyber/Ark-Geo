@@ -1364,6 +1364,55 @@ export const api = {
     return data;
   },
 
+  /** THE ARK System Overview — principal-scoped operational aggregate. */
+  async systemOverview(period: '24h' | '7d' | '30d' = '24h', traces = 25): Promise<{
+    generated_at: string;
+    period_hours: number;
+    kpis: {
+      investigations: { total: number; active: number };
+      active_agents: { running: number; idle: number };
+      tool_executions: { total: number; completed: number; failed: number; success_rate: number | null };
+      pending_approvals: { count: number };
+    };
+    activity: {
+      series: Array<{ start: string; count: number; failed: number }>;
+      recent: Array<{ at: string | null; kind: string; run_id: string | null; session_id: string | null; status: string | null }>;
+    };
+    agents: Array<{
+      run_id: string; session_id: string; agent: string | null; status: string;
+      mode: string | null; stop_requested: boolean; case_id: string | null; model: string | null;
+    }>;
+    model: {
+      available: boolean; model?: string | null; provider?: string | null;
+      credential_source?: string | null; routing_reason?: string | null;
+      error?: string | null; route_status?: string | null;
+    };
+    providers: Array<{
+      provider: string; configured: boolean; probed: boolean; detail: string | null; latency_ms: number | null;
+    }>;
+    usage: {
+      period_hours: number; requests: number; input_tokens: number | null; output_tokens: number | null;
+      cost_usd: number | null; cost_basis: string; local_inference_runs: number | null;
+      cloud_inference_runs: number | null; note: string;
+    };
+    security: {
+      scope_active: boolean; scope_lines: string[]; pending_approvals: number;
+      scope_denials: number; blocked_operations: number; execution_modes: string[];
+    };
+    evidence: {
+      runs_recorded: number; completed_investigations: number; audit_events: number; latest_verified: string | null;
+    };
+    traces: Array<{
+      run_id: string | null; session_id: string | null; model: string | null; status: string | null;
+      agent: string | null; operation: string | null; verified: boolean | null; approval: string | null;
+      evidence_ref: string | null; started_at: string | null; ended_at: string | null;
+      duration_ms: number | null; error: string | null; event_count: number | null; last_event: string | null;
+    }>;
+  }> {
+    const { data } = await client.get('/overview', { params: { period, traces } });
+    return data;
+  },
+
   /** Durable investigation sessions for this caller (restoration surface). */
   async caiSessions(limit = 50): Promise<{
     sessions: Array<{

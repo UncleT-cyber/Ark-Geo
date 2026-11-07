@@ -15,8 +15,10 @@
 export type EntityId = string;
 
 /** The active investigation domain. `settings` is the full-page Settings
- *  workspace — not an investigation, but it occupies the same content area. */
-export type DomainId = 'image' | 'network' | 'cases' | 'secops' | 'usecases' | 'settings';
+ *  workspace — not an investigation, but it occupies the same content area.
+ *  `system` is the standalone System Overview — a system-level operational
+ *  destination, also not an investigation. */
+export type DomainId = 'system' | 'image' | 'network' | 'cases' | 'secops' | 'usecases' | 'settings';
 
 /** Root organizational boundary. */
 export interface Tenant {

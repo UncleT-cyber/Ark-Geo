@@ -70,6 +70,7 @@ export const DOMAIN_ICONS = {
   cases: FolderKanban,
   secops: ShieldHalf,
   usecases: BookOpen,
+  system: Gauge,
 } as const;
 
 /** Threat & SecOps domain sub-view icons (sidebar navigation within SECOPS domain). */

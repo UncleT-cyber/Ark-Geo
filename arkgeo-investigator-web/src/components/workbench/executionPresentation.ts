@@ -125,6 +125,124 @@ export function rawDetail(ev: ExecutionEvent): string | null {
 
 export type ExecutionStatus = 'idle' | 'running' | 'completed' | 'failed' | 'approval_pending' | 'stopped';
 
+/**
+ * B.5 — the directive's richer execution vocabulary, DERIVED from the events
+ * the backend already emits. This is presentation state only: it never
+ * replaces the persisted run status enum (`session_store.py`), so persistence
+ * stays stable while the UI gains the required states.
+ */
+export type ExecutionPhase =
+  | 'PLANNING' | 'RUNNING' | 'VERIFYING' | 'REPORTING' | 'COMPLETED'
+  | 'AWAITING_APPROVAL' | 'PAUSED' | 'FAILED' | 'CANCELLED' | 'PARTIAL';
+
+const _PLANNING_EVENTS = new Set([
+  'run_created', 'execution_mode', 'agent_selected', 'scope_checked', 'session',
+]);
+
+/** Derive the lifecycle phase from the run's own events. Pure, total. */
+export function deriveExecutionPhase(execution: {
+  lifecycle_status: string;
+  objective_outcome?: 'pending' | 'succeeded' | 'failed' | null;
+  events: ExecutionEvent[];
+}): ExecutionPhase {
+  const status = execution.lifecycle_status;
+  const events = execution.events;
+  const last = events.length ? events[events.length - 1] : null;
+  const toolEvents = events.filter(e => e.event === 'tool' || e.event === 'tool_completed' || e.event === 'tool_failed');
+  const anyFailedTool = toolEvents.some(e =>
+    e.event === 'tool_failed'
+    || (typeof e.result === 'object' && e.result !== null
+        && ((e.result as any).status === 'error' || (e.result as any).status === 'denied')));
+
+  if (status === 'idle') return 'PLANNING';
+  if (status === 'approval_pending') return 'AWAITING_APPROVAL';
+  if (status === 'stopped') return 'CANCELLED';
+  if (status === 'failed') return 'FAILED';
+
+  if (status === 'running') {
+    if (!last || _PLANNING_EVENTS.has(last.event)) return 'PLANNING';
+    return 'RUNNING';
+  }
+
+  // status === 'completed'
+  if (last?.event === 'run_completed' && (execution.objective_outcome ?? 'pending') === 'pending') {
+    return 'REPORTING';
+  }
+  if (toolEvents.length === 0) return 'COMPLETED';
+  if (anyFailedTool || execution.objective_outcome === 'failed') return 'PARTIAL';
+  return 'COMPLETED';
+}
+
+/** One inspectable tool stage inside an objective group (C.2). */
+export interface ExecutionStage {
+  tool: string;
+  name: string;
+  status: 'running' | 'completed' | 'failed' | 'skipped';
+  elapsedMs: number | null;
+  verified: boolean;
+  error: string | null;
+}
+
+/** The run's timeline grouped under its objective, with per-stage detail. */
+export interface ObjectiveGroup {
+  objective: string;
+  phase: ExecutionPhase;
+  stages: ExecutionStage[];
+  durationMs: number;
+}
+
+/**
+ * C.2 — group the execution timeline under the current objective with
+ * per-stage status, duration and inspectable result. Collapsed by default in
+ * the UI; this function only shapes the data (no chain-of-thought, no
+ * invented stages — a stage exists only if the backend reported the tool).
+ */
+export function groupExecutionByObjective(execution: {
+  objective: string | null;
+  lifecycle_status: string;
+  objective_outcome?: 'pending' | 'succeeded' | 'failed' | null;
+  events: ExecutionEvent[];
+}): ObjectiveGroup[] {
+  const stages: ExecutionStage[] = [];
+  const byTool = new Map<string, ExecutionStage>();
+
+  const ensure = (tool: string): ExecutionStage => {
+    let stage = byTool.get(tool);
+    if (!stage) {
+      stage = { tool, name: toolDisplayName(tool), status: 'running', elapsedMs: null, verified: false, error: null };
+      byTool.set(tool, stage);
+      stages.push(stage);
+    }
+    return stage;
+  };
+
+  for (const ev of execution.events) {
+    const tool = ev.tool;
+    if (!tool) continue;
+    if (ev.event === 'tool_call' || ev.event === 'tool_started') {
+      const s = ensure(tool);
+      s.status = 'running';
+    } else if (ev.event === 'tool' || ev.event === 'tool_completed' || ev.event === 'tool_failed') {
+      const s = ensure(tool);
+      const failed = ev.event === 'tool_failed'
+        || (typeof ev.result === 'object' && ev.result !== null
+            && ((ev.result as any).status === 'error' || (ev.result as any).status === 'denied'));
+      s.status = failed ? 'failed' : 'completed';
+      s.elapsedMs = typeof ev.elapsed_ms === 'number' ? ev.elapsed_ms : s.elapsedMs;
+      s.verified = ev.verified === true;
+      s.error = failed ? String((ev.result as any)?.error ?? 'failed') : null;
+    }
+  }
+
+  const durationMs = stages.reduce((sum, s) => sum + (s.elapsedMs ?? 0), 0);
+  return [{
+    objective: execution.objective || 'Untitled objective',
+    phase: deriveExecutionPhase(execution),
+    stages,
+    durationMs,
+  }];
+}
+
 export type RunSummary = {
   objective: string;
   engagement: string | null;

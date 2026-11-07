@@ -18,8 +18,22 @@ import {
 } from 'lucide-react';
 import {
   eventLabel, eventDetail, rawDetail, formatRole,
-  type ExecutionEvent, type RunSummary,
+  deriveExecutionPhase, groupExecutionByObjective,
+  type ExecutionEvent, type RunSummary, type ExecutionPhase,
 } from './executionPresentation';
+
+const PHASE_TONE: Record<ExecutionPhase, string> = {
+  PLANNING: 'idle',
+  RUNNING: 'live',
+  VERIFYING: 'live',
+  REPORTING: 'live',
+  COMPLETED: 'ok',
+  AWAITING_APPROVAL: 'warn',
+  PAUSED: 'warn',
+  FAILED: 'bad',
+  CANCELLED: 'bad',
+  PARTIAL: 'warn',
+};
 
 export type ExecutionView = {
   run_id: string | null;
@@ -59,6 +73,8 @@ export function ExecutionActivity({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const meta = statusMeta(execution.lifecycle_status);
+  const phase = deriveExecutionPhase(execution);
+  const groups = groupExecutionByObjective(execution);
   const running = execution.lifecycle_status === 'running' || execution.lifecycle_status === 'approval_pending';
   const toolCount = execution.events.filter(e => e.event === 'tool' || e.event === 'tool_completed' || e.event === 'tool_failed').length;
   const lastScope = [...execution.events].reverse().find(e => e.event === 'scope_checked');
@@ -75,6 +91,7 @@ export function ExecutionActivity({
       >
         <span className={`ark-exec-dot ark-exec-dot-${meta.tone}`} aria-hidden="true" />
         <span className="ark-exec-label">{meta.label}</span>
+        <span className={`ark-exec-phase ark-exec-phase-${PHASE_TONE[phase]}`}>{phase}</span>
         {running && execution.current_tool && (
           <span className="ark-exec-current">
             {execution.current_tool.status === 'running' && <Loader2 size={12} className="ark-spin" />}
@@ -116,6 +133,38 @@ export function ExecutionActivity({
               <dd>{execution.objective_outcome ?? 'pending'}</dd>
             </div>
           </dl>
+          {groups.some(g => g.stages.length > 0) && (
+            <div className="ark-exec-objectives">
+              {groups.map((g, gi) => (
+                <div className="ark-exec-objective" key={gi}>
+                  <div className="ark-exec-objective-head">
+                    <Target size={13} />
+                    <span className="ark-exec-objective-title">{g.objective}</span>
+                    <span className={`ark-exec-phase ark-exec-phase-${PHASE_TONE[g.phase]}`}>{g.phase}</span>
+                    {g.durationMs > 0 && <span className="ark-exec-objective-dur">{g.durationMs} ms</span>}
+                  </div>
+                  <ul className="ark-exec-stages">
+                    {g.stages.map((s, si) => (
+                      <li key={si} className={`ark-exec-stage ark-exec-stage-${s.status}`}>
+                        <span className="ark-exec-stage-dot" aria-hidden="true" />
+                        <span className="ark-exec-stage-name">{s.name}</span>
+                        <span className="ark-exec-stage-meta">
+                          {s.status === 'running' && <Loader2 size={11} className="ark-spin" />}
+                          {s.elapsedMs != null && <em>{s.elapsedMs} ms</em>}
+                          {s.status !== 'running' && (
+                            <span className={s.verified ? 'ark-exec-ok' : 'ark-exec-bad'}>
+                              {s.verified ? 'verified' : s.status === 'failed' ? 'failed' : 'unverified'}
+                            </span>
+                          )}
+                        </span>
+                        {s.error && <div className="ark-exec-stage-error">{s.error}</div>}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
           <ol className="ark-exec-timeline">
             {execution.events.slice(-80).map((ev, i) => {
               const raw = rawDetail(ev);

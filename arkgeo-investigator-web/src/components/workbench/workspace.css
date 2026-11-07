@@ -294,3 +294,35 @@
     filter: none;
   }
 }
+
+
+/* Stronger living sidebar mark: rhythmic breath and traveling cyan/violet light. */
+.investigation-navigation .investigation-nav-heading .investigation-nav-logo {
+  position: relative;
+  animation: ark-sidebar-alive 3.8s ease-in-out infinite;
+  will-change: transform, filter;
+}
+@keyframes ark-sidebar-alive {
+  0%, 100% { transform: translateY(1px) scale(.98); filter: drop-shadow(0 0 5px rgba(20,229,240,.38)) drop-shadow(0 0 9px rgba(110,70,250,.25)); }
+  50% { transform: translateY(-2px) scale(1.045); filter: drop-shadow(0 0 11px rgba(20,229,240,.8)) drop-shadow(0 0 20px rgba(110,70,250,.58)); }
+}
+.investigation-navigation .investigation-nav-heading { position: relative; isolation: isolate; }
+.investigation-navigation .investigation-nav-heading::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: conic-gradient(transparent 0deg, transparent 170deg, rgba(24,236,241,.7) 255deg, rgba(123,70,255,.65) 305deg, transparent 350deg);
+  filter: blur(13px);
+  transform-origin: center;
+  animation: ark-sidebar-orbit 4.2s linear infinite;
+  pointer-events: none;
+}
+@keyframes ark-sidebar-orbit { from { transform: translateY(-50%) rotate(0deg); } to { transform: translateY(-50%) rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .investigation-navigation .investigation-nav-heading .investigation-nav-logo { animation: none; transform: none; will-change: auto; }
+  .investigation-navigation .investigation-nav-heading::before { animation: none; opacity: .2; }
+}
